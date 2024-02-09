@@ -1,4 +1,4 @@
-# Welcome to astrolink
+# Welcome to AstroLink
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/william-h-oliver/astrolink/ci.yml?branch=main)](https://github.com/william-h-oliver/astrolink/actions/workflows/ci.yml)

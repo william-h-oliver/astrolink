@@ -31,7 +31,7 @@ dependencies = [
     "numba",
     "pykdtree",
     "scipy",
-    "sklearn",
+    "scikit-learn",
 ]
 
 [project.optional-dependencies]

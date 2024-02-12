@@ -13,10 +13,11 @@ build-backend = "setuptools.build_meta"
 # single source of truth for astrolink's version
 [project]
 name = "astrolink"
-description = "Add short description here"
+description = "A general-purpose algorithm for finding astrophysically-relevant
+clusters from point-cloud data."
 readme = "README.md"
 maintainers = [
-    { name = "William Oliver", email = "your@email.com" },
+    { name = "William Oliver", email = "william.hardie.oliver@gmail.com" },
 ]
 dynamic = ["version"]
 requires-python = ">=3.8"
@@ -27,6 +28,11 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
+    "numpy",
+    "numba",
+    "pykdtree",
+    "scipy",
+    "sklearn",
 ]
 
 [project.optional-dependencies]

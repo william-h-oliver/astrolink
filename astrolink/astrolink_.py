@@ -107,9 +107,9 @@ class AstroLink:
     prominences_leq : `numpy.ndarray` of shape (n_groups_leq,)
         The prominence values of each group in `groups_leq`, such that
         `prominences_leq[i]` corresponds to group `i` in `groups_leq`.
-    group_leq_sigs : `numpy.ndarray` of shape (n_groups_leq,)
+    groups_leq_sigs : `numpy.ndarray` of shape (n_groups_leq,)
         The statistical significance of each group, such that
-        `group_leq_sigs[i]` corresponds to group `i` in `groups_leq`.
+        `groups_leq_sigs[i]` corresponds to group `i` in `groups_leq`.
     groups_geq : `numpy.ndarray` of shape (n_groups_geq, 2)
         Similar to structure and meaning as `clusters`, however `groups_geq`
         includes all larger groups merged within the aggregation tree
@@ -117,9 +117,9 @@ class AstroLink:
     prominences_geq : `numpy.ndarray` of shape (n_groups_geq,)
         The prominence values of each group in `groups_geq`, such that
         `prominences_geq[i]` corresponds to group `i` in `groups_geq`.
-    group_geq_sigs : `numpy.ndarray` of shape (n_groups_geq,)
+    groups_geq_sigs : `numpy.ndarray` of shape (n_groups_geq,)
         The statistical significance of each group in `groups_geq`, such that
-        `group_geq_sigs[i]` corresponds to group `i` in `groups_geq`.
+        `groups_geq_sigs[i]` corresponds to group `i` in `groups_geq`.
     pFit : `numpy.ndarray` of shape (3,)
         The model parameters `[c, a, b]` for the model that fits the
         distribution of `prominences_leq`. `c` is the cutoff between the Beta
@@ -673,8 +673,8 @@ class AstroLink:
         else: self._printFunction('[Warning] Prominence model may be incorrectly fitted!', returnLine = False)
 
         # Calculate statistical significance values
-        self.group_leq_sigs = norm.isf(beta.sf(self.prominences_leq, self.pFit[1], self.pFit[2]))
-        self.group_geq_sigs = norm.isf(beta.sf(self.prominences_geq, self.pFit[1], self.pFit[2]))
+        self.groups_leq_sigs = norm.isf(beta.sf(self.prominences_leq, self.pFit[1], self.pFit[2]))
+        self.groups_geq_sigs = norm.isf(beta.sf(self.prominences_geq, self.pFit[1], self.pFit[2]))
         self._regrTime = time.perf_counter() - start
 
     @staticmethod
@@ -735,16 +735,16 @@ class AstroLink:
 
         # Classify clusters as groups that are significant outliers
         if self.S == 'auto': self.S = norm.isf(beta.sf(self.pFit[0], self.pFit[1], self.pFit[2]))
-        sl = self.group_leq_sigs >= self.S
+        sl = self.groups_leq_sigs >= self.S
         self.clusters = self.groups_leq[sl]
-        self.significances = self.group_leq_sigs[sl]
+        self.significances = self.groups_leq_sigs[sl]
 
         # Optional hierarchy correction
         if self.h_style == 1:
             # Retrieve complementary groups whose corresponding subgroup is
             # significantly clustered and who is itself significantly clustered
-            sl = np.logical_and(sl, self.group_geq_sigs >= self.S)
-            significances_geq = self.group_geq_sigs[sl]
+            sl = np.logical_and(sl, self.groups_geq_sigs >= self.S)
+            significances_geq = self.groups_geq_sigs[sl]
             clusters_geq = self.groups_geq[sl]
 
             # Keep only those complementary groups that are the smallest in their cascade

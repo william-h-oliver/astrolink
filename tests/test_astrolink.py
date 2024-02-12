@@ -1,5 +1,5 @@
 import numpy as np
-import astrolink
+from astrolink import AstroLink
 
 
 def test_astrolink():

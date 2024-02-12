@@ -13,8 +13,7 @@ build-backend = "setuptools.build_meta"
 # single source of truth for astrolink's version
 [project]
 name = "astrolink"
-description = "A general-purpose algorithm for finding astrophysically-relevant
-clusters from point-cloud data."
+description = "A general-purpose algorithm for finding astrophysically-relevant clusters from point-cloud data."
 readme = "README.md"
 maintainers = [
     { name = "William Oliver", email = "william.hardie.oliver@gmail.com" },

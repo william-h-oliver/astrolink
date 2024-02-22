@@ -10,7 +10,7 @@ def test_astrolink():
     # Run with float32 data in 1-dimension
     gauss2D_1 = np.random.normal(0, 1, (10**4, 1)) # Two gaussian blobs
     gauss2D_2 = np.random.normal(10, 1, (10**4, 1))
-    P = np.concatenate((gauss2D_1, gauss2D_2), axis = 0)
+    P = np.concatenate((gauss2D_1, gauss2D_2), axis = 0).astype(np.float32)
     
     try: clusterer = AstroLink(P, S = 5, k_link = 20)
     except: assert False, "AstroLink class could not be instantiated"

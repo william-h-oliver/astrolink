@@ -64,8 +64,7 @@ class AstroLink:
         A flag that determines the behaviour of the cluster hierarchy. If
         `h_style` is set to 0, then the resultant hierarchy is styled
         similarly to SubFind and EnLink. If `h_style` is set to 1, then
-        additional complementary clusters are incorporated into the cluster
-        hierarchy.
+        additional clusters are incorporated into the cluster hierarchy.
     workers : `int`, default = -1
         The number of processors used in parallelised computations. If workers`
         is set to -1, then AstroLink will use all processors available.
@@ -431,45 +430,45 @@ class AstroLink:
 
         # Merge separate aggregations in order of decreasing size
         aggArr = np.unique(ids)
-        if aggArr.size == 1: id_0 = aggArr[0]
+        if aggArr.size == 1: id_geq = aggArr[0]
         else: # If points were not all aggregated together, make it so.
             sortedAggregations = sorted(zip([sizes_leq[id_i] for id_i in aggArr], aggArr))
-            _, id_0 = sortedAggregations[-1]
-            for size_i, id_i in sortedAggregations[-2::-1]:
-                aggregations[id_0].extend(aggregations[id_i])
-                aggregations[id_i] = emptyIntList
+            _, id_final = sortedAggregations[-1]
+            for size_leq, id_leq in sortedAggregations[-2::-1]:
+                aggregations[id_final].extend(aggregations[id_leq])
+                aggregations[id_leq] = emptyIntList
                 # Track complementary group
-                starts_geq[id_i] = starts_leq[id_0]
-                sizes_geq[id_i] = sizes_leq[id_0]
-                prominences_geq[id_i] = prominences_leq[id_0]
+                starts_geq[id_leq] = starts_leq[id_final]
+                sizes_geq[id_leq] = sizes_leq[id_final]
+                prominences_geq[id_leq] = prominences_leq[id_final]
                 # Merge
-                starts_leq[id_i] += sizes_leq[id_0]
-                sizes_leq[id_0] += size_i
-                children[id_0].append(id_i)
+                starts_leq[id_leq] += sizes_leq[id_final]
+                sizes_leq[id_final] += size_leq
+                children[id_final].append(id_leq)
         emptyIntArr = np.empty(0, dtype = np.uint32)
         ids = emptyIntArr
         aggArr = emptyIntArr
 
         # Ordered list
-        ordering = np.array(aggregations[id_0], dtype = np.uint32)
-        aggregations[id_0] = emptyIntList
+        ordering = np.array(aggregations[id_final], dtype = np.uint32)
+        aggregations[id_final] = emptyIntList
 
         # Finalise groups and correct for noise
-        activeGroups = [id_i for id_i in children[id_0]]
+        activeGroups = [id_i for id_i in children[id_final]]
         while activeGroups:
-            id_i = activeGroups.pop()
-            childIDs = children[id_i]
+            id_leq = activeGroups.pop()
+            childIDs = children[id_leq]
             if childIDs:
-                startAdjust = starts_leq[id_i]
+                startAdjust = starts_leq[id_leq]
                 activeGroups.extend(childIDs)
                 noise = 0.0
-                for id_j, childID in enumerate(childIDs):
+                for id_geq, childID in enumerate(childIDs):
                     starts_leq[childID] += startAdjust
                     starts_geq[childID] += startAdjust
-                    if id_j > 0: prominences_geq[childID] -= np.sqrt(noise/id_j)
+                    if id_geq > 0: prominences_geq[childID] -= np.sqrt(noise/id_geq)
                     noise += prominences_leq[childID]**2
-                prominences_leq[id_i] -= np.sqrt(noise/(id_j + 1))
-                children[id_i] = emptyIntList
+                prominences_leq[id_leq] -= np.sqrt(noise/(id_geq + 1))
+                children[id_leq] = emptyIntList
 
         # Lists to Arrays
         starts_leq = np.array(starts_leq, dtype = np.uint32)
@@ -480,14 +479,14 @@ class AstroLink:
         prominences_geq = np.array(prominences_geq, dtype = np.float64)
 
         # Clean arrays
-        starts_leq = np.delete(starts_leq, id_0)
-        groups_leq = np.column_stack((starts_leq, starts_leq + np.delete(sizes_leq, id_0)))
+        starts_leq = np.delete(starts_leq, id_final)
+        groups_leq = np.column_stack((starts_leq, starts_leq + np.delete(sizes_leq, id_final)))
         starts_leq, sizes_leq = emptyIntArr, emptyIntArr
-        prominences_leq = np.delete(prominences_leq, id_0)
-        starts_geq = np.delete(starts_geq, id_0)
-        groups_geq = np.column_stack((starts_geq, starts_geq + np.delete(sizes_geq, id_0)))
+        prominences_leq = np.delete(prominences_leq, id_final)
+        starts_geq = np.delete(starts_geq, id_final)
+        groups_geq = np.column_stack((starts_geq, starts_geq + np.delete(sizes_geq, id_final)))
         starts_geq, sizes_geq = emptyIntArr, emptyIntArr
-        prominences_geq = np.delete(prominences_geq, id_0)
+        prominences_geq = np.delete(prominences_geq, id_final)
 
         # Reorder arrays
         reorder = groups_leq[:, 0].argsort()
@@ -495,7 +494,7 @@ class AstroLink:
 
     @staticmethod
     @njit(fastmath = True, parallel = True)
-    def _aggregate_njit_float32(logRho, kNN):
+    def _aggregate_njit_float64(logRho, kNN):
         # Order points
         n_samples, k_link = kNN.shape
         shape_0 = n_samples*(k_link - 1)
@@ -581,45 +580,45 @@ class AstroLink:
 
         # Merge separate aggregations in order of decreasing size
         aggArr = np.unique(ids)
-        if aggArr.size == 1: id_0 = aggArr[0]
+        if aggArr.size == 1: id_geq = aggArr[0]
         else: # If points were not all aggregated together, make it so.
             sortedAggregations = sorted(zip([sizes_leq[id_i] for id_i in aggArr], aggArr))
-            _, id_0 = sortedAggregations[-1]
-            for size_i, id_i in sortedAggregations[-2::-1]:
-                aggregations[id_0].extend(aggregations[id_i])
-                aggregations[id_i] = emptyIntList
+            _, id_final = sortedAggregations[-1]
+            for size_leq, id_leq in sortedAggregations[-2::-1]:
+                aggregations[id_final].extend(aggregations[id_leq])
+                aggregations[id_leq] = emptyIntList
                 # Track complementary group
-                starts_geq[id_i] = starts_leq[id_0]
-                sizes_geq[id_i] = sizes_leq[id_0]
-                prominences_geq[id_i] = prominences_leq[id_0]
+                starts_geq[id_leq] = starts_leq[id_final]
+                sizes_geq[id_leq] = sizes_leq[id_final]
+                prominences_geq[id_leq] = prominences_leq[id_final]
                 # Merge
-                starts_leq[id_i] += sizes_leq[id_0]
-                sizes_leq[id_0] += size_i
-                children[id_0].append(id_i)
+                starts_leq[id_leq] += sizes_leq[id_final]
+                sizes_leq[id_final] += size_leq
+                children[id_final].append(id_leq)
         emptyIntArr = np.empty(0, dtype = np.uint32)
         ids = emptyIntArr
         aggArr = emptyIntArr
 
         # Ordered list
-        ordering = np.array(aggregations[id_0], dtype = np.uint32)
-        aggregations[id_0] = emptyIntList
+        ordering = np.array(aggregations[id_final], dtype = np.uint32)
+        aggregations[id_final] = emptyIntList
 
         # Finalise groups and correct for noise
-        activeGroups = [id_i for id_i in children[id_0]]
+        activeGroups = [id_i for id_i in children[id_final]]
         while activeGroups:
-            id_i = activeGroups.pop()
-            childIDs = children[id_i]
+            id_leq = activeGroups.pop()
+            childIDs = children[id_leq]
             if childIDs:
-                startAdjust = starts_leq[id_i]
+                startAdjust = starts_leq[id_leq]
                 activeGroups.extend(childIDs)
                 noise = 0.0
-                for id_j, childID in enumerate(childIDs):
+                for id_geq, childID in enumerate(childIDs):
                     starts_leq[childID] += startAdjust
                     starts_geq[childID] += startAdjust
-                    if id_j > 0: prominences_geq[childID] -= np.sqrt(noise/id_j)
+                    if id_geq > 0: prominences_geq[childID] -= np.sqrt(noise/id_geq)
                     noise += prominences_leq[childID]**2
-                prominences_leq[id_i] -= np.sqrt(noise/(id_j + 1))
-                children[id_i] = emptyIntList
+                prominences_leq[id_leq] -= np.sqrt(noise/(id_geq + 1))
+                children[id_leq] = emptyIntList
 
         # Lists to Arrays
         starts_leq = np.array(starts_leq, dtype = np.uint32)
@@ -630,14 +629,14 @@ class AstroLink:
         prominences_geq = np.array(prominences_geq, dtype = np.float32)
 
         # Clean arrays
-        starts_leq = np.delete(starts_leq, id_0)
-        groups_leq = np.column_stack((starts_leq, starts_leq + np.delete(sizes_leq, id_0)))
+        starts_leq = np.delete(starts_leq, id_final)
+        groups_leq = np.column_stack((starts_leq, starts_leq + np.delete(sizes_leq, id_final)))
         starts_leq, sizes_leq = emptyIntArr, emptyIntArr
-        prominences_leq = np.delete(prominences_leq, id_0)
-        starts_geq = np.delete(starts_geq, id_0)
-        groups_geq = np.column_stack((starts_geq, starts_geq + np.delete(sizes_geq, id_0)))
+        prominences_leq = np.delete(prominences_leq, id_final)
+        starts_geq = np.delete(starts_geq, id_final)
+        groups_geq = np.column_stack((starts_geq, starts_geq + np.delete(sizes_geq, id_final)))
         starts_geq, sizes_geq = emptyIntArr, emptyIntArr
-        prominences_geq = np.delete(prominences_geq, id_0)
+        prominences_geq = np.delete(prominences_geq, id_final)
 
         # Reorder arrays
         reorder = groups_leq[:, 0].argsort()

@@ -6,6 +6,7 @@ def test_astrolink():
     gauss2D_1 = np.random.normal(0, 1, (10**4, 2)) # Two gaussian blobs
     gauss2D_2 = np.random.normal([10, 0], 1, (10**4, 2))
     P = np.concatenate((gauss2D_1, gauss2D_2), axis = 0)
+    
     try:
         clusterer = AstroLink(P, verbose = 0)
     except:

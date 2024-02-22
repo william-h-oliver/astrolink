@@ -1,21 +1,36 @@
+from numba import config
 import numpy as np
 from astrolink import AstroLink
 
 
 def test_astrolink():
+    # Without jit, so that codecov can see inside numba jit-compiled functions
+    config.DISABLE_JIT = True
+
+    # Run with float32 data in 1-dimension
+    gauss2D_1 = np.random.normal(0, 1, (10**4, 1)) # Two gaussian blobs
+    gauss2D_2 = np.random.normal([10, 0], 1, (10**4, 1))
+    P = np.concatenate((gauss2D_1, gauss2D_2), axis = 0)
+    
+    try: clusterer = AstroLink(P, S = 5, k_link = 20)
+    except: assert False, "AstroLink class could not be instantiated"
+
+    try: clusterer.run()
+    except: assert False, "AstroLink.run() could not be run"
+
+    # Run with float64 data in 2-dimensions
     gauss2D_1 = np.random.normal(0, 1, (10**4, 2)) # Two gaussian blobs
     gauss2D_2 = np.random.normal([10, 0], 1, (10**4, 2))
     P = np.concatenate((gauss2D_1, gauss2D_2), axis = 0)
     
-    try:
-        clusterer = AstroLink(P, verbose = 0)
-    except:
-        assert False, "AstroLink class could not be instantiated"
+    try: clusterer = AstroLink(P)
+    except: assert False, "AstroLink class could not be instantiated"
 
-    try:
-        clusterer.run()
-    except:
-        assert False, "AstroLink.run() could not be run"
+    try: clusterer.run()
+    except: assert False, "AstroLink.run() could not be run"
+
+
+
 
     # S
     val = clusterer.S

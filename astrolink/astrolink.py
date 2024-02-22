@@ -494,7 +494,7 @@ class AstroLink:
 
     @staticmethod
     @njit(fastmath = True, parallel = True)
-    def _aggregate_njit_float64(logRho, kNN):
+    def _aggregate_njit_float32(logRho, kNN):
         # Order points
         n_samples, k_link = kNN.shape
         shape_0 = n_samples*(k_link - 1)

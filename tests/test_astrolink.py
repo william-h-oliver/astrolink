@@ -5,7 +5,7 @@ from astrolink import AstroLink
 
 def test_astrolink():
     # Without jit, so that codecov can see inside numba jit-compiled functions
-    #config.DISABLE_JIT = True
+    config.DISABLE_JIT = True
 
     # Run with float32 data in 1-dimension
     gauss2D_1 = np.random.normal(0, 1, (10**4, 1)) # Two gaussian blobs

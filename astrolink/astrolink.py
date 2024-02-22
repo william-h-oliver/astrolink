@@ -430,7 +430,7 @@ class AstroLink:
 
         # Merge separate aggregations in order of decreasing size
         aggArr = np.unique(ids)
-        if aggArr.size == 1: id_geq = aggArr[0]
+        if aggArr.size == 1: id_final = aggArr[0]
         else: # If points were not all aggregated together, make it so.
             sortedAggregations = sorted(zip([sizes_leq[id_i] for id_i in aggArr], aggArr))
             _, id_final = sortedAggregations[-1]
@@ -580,7 +580,7 @@ class AstroLink:
 
         # Merge separate aggregations in order of decreasing size
         aggArr = np.unique(ids)
-        if aggArr.size == 1: id_geq = aggArr[0]
+        if aggArr.size == 1: id_final = aggArr[0]
         else: # If points were not all aggregated together, make it so.
             sortedAggregations = sorted(zip([sizes_leq[id_i] for id_i in aggArr], aggArr))
             _, id_final = sortedAggregations[-1]

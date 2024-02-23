@@ -306,7 +306,7 @@ class AstroLink:
     @njit()
     def _compute_logRho(sqr_distances, k_den, d_features):
         coreSqrDist = sqr_distances[:, -1]
-        return np.log((k_den - sqr_distances.sum(axis = 1)/coreSqrDist)/coreSqrDist**(d_features/2))
+        return np.log((k_den - np.sum(sqr_distances, axis = 1)/coreSqrDist)/coreSqrDist**(d_features/2))
 
     @staticmethod
     @njit(fastmath = True)

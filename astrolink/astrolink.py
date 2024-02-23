@@ -296,7 +296,7 @@ class AstroLink:
         nbrs = KDTree(self.P_transform)
         for sl in gen_batches(self.n_samples, get_chunk_n_rows(row_bytes = 16*self.k_den, max_n_rows = self.n_samples)):
             sqr_distances, indices = nbrs.query(self.P_transform[sl], k = self.k_den, sqr_dists = True)
-            self.logRho[sl] = self._compute_logRho(sqr_distances, self.k_den, self.d_features)
+            self.logRho[sl] = self._compute_logRho(sqr_distances, np.float64(self.k_den), self.d_features)
             self.kNN[sl] = indices[:, :self.k_link]
         del self.P_transform
         self.logRho = self._normalise(self.logRho)

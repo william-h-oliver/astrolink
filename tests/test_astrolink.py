@@ -4,30 +4,39 @@ from astrolink import AstroLink
 
 
 def test_astrolink():
-    # Without jit, so that codecov can see inside numba jit-compiled functions
-    #config.DISABLE_JIT = True
-
     # Run with float32 data in 1-dimension
     gauss2D_1 = np.random.normal(0, 1, (10**4, 1)) # Two gaussian blobs
     gauss2D_2 = np.random.normal(10, 1, (10**4, 1))
     P = np.concatenate((gauss2D_1, gauss2D_2), axis = 0).astype(np.float32)
     
-    try: clusterer = AstroLink(P, S = 5, k_link = 20)
+    try: clusterer = AstroLink(P, S = 5, k_link = 20, disable_jit = True)
     except: assert False, "AstroLink class could not be instantiated"
 
     try: clusterer.run()
-    except: assert False, "AstroLink.run() could not be run"
+    except: assert False, "AstroLink.run() could not be run with data type float32"
+
+    try: clusterer = AstroLink(P)
+    except: assert False, "AstroLink class could not be instantiated"
+
+    try: clusterer.run()
+    except: assert False, "AstroLink.run() could not be run in jit mode with data type float32"
 
     # Run with float64 data in 2-dimensions
     gauss2D_1 = np.random.normal(0, 1, (10**4, 2)) # Two gaussian blobs
     gauss2D_2 = np.random.normal([10, 0], 1, (10**4, 2))
     P = np.concatenate((gauss2D_1, gauss2D_2), axis = 0)
     
+    try: clusterer = AstroLink(P, disable_jit = True)
+    except: assert False, "AstroLink class could not be instantiated"
+
+    try: clusterer.run()
+    except: assert False, "AstroLink.run() could not be run with data type float64"
+
     try: clusterer = AstroLink(P)
     except: assert False, "AstroLink class could not be instantiated"
 
     try: clusterer.run()
-    except: assert False, "AstroLink.run() could not be run"
+    except: assert False, "AstroLink.run() could not be run in jit mode with data type float64"
 
 
 

@@ -49,12 +49,14 @@ def test_astrolink():
 
     # aggregate_njit_float32()
     c = AstroLink(np.random.uniform(0, 1, (10**3, 2)).astype(np.float32))
+    c.run()
     c.transform_data()
     c.estimate_density_and_kNN()
     arr1, arr2, arr3, arr4, arr5 = c.aggregate_njit_float32.py_func(c.logRho, c.kNN)
 
     # aggregate_njit_float64()
     c = AstroLink(np.random.uniform(0, 1, (10**3, 2)))
+    c.run()
     c.transform_data()
     c.estimate_density_and_kNN()
     arr1, arr2, arr3, arr4, arr5 = c.aggregate_njit_float64.py_func(c.logRho, c.kNN)

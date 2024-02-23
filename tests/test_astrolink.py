@@ -61,7 +61,7 @@ def test_astrolink():
     del c, arr1, arr2, arr3, arr4, arr5
 
     # _minimize_init()
-    _proms_ordered, _lnx_cumsum, _ln_1_minus_x_cumsum, p = self._minimize_init(clusterer.prominences_leq)
+    _proms_ordered, _lnx_cumsum, _ln_1_minus_x_cumsum, p = clusterer._minimize_init(clusterer.prominences_leq)
 
     # _negLL_njit()
     num = clusterer._negLL_njit.py_func(p, _proms_ordered, _lnx_cumsum, _ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))

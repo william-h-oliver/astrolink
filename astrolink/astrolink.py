@@ -760,7 +760,7 @@ class AstroLink:
             self.significances = self.significances[reorder]
             self.clusters = self.clusters[reorder]
 
-        # Optionally add on root-level cluster
+        # Add on root-level cluster
         if rootID is not None:
             self.significances = np.concatenate((np.array([np.inf]), self.significances))
             self.clusters = np.vstack((np.array([[0, self.n_samples]], dtype = np.uint32), self.clusters))
@@ -775,8 +775,6 @@ class AstroLink:
             if parent is not None: # Child cluster of parent
                 children[parent] += 1
                 self.ids.append(self.ids[parent] + '-' + str(children[parent]))
-            elif len(self.ids) > 0: # Multiple root clusters (not applicable to AstroLink)
-                self.ids.append(str(max([int(id.split('-')[0]) for id in self.ids]) + 1))
             else: # First root cluster
                 self.ids.append(rootID)
         self.ids = np.array(self.ids)

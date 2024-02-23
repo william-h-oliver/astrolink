@@ -21,7 +21,7 @@ def test_astrolink():
     gauss2D_2 = np.random.normal([10, 0], 1, (10**4, 2))
     P = np.concatenate((gauss2D_1, gauss2D_2), axis = 0)
     
-    try: clusterer = AstroLink(P)
+    try: clusterer = AstroLink(P, verbose = 2)
     except: assert False, "AstroLink class could not be instantiated"
 
     try: clusterer.run()
@@ -48,20 +48,20 @@ def test_astrolink():
     arr = clusterer._normalise.py_func(x)
 
     # aggregate_njit_float32()
-    c = AstroLink(np.random.uniform(0, 1, (10**3, 2)).astype(np.float32))
+    c = AstroLink(P.astype(np.float32))
     c.transform_data()
     c.estimate_density_and_kNN()
     arr1, arr2, arr3, arr4, arr5 = c._aggregate_njit_float32.py_func(c.logRho, c.kNN)
 
     # aggregate_njit_float64()
-    c = AstroLink(np.random.uniform(0, 1, (10**3, 2)))
+    c = AstroLink(P)
     c.transform_data()
     c.estimate_density_and_kNN()
     arr1, arr2, arr3, arr4, arr5 = c._aggregate_njit_float64.py_func(c.logRho, c.kNN)
     del c, arr1, arr2, arr3, arr4, arr5
 
     # _minimize_init()
-    _proms_ordered, _lnx_cumsum, _ln_1_minus_x_cumsum, p = clusterer._minimize_init(clusterer.prominences_leq)
+    _proms_ordered, _lnx_cumsum, _ln_1_minus_x_cumsum, p = clusterer._minimize_init.py_func(clusterer.prominences_leq)
 
     # _negLL_njit()
     num = clusterer._negLL_njit.py_func(p, _proms_ordered, _lnx_cumsum, _ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))

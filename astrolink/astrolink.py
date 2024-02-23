@@ -11,7 +11,7 @@ import os
 import time
 
 # Third-party libraries
-from numba import njit, prange, config
+from numba import njit, prange
 import numpy as np
 from pykdtree.kdtree import KDTree
 from scipy.optimize import minimize
@@ -175,7 +175,7 @@ class AstroLink:
     array(['1', '1-1', '1-2'], dtype='<U3')
     """
 
-    def __init__(self, P, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = -1, verbose = 1, disable_jit = False):
+    def __init__(self, P, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = -1, verbose = 1):
         # Input Data
         check_P = isinstance(P, np.ndarray) and len(P.shape) == 2
         assert check_P, "Input data 'P' needs to be a 2D numpy array!"
@@ -209,7 +209,6 @@ class AstroLink:
         os.environ["OMP_NUM_THREADS"] = f"{workers}" if workers != -1 else f"{os.cpu_count()}"
         self.workers = workers
         self.verbose = verbose
-        config.DISABLE_JIT = disable_jit
 
 
     def _printFunction(self, message, returnLine = True):

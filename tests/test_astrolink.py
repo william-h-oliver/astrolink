@@ -1,5 +1,6 @@
-from numba import config
 import numpy as np
+from scipy.special import beta as beta_fun
+from scipy.special import betainc as betainc_fun
 from astrolink import AstroLink
 
 
@@ -9,38 +10,69 @@ def test_astrolink():
     gauss2D_2 = np.random.normal(10, 1, (10**4, 1))
     P = np.concatenate((gauss2D_1, gauss2D_2), axis = 0).astype(np.float32)
     
-    try: clusterer = AstroLink(P, S = 5, k_link = 20, disable_jit = True)
+    try: clusterer = AstroLink(P, S = 5, k_link = 20)
     except: assert False, "AstroLink class could not be instantiated"
 
     try: clusterer.run()
-    except: assert False, "AstroLink.run() could not be run with data type float32"
-
-    try: clusterer = AstroLink(P)
-    except: assert False, "AstroLink class could not be instantiated"
-
-    try: clusterer.run()
-    except: assert False, "AstroLink.run() could not be run in jit mode with data type float32"
+    except: assert False, "AstroLink.run() could not be run with input-data type np.float32"
 
     # Run with float64 data in 2-dimensions
     gauss2D_1 = np.random.normal(0, 1, (10**4, 2)) # Two gaussian blobs
     gauss2D_2 = np.random.normal([10, 0], 1, (10**4, 2))
     P = np.concatenate((gauss2D_1, gauss2D_2), axis = 0)
     
-    try: clusterer = AstroLink(P, disable_jit = True)
-    except: assert False, "AstroLink class could not be instantiated"
-
-    try: clusterer.run()
-    except: assert False, "AstroLink.run() could not be run with data type float64"
-
     try: clusterer = AstroLink(P)
     except: assert False, "AstroLink class could not be instantiated"
 
     try: clusterer.run()
-    except: assert False, "AstroLink.run() could not be run in jit mode with data type float64"
+    except: assert False, "AstroLink.run() could not be run with input-data type np.float64"
 
 
 
 
+
+    # Run jitted methods in python mode for increased test coverage, these are tested in the runs above and in their salient outputs below
+    # _rescale()
+    arr = clusterer._rescale.py_func(clusterer.P)
+
+    # _compute_logRho()
+    sqr_distances = np.random.uniform(0, 1, (clusterer.n_samples, clusterer.k_den))
+    arr = clusterer._compute_logRho.py_func(sqr_distances, clusterer.k_den, clusterer.d_features)
+
+    # _normalise()
+    x = np.random.uniform(0, 1, 100)
+    arr = clusterer._normalise.py_func(x)
+
+    # _normalise()
+    x = np.random.uniform(0, 1, 100)
+    arr = clusterer._normalise.py_func(x)
+
+    # aggregate_njit_float32()
+    c = AstroLink(np.random.uniform(0, 1, (10**3, 2)).astype(np.float32))
+    c.transform_data()
+    c.estimate_density_and_kNN()
+    arr1, arr2, arr3, arr4, arr5 = clusterer.aggregate_njit_float32.py_func(c.logRho, c.kNN)
+
+    # aggregate_njit_float64()
+    c = AstroLink(np.random.uniform(0, 1, (10**3, 2)))
+    c.transform_data()
+    c.estimate_density_and_kNN()
+    arr1, arr2, arr3, arr4, arr5 = c.aggregate_njit_float64.py_func(c.logRho, c.kNN)
+    del c, arr1, arr2, arr3, arr4, arr5
+
+    # _minimize_init()
+    _proms_ordered, _lnx_cumsum, _ln_1_minus_x_cumsum, p = self._minimize_init(clusterer.prominences_leq)
+
+    # _negLL_njit()
+    num = clusterer._negLL_njit.py_func(p, _proms_ordered, _lnx_cumsum, _ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))
+    del num, _proms_ordered, _lnx_cumsum, _ln_1_minus_x_cumsum, p
+
+
+
+
+
+
+    # Test properties
     # S
     val = clusterer.S
     assert isinstance(val, float), "S has not been calculated properly from S = 'auto'"

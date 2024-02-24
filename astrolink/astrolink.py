@@ -455,7 +455,7 @@ class AstroLink:
         aggregations[id_final] = emptyIntList
 
         # Finalise groups and correct for noise
-        activeGroups = [id_i for id_i in children[id_final]]
+        activeGroups = [id_final]
         while activeGroups:
             id_leq = activeGroups.pop()
             childIDs = children[id_leq]
@@ -605,7 +605,7 @@ class AstroLink:
         aggregations[id_final] = emptyIntList
 
         # Finalise groups and correct for noise
-        activeGroups = [id_i for id_i in children[id_final]]
+        activeGroups = [id_final]
         while activeGroups:
             id_leq = activeGroups.pop()
             childIDs = children[id_leq]

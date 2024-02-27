@@ -1,9 +1,10 @@
-User API
-========
+API Reference
+=============
 
-.. toctree::
+All functionality comes from the AstroLink class.
 
-This is an example function:
+AstroLink
+---------
 
-.. automodule:: astrolink
-    :members:
+.. autoclass:: astrolink.astrolink.AstroLink
+   :members:

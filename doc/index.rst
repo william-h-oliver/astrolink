@@ -6,6 +6,7 @@ astrolink
    :caption: Contents:
 
    intro
+   howitworks
    demo
    api
 

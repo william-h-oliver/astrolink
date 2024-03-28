@@ -69,7 +69,7 @@ class AstroLink:
         The number of processors used in parallelised computations. If workers`
         is set to -1, then AstroLink will use all processors available.
         Otherwise, `workers` must be a value between 1 and N_cpu.
-    verbose : `int`, default = 1
+    verbose : `int`, default = 0
         The verbosity of the AstroLink class. If `verbose` is set to 0, then
         AstroLink will not report any of its activity. Increasing `verbose` will
         make AstroLink report more of its activity.
@@ -124,58 +124,9 @@ class AstroLink:
         distribution of `prominences_leq`. `c` is the cutoff between the Beta
         and Uniform distributions. `a` and `b` are the shape parameters for the
         Beta distribution.
-
-    Methods
-    -------
-    run():
-        Runs the AstroLink algorithm and produces a hierarchy of clusters from
-        the input data.
-    transform_data():
-        Transforms the input data according to the parameter `adaptive`.
-    estimate_density_and_kNN():
-        Estimates the log-scaled local density of each point from its `k_den`
-        nearest neighbours and then keeps only the `k_link` nearest neighbours
-        of each point.
-    aggregate():
-        Aggregates points together to form the ordered list whilst keeping track
-        of groups.
-    compute_significances():
-        Fits a model to the distribution of subgroup prominences and finds each
-        group's significance value.
-    extract_clusters(rootID = '1'):
-        Classifies groups that have significance of at least `S` as clusters and
-        forms the hierarchy according to the parameter `h_style`.
-
-    Examples
-    --------
-    When applying AstroLink to uniform noise, one 'cluster' is found that
-    represents the entire data set.
-
-    >>> from astrolink import * # Numpy is imported (as np) from astrolink
-    >>> P = np.random.uniform(0, 1 (10**5, 3)) # Random input data (no clusters)
-    >>> astrolink = AstroLink(P)
-    >>> astrolink.run()
-    >>> astrolink.clusters
-    array([[0, 100000]])
-    >>> astrolink.ids
-    array(['1'], dtype='<U1')
-
-    When applying AstroLink to structured data, two Gaussians blobs for example,
-    then an estimate of the hierarchy of clusters is found.
-
-    >>> from astrolink import *
-    >>> gauss2D_1 = np.random.normal(0, 1, (10**4, 2)) # Two gaussian blobs
-    >>> gauss2D_2 = np.random.normal([10, 0], 1, (10**4, 2))
-    >>> P = np.concatenate((gauss2D_1, gauss2D_2), axis = 0)
-    >>> astrolink = AstroLink(P)
-    >>> astrolink.run()
-    >>> astrolink.clusters
-    array([[0, 20000], [0, 10000], [10000, 20000]])
-    >>> astrolink.ids
-    array(['1', '1-1', '1-2'], dtype='<U3')
     """
 
-    def __init__(self, P, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = -1, verbose = 1):
+    def __init__(self, P, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = -1, verbose = 0):
         # Input Data
         check_P = isinstance(P, np.ndarray) and len(P.shape) == 2
         assert check_P, "Input data 'P' needs to be a 2D numpy array!"
@@ -211,13 +162,14 @@ class AstroLink:
         self.verbose = verbose
 
 
-    def _printFunction(self, message, returnLine = True):
-        if self.verbose:
+    def _printFunction(self, message, returnLine = True, urgent = False):
+        if self.verbose or urgent:
             if returnLine: print(f"AstroLink: {message}\r", end = '')
             else: print(f"AstroLink: {message}")
 
     def run(self):
-        """Runs the AstroLink algorithm.
+        """Runs the AstroLink algorithm and produces a hierarchy of clusters
+        from the input data.
 
         This method runs `transform_data()`, `estimate_density_and_kNN()`,
         `aggregate()`, `compute_significances()`, `extract_clusters()`.
@@ -251,7 +203,7 @@ class AstroLink:
         self._printFunction(f"Completed           | {time.strftime('%Y-%m-%d %H:%M:%S')}       ", returnLine = False)
 
     def transform_data(self):
-        """Transforms the input data.
+        """Transforms the input data according to the parameter `adaptive`.
 
         If `adaptive` is set to 0, then the data is not transformed. However, if
         `adaptive` is set to 1 (default), then each feature of the data is
@@ -277,7 +229,9 @@ class AstroLink:
         return P_transform
 
     def estimate_density_and_kNN(self):
-        """Estimates the normalised log-scaled local density of each point.
+        """Estimates the normalised log-scaled local density of each point from
+        its `k_den` nearest neighbours and then keeps only the `k_link` nearest
+        neighbours of each point.
 
         Uses a KD-Tree to find the `k_den` nearest neighbours of every point in
         the input data and then uses these neighbours to estimate the local
@@ -288,6 +242,8 @@ class AstroLink:
         created, via the `transform_data()` method or otherwise.
 
         This method generates the `logRho` and `kNN` attributes.
+
+        This method deletes the `P_transform` attribute.
         """
 
         if self.verbose > 1: self._printFunction('Computing densities...    ')
@@ -320,7 +276,8 @@ class AstroLink:
         return (x - minVal)/(maxVal - minVal)
 
     def aggregate(self):
-        """Aggregates the data points.
+        """Aggregates the data points together to form the ordered list whilst
+        keeping track of groups.
 
         Computes edge weights between each point and each of its `k_link`
         nearest neighbours, sorts these into descending order, aggregates points
@@ -330,8 +287,8 @@ class AstroLink:
         This method requires the `logRho` and 'kNN' attributes to have already
         been created, via the `estimate_density_and_kNN` method or otherwise.
 
-        This method generates the `ordering`, `groups`, `prominences`,
-        `groups_comp`, and `prominences_comp` attributes.
+        This method generates the `ordering`, `groups_leq`, `prominences_leq`,
+        `groups_geq`, and `prominences_geq` attributes.
 
         This method deletes the `kNN` attribute.
         """
@@ -644,19 +601,20 @@ class AstroLink:
         return ordering, groups_leq[reorder], prominences_leq[reorder], groups_geq[reorder], prominences_geq[reorder]
 
     def compute_significances(self):
-        """Computes statistical significances for all groups.
+        """Computes statistical significances for all groups by fitting a
+        descriptive model to the prominences of groups.
 
         Constructs the subgroup prominence model (a combination of a Beta
         and a Uniform distribution) and fits it by minimising the negative
         log-likelihood of the resulting probability distribution. The Beta
-        distribution (with model-fitted parameters) is then used alongisde the
+        distribution (with model-fitted parameters) is then used alongside the
         standard normal distribution to transform prominence values into
         statistical significance values.
 
-        The method requires the `prominences` and `prominences_comp` attributes
+        The method requires the `prominences_leq` and `prominences_geq` attributes
         to have already been created, via the `aggregate` method or otherwise.
 
-        This method generates the `group_sigs`, `group_comp_sigs`, and `pFit`
+        This method generates the `group_leq_sigs`, `group_geq_sigs`, and `pFit`
         attributes.
         """
 
@@ -670,7 +628,7 @@ class AstroLink:
         sol = minimize(self._negLL, self.pFit, jac = '3-point', bounds = bnds, tol = tol)
         del self._proms_ordered, self._lnx_cumsum, self._ln_1_minus_x_cumsum
         if sol.success: self.pFit = sol.x
-        else: self._printFunction('[Warning] Prominence model may be incorrectly fitted!', returnLine = False)
+        else: self._printFunction('[Warning] Prominence model may be incorrectly fitted!', returnLine = False, urgent = True)
 
         # Calculate statistical significance values
         self.groups_leq_sigs = norm.isf(beta.sf(self.prominences_leq, self.pFit[1], self.pFit[2]))
@@ -702,19 +660,20 @@ class AstroLink:
         return lnx_cumsum.size*np.log(norm_constant + uniform_term*(1 - c)) - (a - 1)*lnx_cumsum[beta_cut] - (b - 1)*ln_1_minus_x_cumsum[beta_cut] - (lnx_cumsum.size - beta_cut - 1)*np.log(uniform_term)
 
     def extract_clusters(self, rootID = '1'):
-        """Extract clusters from among the structure found.
+        """Classifies groups that have significance of at least `S` as clusters
+        and forms the hierarchy according to the parameter `h_style`.
 
-        First classifies subgroups that are statistical outliers. Then if
-        `h_style` is set to 1, finds their corresponding complementary groups
-        that are also statistical outliers. For each of these that are the
-        smallest out of those that share the same starting position within the
-        ordered list, classify them too as clusters. Following this, if rootID
-        is not set as `None` then also classify the input data the root cluster.
+        First classifies any groups_leq that are statistical outliers. Then if
+        `h_style` is set to 1, finds the corresponding groups_geq that are also
+        statistical outliers. For each of these that are the smallest out of
+        those that share the same starting position within the ordered list,
+        classify them too as clusters. Following this, if rootID is not set as
+        `None` then also classify the input data the root cluster.
         Finally, generate the array of id strings for the clusters.
 
-        This method requires the `groups` and `groups_comp` attributes to have
+        This method requires the `groups_leq` and `groups_geq` attributes to have
         already been created, via the `aggregate()` method or otherwise. It also
-        requires the `group_sigs` and `group_comp_sigs` attributes to have
+        requires the `group_leq_sigs` and `group_geq_sigs` attributes to have
         already been created, via the `compute_significance` method or
         otherwise.
 

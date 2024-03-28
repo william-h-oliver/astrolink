@@ -21,36 +21,83 @@ python -m pip install astrolink
 
 AstroLink can be easily applied to any point-based input data expressed as a `np.ndarray` with shape `(n_samples, d_features)`.
 
+So first we need some data...
+
+```
+import numpy as np
+import sklearn.datasets as data
+
+# Generate some structured data with noise
+np.random.seed(0)
+background = np.random.uniform(-2, 2, (1000, 2))
+moons, _ = data.make_moons(n_samples = 2000, noise = 0.1)
+moons -= np.array([[0.5, 0.25]])    # centres moons on origin
+gauss_1 = np.random.normal(-1.25, 0.2, (500, 2))
+gauss_2 = np.random.normal(1.25, 0.2, (500, 2))
+
+P = np.vstack([background, moons, gauss_1, gauss_2])
+```
+
+... then we run AstroLink over that data...
+
 ```
 from astrolink import AstroLink
-from sklearn.datasets import make_blobs
-
-P, _ = make_blobs(10**4)    # P consists of 10**4 points in 2-dimensions
 
 clusterer = AstroLink(P)
 clusterer.run()
 ```
 
-For low-dimensional input data, such as in this example, it is then possible to visualise the estimated density field by plotting the input data and colouring it by the `logRho` attribute.
+... and that's it, AstroLink has found the hierarchical clustering structure of `P`!
+
+### Visualising the Estimated Density Field of the Input Data
+For low-dimensional input data, like we have in this example, it is then possible to visualise the estimated density field by plotting the input data and colouring it by the `logRho` attribute.
 
 ```
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap as lscm
 
+# Colour map that shows low/high values in blue/red
 cm = lscm.from_list('density', [(0, 'royalblue'), (1, 'red')])
 
-d_field = plt.scatter(P[:, 0], P[:, 1], c = clusterer.logRho, cmap = cm)
-plt.colorbar(d_field, label = r'$\log\hat\rho$')
+# Plot the data with colorbar
+fig, ax = plt.subplots()
+d_field = ax.scatter(P[:, 0], P[:, 1], c = clusterer.logRho, cmap = cm)
+plt.colorbar(d_field, label = r'$\log\hat\rho$', ax = ax)
+
+# Tidy up
+ax.set_title('Estimated Density Field')
+ax.set_xlabel('x')
+ax.set_ylabel('y')
+ax.set_aspect('equal')
+
+# Show plot
 plt.show()
 ```
 
+![The density field of the example data set as estimated by AstroLink.](./images/readme/Estimated_Density_Field_Example.png)
+
+### Visualising the Clustering Structure of the Input Data
 Regardless of the dimensionality of the input data, the clustering structure within it can always be visualised via the 2-dimensional AstroLink ordered-density plot.
 
 ```
-plt.plot(range(clusterer.n_samples), clusterer.logRho[clusterer.ordering])
+# Plot the data
+fig, ax = plt.subplots()
+ax.plot(range(clusterer.n_samples), clusterer.logRho[clusterer.ordering])
+
+# Tidy up
+ax.set_xlim(0, clusterer.n_samples - 1)
+ax.set_ylim(0, 1)
+ax.set_title('Ordered-Density Plot')
+ax.set_xlabel('Ordered Index')
+ax.set_ylabel(r'$\log\hat\rho$')
+
+# Show plot
 plt.show()
 ```
 
+![The ordered-density plot for the example data.](./images/readme/Ordered_Density_Plot_Example.png)
+
+### Visualising the Clusters found by AstroLink
 Although, since the input data in this example can be easily visualised as well, we may as well view this alongside the clusters themselves (as predicted by AstroLink).
 
 ```
@@ -59,40 +106,54 @@ fig1, ax1 = plt.subplots()
 fig2, ax2 = plt.subplots()
 
 # Make the ordered-density plot
-ordered_density = clusterer.logRho[clusterer.ordering]
-ax1.plot(range(clusterer.n_samples), ordered_density, c = 'k', zorder = 2)
+ax1.plot(range(clusterer.n_samples), clusterer.logRho[clusterer.ordering], c = 'k', zorder = 2)
 
 # Colour the ordered-density and input data plots by each cluster
 for i, (clst, clst_id) in enumerate(zip(clusterer.clusters, clusterer.ids)):
-    clst_indices = clusterer.ordering[clst[0]:clst[1]]
-    clst_ordered_density = clusterer.logRho[clst_indices]
-    ax1.fill_between(range(clst[0], clst[1]), clst_ordered_density, color = f"C{i}",
-                     zorder = 1)
+    # Indices of points in cluster
+    clst_members = clusterer.ordering[clst[0]:clst[1]]
 
-    clst_P = P[clst_indices]
-    ax2.scatter(clst_P[:, 0], clst_P[:, 1], facecolors = f"C{i}", edgecolors = 'k',
-                lw = 0.1, label = clst_id)
+    # Section of ordered-density plot corresponding to cluster
+    clst_ordered_density = clusterer.logRho[clst_members]
+    ax1.fill_between(range(clst[0], clst[1]), clst_ordered_density, color = f"C{i}", zorder = 1)
+    
+    # Points in cluster
+    clst_P = P[clst_members]
+    ax2.scatter(clst_P[:, 0], clst_P[:, 1], facecolors = f"C{i}", edgecolors = 'k', lw = 0.1, label = clst_id)
 
+# Tidy up
 ax1.set_xlim(0, clusterer.n_samples - 1)
 ax1.set_ylim(0, 1)
+ax1.set_title('Ordered-Density Plot (Coloured by Cluster ID)')
 ax1.set_xlabel('Ordered Index')
 ax1.set_ylabel(r'$\log\hat\rho$')
+ax2.set_title('Input Data (Coloured by Cluster ID)')
 ax2.set_xlabel('x')
 ax2.set_ylabel('y')
 ax2.set_aspect('equal')
-ax2.legend()
+ax2.legend(framealpha = 1)
+
+# Show plot
 plt.show()
 ```
 
-It is worth noting here that AstroLink always returns a cluster that is equal to the entire input data (with ID `'1'` by default) which allows it to be (re-)applied to a disjoint data set in a modular fashion.
+![The ordered-density plot coloured by cluster id.](./images/readme/Ordered_Density_Plot_with_Clusters.png)
 
-To do further analysis on the clustering output, the user may wish to which points (with respect to the order in which they appear within the input data) belong to the clusters that AstroLink has found. These sets can be constructed from the `ordering` and the `clusters` attributes.
+![The input data coloured by clusters.](./images/readme/Input_Data_with_Clusters.png)
+
+> [!NOTE]
+> AstroLink always returns a cluster that is equal to the entire input data (with ID `'1'` by default) which allows it to be (re-)applied to a disjoint data set in a modular fashion.
+
+### Extracting the Clusters for Further Analysis
+To do further analysis on the clustering output, the user may wish to know which points (with respect to the order in which they appear within the input data) belong to the clusters that AstroLink has found. These sets can be constructed from the `ordering` and `clusters` attributes.
 
 ```
 cluster_members = [clusterer.ordering[clst[0]:clst[1]] for clst in clusterer.clusters]
 ```
 
-## Development installation
+For more information on how AstroLink works, refer to the AstroLink [paper](https://arxiv.org/abs/2312.14632).
+
+## Development Installation
 
 If you want to contribute to the development of `astrolink`, we recommend
 the following editable installation from this repository:

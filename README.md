@@ -17,7 +17,7 @@ The Python package `astrolink` can be installed from PyPI:
 python -m pip install astrolink
 ```
 
-## Basic Usage
+## Basic usage
 
 AstroLink can be easily applied to any point-based input data expressed as a `np.ndarray` with shape `(n_samples, d_features)`.
 
@@ -49,7 +49,7 @@ clusterer.run()
 
 ... and that's it, AstroLink has found the hierarchical clustering structure of `P`!
 
-### Visualising the Estimated Density Field of the Input Data
+### Visualising the estimated density field of the input data
 For low-dimensional input data, like we have in this example, it is then possible to visualise the estimated density field by plotting the input data and colouring it by the `logRho` attribute.
 
 ```
@@ -76,7 +76,7 @@ plt.show()
 
 ![The density field of the example data set as estimated by AstroLink.](./images/readme/Estimated_Density_Field_Example.png)
 
-### Visualising the Clustering Structure of the Input Data
+### Visualising the clustering structure of the input data
 Regardless of the dimensionality of the input data, the clustering structure within it can always be visualised via the 2-dimensional AstroLink ordered-density plot.
 
 ```
@@ -97,7 +97,7 @@ plt.show()
 
 ![The ordered-density plot for the example data.](./images/readme/Ordered_Density_Plot_Example.png)
 
-### Visualising the Clusters found by AstroLink
+### Visualising the clusters found by AstroLink
 Although, since the input data in this example can be easily visualised as well, we may as well view this alongside the clusters themselves (as predicted by AstroLink).
 
 ```
@@ -144,7 +144,7 @@ plt.show()
 > [!NOTE]
 > AstroLink always returns a cluster that is equal to the entire input data (with ID `'1'` by default) which allows it to be (re-)applied to a disjoint data set in a modular fashion.
 
-### Extracting the Clusters for Further Analysis
+### Extracting the clusters for further analysis
 To do further analysis on the clustering output, the user may wish to know which points (with respect to the order in which they appear within the input data) belong to the clusters that AstroLink has found. These sets can be constructed from the `ordering` and `clusters` attributes.
 
 ```
@@ -153,7 +153,7 @@ cluster_members = [clusterer.ordering[clst[0]:clst[1]] for clst in clusterer.clu
 
 For more information on how AstroLink works, refer to the AstroLink [paper](https://arxiv.org/abs/2312.14632).
 
-## Development Installation
+## Development installation
 
 If you want to contribute to the development of `astrolink`, we recommend
 the following editable installation from this repository:

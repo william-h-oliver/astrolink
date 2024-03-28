@@ -1,4 +1,4 @@
-astrolink
+AstroLink
 =========
 
 .. toctree::

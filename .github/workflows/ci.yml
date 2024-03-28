@@ -39,9 +39,9 @@ jobs:
       run: |
         python -m pip install .[tests]
     
-    - name: Run Python tests
-      run: |
-        python -m pytest --nbval
+   # - name: Run Python tests
+   #   run: |
+   #     python -m pytest --nbval
 
   coverage:
     name: Coverage Testing

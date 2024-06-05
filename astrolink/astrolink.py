@@ -18,7 +18,8 @@ from scipy.optimize import minimize
 from scipy.special import beta as beta_fun
 from scipy.special import betainc as betainc_fun
 from scipy.stats import norm, beta
-from sklearn.utils import gen_batches, get_chunk_n_rows
+from sklearn.utils import gen_batches
+from sklearn.utils._chunking import get_chunk_n_rows
 
 
 class AstroLink:

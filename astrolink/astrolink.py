@@ -18,8 +18,8 @@ from scipy.optimize import minimize
 from scipy.special import beta as beta_fun
 from scipy.special import betainc as betainc_fun
 from scipy.stats import norm, beta
+from sklearn import get_config
 from sklearn.utils import gen_batches
-from sklearn.utils._chunking import get_chunk_n_rows
 
 
 class AstroLink:
@@ -252,7 +252,9 @@ class AstroLink:
         self.logRho = np.empty_like(self.P_transform, shape = (self.n_samples,))
         self.kNN = np.empty((self.n_samples, self.k_link), dtype = np.uint32)
         nbrs = KDTree(self.P_transform)
-        for sl in gen_batches(self.n_samples, get_chunk_n_rows(row_bytes = 16*self.k_den, max_n_rows = self.n_samples)):
+        working_memory = get_config()["working_memory"]
+        chunk_n_rows = max(min(int(working_memory * (2**20) // 16*self.k_den), self.n_samples), 1)
+        for sl in gen_batches(self.n_samples, chunk_n_rows):
             sqr_distances, indices = nbrs.query(self.P_transform[sl], k = self.k_den, sqr_dists = True)
             self.logRho[sl] = self._compute_logRho(sqr_distances, self.k_den, self.d_features)
             self.kNN[sl] = indices[:, :self.k_link]

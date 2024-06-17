@@ -5,9 +5,9 @@
 [![Documentation Status](https://readthedocs.org/projects/astrolink/badge/)](https://astrolink.readthedocs.io/)
 [![codecov](https://codecov.io/gh/william-h-oliver/astrolink/branch/main/graph/badge.svg)](https://codecov.io/gh/william-h-oliver/astrolink)
 
-AstroLink is a general purpose clustering algorithm built for extracting meaningful hierarchical structure from astrophysical data sets. In practice AstroLink rarely requires any parameter tuning before application, nevertheless, it has a small number intuitive-to-adjust parameters should this be necessary. As such, it is readily capable of finding an arbitary number of arbitrarily shaped clusters (and their structural relationship within the broader hierarchy) from arbitrarily defined data sets.
+AstroLink is a general purpose clustering algorithm built for extracting meaningful hierarchical structure from astrophysical data sets. In practice AstroLink rarely requires any parameter tuning before application, nevertheless, it has a small number intuitive-to-adjust parameters should this be necessary. As such, it is readily capable of finding an arbitary number of arbitrarily shaped clusters (and their structural relationship within the broader hierarchy) from arbitrarily defined data sets. Clusters found by AstroLink are defined as being statistically distinct overdensities when compared to their surrounds and to the noisy density fluctuations within the data set.
 
-Clusters found by AstroLink are defined as being statistically distinct overdensities when compared to their surrounds and to the noisy density fluctuations within the data set.
+The AstroLink documentation can be found on [ReadTheDocs](https://astrolink.readthedocs.io/). The original science [paper](https://doi.org/10.1093/mnras/stae1029) also provides further detailed information.
 
 ## Installation
 
@@ -74,7 +74,7 @@ ax.set_aspect('equal')
 plt.show()
 ```
 
-![The density field of the example data set as estimated by AstroLink.](./images/readme/Estimated_Density_Field_Example.png)
+![The density field of the example data set as estimated by AstroLink.](https://github.com/william-h-oliver/astrolink/tree/main/images/readme/Estimated_Density_Field_Example.png)
 
 ### Visualising the clustering structure of the input data
 Regardless of the dimensionality of the input data, the clustering structure within it can always be visualised via the 2-dimensional AstroLink ordered-density plot.
@@ -95,7 +95,7 @@ ax.set_ylabel(r'$\log\hat\rho$')
 plt.show()
 ```
 
-![The ordered-density plot for the example data.](./images/readme/Ordered_Density_Plot_Example.png)
+![The ordered-density plot for the example data.](https://github.com/william-h-oliver/astrolink/tree/main/images/readme/Ordered_Density_Plot_Example.png)
 
 ### Visualising the clusters found by AstroLink
 Although, since the input data in this example can be easily visualised as well, we may as well view this alongside the clusters themselves (as predicted by AstroLink).
@@ -137,9 +137,9 @@ ax2.legend(framealpha = 1)
 plt.show()
 ```
 
-![The ordered-density plot coloured by cluster id.](./images/readme/Ordered_Density_Plot_with_Clusters.png)
+![The ordered-density plot coloured by cluster id.](https://github.com/william-h-oliver/astrolink/tree/main/images/readme/Ordered_Density_Plot_with_Clusters.png)
 
-![The input data coloured by clusters.](./images/readme/Input_Data_with_Clusters.png)
+![The input data coloured by clusters.](https://github.com/william-h-oliver/astrolink/tree/main/images/readme/Input_Data_with_Clusters.png)
 
 > [!NOTE]
 > AstroLink always returns a cluster that is equal to the entire input data (with ID `'1'` by default) which allows it to be (re-)applied to a disjoint data set in a modular fashion.
@@ -150,8 +150,6 @@ To do further analysis on the clustering output, the user may wish to know which
 ```
 cluster_members = [clusterer.ordering[clst[0]:clst[1]] for clst in clusterer.clusters]
 ```
-
-For more information on how AstroLink works, refer to the AstroLink [paper](https://arxiv.org/abs/2312.14632).
 
 ## Development installation
 
@@ -175,13 +173,22 @@ python -m pytest
 If you have used AstroLink in a scientific publication, please use the following citation:
 
 ```
-@misc{Oliver2023,
-      title={The Hierarchical Structure of Galactic Haloes: Differentiating Clusters from Stochastic Clumping with AstroLink}, 
-      author={William H. Oliver and Pascal J. Elahi and Geraint F. Lewis and Tobias Buck},
-      year={2023},
-      eprint={2312.14632},
-      archivePrefix={arXiv},
-      primaryClass={astro-ph.GA}
+@ARTICLE{2024MNRAS.530.2637O,
+       author = {{Oliver}, William H. and {Elahi}, Pascal J. and {Lewis}, Geraint F. and {Buck}, Tobias},
+        title = "{The hierarchical structure of galactic haloes: differentiating clusters from stochastic clumping with ASTROLINK}",
+      journal = {\mnras},
+     keywords = {methods: data analysis, methods: statistical, galaxies: star clusters: general, galaxies: structure, Astrophysics - Astrophysics of Galaxies},
+         year = 2024,
+        month = may,
+       volume = {530},
+       number = {3},
+        pages = {2637-2647},
+          doi = {10.1093/mnras/stae1029},
+archivePrefix = {arXiv},
+       eprint = {2312.14632},
+ primaryClass = {astro-ph.GA},
+       adsurl = {https://ui.adsabs.harvard.edu/abs/2024MNRAS.530.2637O},
+      adsnote = {Provided by the SAO/NASA Astrophysics Data System}                               
 }
 ```
 

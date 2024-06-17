@@ -74,7 +74,7 @@ ax.set_aspect('equal')
 plt.show()
 ```
 
-![The density field of the example data set as estimated by AstroLink.](https://github.com/william-h-oliver/astrolink/tree/main/images/readme/Estimated_Density_Field_Example.png)
+![The density field of the example data set as estimated by AstroLink.](https://github.com/william-h-oliver/astrolink/blob/main/images/readme/Estimated_Density_Field_Example.png)
 
 ### Visualising the clustering structure of the input data
 Regardless of the dimensionality of the input data, the clustering structure within it can always be visualised via the 2-dimensional AstroLink ordered-density plot.
@@ -95,7 +95,7 @@ ax.set_ylabel(r'$\log\hat\rho$')
 plt.show()
 ```
 
-![The ordered-density plot for the example data.](https://github.com/william-h-oliver/astrolink/tree/main/images/readme/Ordered_Density_Plot_Example.png)
+![The ordered-density plot for the example data.](https://github.com/william-h-oliver/astrolink/blob/main/images/readme/Ordered_Density_Plot_Example.png)
 
 ### Visualising the clusters found by AstroLink
 Although, since the input data in this example can be easily visualised as well, we may as well view this alongside the clusters themselves (as predicted by AstroLink).
@@ -137,9 +137,9 @@ ax2.legend(framealpha = 1)
 plt.show()
 ```
 
-![The ordered-density plot coloured by cluster id.](https://github.com/william-h-oliver/astrolink/tree/main/images/readme/Ordered_Density_Plot_with_Clusters.png)
+![The ordered-density plot coloured by cluster id.](https://github.com/william-h-oliver/astrolink/blob/main/images/readme/Ordered_Density_Plot_with_Clusters.png)
 
-![The input data coloured by clusters.](https://github.com/william-h-oliver/astrolink/tree/main/images/readme/Input_Data_with_Clusters.png)
+![The input data coloured by clusters.](https://github.com/william-h-oliver/astrolink/blob/main/images/readme/Input_Data_with_Clusters.png)
 
 > [!NOTE]
 > AstroLink always returns a cluster that is equal to the entire input data (with ID `'1'` by default) which allows it to be (re-)applied to a disjoint data set in a modular fashion.

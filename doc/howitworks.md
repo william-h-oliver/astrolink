@@ -1,6 +1,6 @@
 # How AstroLink Works
 
-AstroLink is an astrophysical clustering algorithm that extracts hierarchical structure from point-based data. It was designed as an improvement to its predecessors, [CluSTAR-ND](https://doi.org/10.1093/mnras/stac1701) and [Halo-OPTICS](https://doi.org/10.1093/mnras/staa3879), and by comparison boasts increased clustering power in shorter run-times. The goal of this page is to provide an intuitive overview of how the AstroLink algorithm works.
+AstroLink is an astrophysical clustering algorithm that extracts hierarchical structure from point-based data. It was designed as an improvement to its predecessors, [CluSTAR-ND](https://doi.org/10.1093/mnras/stac1701) and [Halo-OPTICS](https://doi.org/10.1093/mnras/staa3879), and by comparison boasts increased clustering power in shorter run-times. The goal of this page is to provide an intuitive overview of how the AstroLink algorithm works &mdash; a more pegagogical description of how it works can be found in the AstroLink [science paper](https://doi.org/10.1093/mnras/stae1029).
 
 AstroLink shares algorithmic ties to OPTICS and HDBSCAN, which can be thought of hierarchical extensions of DBSCAN, which itself can be thought of as a _more-robust-to-noise_ version of the Friends-Of-Friends (FOF) algorithm (which is commonly used to identify galaxies/haloes from cosmological simulations and is the basis for many other astrophysical clustering algorithms). However instead of being referred to the concepts used within these algorithms, it's likely easier to understand the functionality of AstroLink by way of a visual analogy (before then interpreting the computational details within AstroLink).
 
@@ -10,26 +10,33 @@ AstroLink shares algorithmic ties to OPTICS and HDBSCAN, which can be thought of
 
 Imagine that we wanted to find the clusters from this 2-dimensional toy data set.
 
-![Toy data set consisting of various astro-like clusters.](../images/howitworks/data.png)
+<p align="center">
+  <img src="https://github.com/william-h-oliver/astrolink/blob/main/images/howitworks/data.png" alt="Toy data set consisting of various astro-like clusters."/>
+</p>
 
 Although not the most complicated data set to extract clusters from, this data set represents a broad class of complicated clustering scenarios where the clusters are potentially hierarchical, arbitrarily shaped, have differing densities, may be unknown in quantity, and be defined by n-points in d-dimensions (for arbitrary n and d). And so essentially, we want to be able to identify clusters without turning a blind eye to any of these possibilities.
 
 One way to achieve this is by considering the point-based data to be a random sample of some underlying probability distribution. If the probability density function is multi-modal, then some separable density-based structure exists and the modes (and the surrounding probability mass) are each representative of a cluster. Furthermore, if two modes are close to each we could consider these as being part of a parent mode, giving rise to a hierarchy of clusters.
 
-> [!NOTE]
-> Alternatively, if we knew the functional form of the probability distribution of **each** cluster, we would be able to assign labels to the points in the data set more accurately. However, in general we don't know these distributions and attempting to find them would require us to make some limiting assumptions about what kinds of clusters exist within the data.
+.. note:: Alternatively, if we knew the functional form of the probability distribution of **each** cluster, we would be able to assign labels to the points in the data set more accurately. However, in general we don't know these distributions and attempting to find them would require us to make some limiting assumptions about what kinds of clusters exist within the data.
 
 To be more specific, if we knew the underyling probability distribution of our data perfectly, we could simply decend the probability density function from high to low and mark the areas (volumes in higher dimensions) of probability mass that are enclosed by contour lines (surfaces) whenever a saddle point in the probability density function is reached and would merge two contour lines (surfaces). Given our toy data set, such a process would look something like that in the animation shown below.
 
-![Analogous process to AstroLink using probability distribution of toy data set.](../images/howitworks/analogous_process_with_probability_distribution.gif)
+<p align="center">
+  <img src="https://github.com/william-h-oliver/astrolink/blob/main/images/howitworks/analogous_process_with_probability_distribution.gif" alt="Analogous process to AstroLink using probability distribution of toy data set."/>
+</p>
 
 The clusters found this way belong to a binary tree (since two clusters are created at every merge) which carries a lot of structural information, however this can become difficult to interpret for more complex data sets and as the hierarchy becomes deeper. Nevertheless, this tree could then be pruned so as to only retain the _relevant_ clusters... after which you might arrive at something that looks like the hierarchy shown below.
 
-![Probability distribution with marked clusters.](../images/howitworks/probability_distribution_with_clusters.png)
+<p align="center">
+  <img src="https://github.com/william-h-oliver/astrolink/blob/main/images/howitworks/probability_distribution_with_clusters.png" alt="Probability distribution with marked clusters."/>
+</p>
 
 With this information, you could then assign point-wise labels based on whether the point resides inside the area (volume) of a cluster or not.
 
-![Toy data set with marked clusters from analogy.](../images/howitworks/data_with_clusters_from_analogy.png)
+<p align="center">
+  <img src="https://github.com/william-h-oliver/astrolink/blob/main/images/howitworks/data_with_clusters_from_analogy.png" alt="Toy data set with marked clusters from analogy."/>
+</p>
 
 
 
@@ -63,7 +70,9 @@ This rescaling renders all noisy density fluctuations on the same scale (i.e. $\
 
 The density is proportional to the underlying probability density function and, since the logarithmic rescaling is increasing function, the order is maintained. Hence if we order the $\log\hat\rho$ values and assign them colours from blue (low density) to red (high density), we can see something akin to the underlying probability density function.
 
-![Toy data set coloured by local-density.](../images/howitworks/data_coloured_by_logrho.png)
+<p align="center">
+  <img src="https://github.com/william-h-oliver/astrolink/blob/main/images/howitworks/data_coloured_by_logrho.png" alt="Toy data set coloured by local-density."/>
+</p>
 
 The spatial contrast from blue to red indicates that the $\log\hat\rho$ values provide relevant structural information about the data.
 
@@ -74,7 +83,9 @@ While the edges are being processed, the group that each point belongs to is als
 
 So that a comparison can be made to the animation above, this process looks like the following animation for the same toy data set. Here, points are added to the animation once they are processed.
 
-![Aggregation process applied to toy data set.](../images/howitworks/aggregation_process_with_probability_distribution.gif)
+<p align="center">
+  <img src="https://github.com/william-h-oliver/astrolink/blob/main/images/howitworks/aggregation_process_with_probability_distribution.gif" alt="Aggregation process applied to toy data set."/>
+</p>
 
 In this process, AstroLink also produces the 'ordered-density plot', shown here in the lower panel and coloured with all the marked groups. As shown in the animation, it is a 2-dimensional representation of the clustering structure and essentially, it contains all the density-based structural information that can be gleaned from the data without using model-based assumptions.
 
@@ -87,16 +98,20 @@ The model, intended to be descriptive of both noise-like and cluster-like groups
 
 By plotting a histogram of the prominences (for the smaller groups), the fitted model, and the value of `c`, we can see how this works in action.
 
-![The prominence distribution with fitted model.](../images/howitworks/fitted_prominences.png)
+<p align="center">
+  <img src="https://github.com/william-h-oliver/astrolink/blob/main/images/howitworks/fitted_prominences.png" alt="The prominence distribution with fitted model."/>
+</p>
 
 These prominence values are also transformed into a sigma-value using the fitted Beta distribution, providing a data-driven value for the significance parameter, `S`. In this case `S` is computed to be $3.1$ and hence AstroLink will find (unless `S` is otherwise specified) clusters that are $\geq3.1\sigma$ overdensities when compared to the noisy density fluctuations within the data.
 
 If we plot the data and the ordered-density plot and colour these newly found clusters, we get the following:
 
-![Data and ordered-density plot coloured by statistical outliers.](../images/howitworks/data_and_ordered_density_plot_with_some_clusters.png)
+<p align="center">
+  <img src="https://github.com/william-h-oliver/astrolink/blob/main/images/howitworks/data_and_ordered_density_plot_with_some_clusters.png" alt="Data and ordered-density plot coloured by statistical outliers."/>
+</p>
 
-> [!NOTE]
-> AstroLink always includes an additional cluster equal to the entire data set. This allows AstroLink to be applied modularly to disjoint data sets.
+
+.. note:: AstroLink always includes an additional cluster equal to the entire data set. This allows AstroLink to be applied modularly to disjoint data sets.
 
 ### Optionally adjust the hierarchy for interpretability
 For some applications this classification scheme might be satisfactory. For example, when applying AstroLink to positions or position-velocities of particles in simulated galaxies, this classification scheme yields the substructure of the galaxy. However, in AstroLink the clusters up until this point have only been drawn from the set of smaller groups created in every merge. In general we would also like AstroLink to classify some of the larger groups as well.
@@ -105,7 +120,9 @@ If `h_style` is set to 1 (default), then AstroLink will incorporate some of thes
 
 If we have AstroLink take these steps and again plot the data and ordered-density plot with the resultant clusters, we see that one more cluster has been added.
 
-![Data and ordered-density plot coloured by final clusters.](../images/howitworks/data_and_ordered_density_plot_with_final_clusters.png)
+<p align="center">
+  <img src="https://github.com/william-h-oliver/astrolink/blob/main/images/howitworks/data_and_ordered_density_plot_with_final_clusters.png" alt="Data and ordered-density plot coloured by final clusters."/>
+</p>
 
 The interpretation of this extra cluster is that it is the largest statistically non-separable overdensity in the data.
 

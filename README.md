@@ -75,7 +75,7 @@ plt.show()
 ```
 
 <p align="center">
-  <img src="https://github.com/william-h-oliver/astrolink/blob/main/images/readme/Estimated_Density_Field_Example.png" alt="The density field of the example data set as estimated by AstroLink."/>
+  <img src="https://raw.githubusercontent.com/william-h-oliver/astrolink/main/images/readme/Estimated_Density_Field_Example.png" alt="The density field of the example data set as estimated by AstroLink."/>
 </p>
 
 ### Visualising the clustering structure of the input data
@@ -98,7 +98,7 @@ plt.show()
 ```
 
 <p align="center">
-  <img src="https://github.com/william-h-oliver/astrolink/blob/main/images/readme/Ordered_Density_Plot_Example.png" alt="The ordered-density plot for the example data."/>
+  <img src="https://raw.githubusercontent.com/william-h-oliver/astrolink/main/images/readme/Ordered_Density_Plot_Example.png" alt="The ordered-density plot for the example data."/>
 </p>
 
 ### Visualising the clusters found by AstroLink
@@ -142,11 +142,11 @@ plt.show()
 ```
 
 <p align="center">
-  <img src="https://github.com/william-h-oliver/astrolink/blob/main/images/readme/Ordered_Density_Plot_with_Clusters.png" alt="The ordered-density plot coloured by cluster id."/>
+  <img src="https://raw.githubusercontent.com/william-h-oliver/astrolink/main/images/readme/Ordered_Density_Plot_with_Clusters.png" alt="The ordered-density plot coloured by cluster id."/>
 </p>
 
 <p align="center">
-  <img src="https://github.com/william-h-oliver/astrolink/blob/main/images/readme/Input_Data_with_Clusters.png" alt="The input data coloured by clusters."/>
+  <img src="https://raw.githubusercontent.com/william-h-oliver/astrolink/main/images/readme/Input_Data_with_Clusters.png" alt="The input data coloured by clusters."/>
 </p>
 
 > [!NOTE]

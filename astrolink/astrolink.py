@@ -44,6 +44,11 @@ class AstroLink:
     P : `numpy.ndarray` of shape (n_samples, d_features)
         A feature array of the point-cloud data set from which AstroLink finds
         clusters.
+    weights : `numpy.ndarray` of shape (n_samples,), default = None
+        The weights of each point in the input data. If `weights` is set to
+        None, then all points are given equal weight. Otherwise, the weights
+        must be a 1D numpy array with the same length as the number of samples
+        in `P`.
     k_den : `int`, default = 20
         The number of nearest neighbours used to estimate the local density of
         each point.
@@ -127,12 +132,17 @@ class AstroLink:
         Beta distribution.
     """
 
-    def __init__(self, P, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = -1, verbose = 0):
+    def __init__(self, P, weights = None, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = -1, verbose = 0):
         # Input Data
         check_P = isinstance(P, np.ndarray) and len(P.shape) == 2
         assert check_P, "Input data 'P' needs to be a 2D numpy array!"
         self.P = P
         self.n_samples, self.d_features = self.P.shape
+
+        # Weights
+        check_weights = weights is None or (isinstance(weights, np.ndarray) and len(weights.shape) == 1 and weights.size == self.n_samples)
+        assert check_weights, "Parameter 'weights' must be None or a 1D numpy array with the same length as the number of samples in 'P'!"
+        self.weights = weights
 
         # Parameters
         check_k_den = int(k_den) == k_den and k_den <= self.n_samples
@@ -161,7 +171,6 @@ class AstroLink:
         os.environ["OMP_NUM_THREADS"] = f"{workers}" if workers != -1 else f"{os.cpu_count()}"
         self.workers = workers
         self.verbose = verbose
-
 
     def _printFunction(self, message, returnLine = True, urgent = False):
         if self.verbose or urgent:
@@ -256,7 +265,8 @@ class AstroLink:
         chunk_n_rows = max(min(int(working_memory * (2**20) // 16*self.k_den), self.n_samples), 1)
         for sl in gen_batches(self.n_samples, chunk_n_rows):
             sqr_distances, indices = nbrs.query(self.P_transform[sl], k = self.k_den, sqr_dists = True)
-            self.logRho[sl] = self._compute_logRho(sqr_distances, self.k_den, self.d_features)
+            if self.weights is None: self.logRho[sl] = self._compute_logRho(sqr_distances, self.k_den, self.d_features)
+            else: self.logRho[sl] = self._compute_weightedLogRho(sqr_distances, self.weights[indices], self.d_features)
             self.kNN[sl] = indices[:, :self.k_link]
         del self.P_transform
         self.logRho = self._normalise(self.logRho)
@@ -267,6 +277,12 @@ class AstroLink:
     def _compute_logRho(sqr_distances, k_den, d_features):
         coreSqrDist = sqr_distances[:, -1]
         return np.log((k_den - sqr_distances.sum(axis = 1)/coreSqrDist)/coreSqrDist**(d_features/2))
+
+    @staticmethod
+    @njit()
+    def _compute_weightedLogRho(sqr_distances, weights, d_features):
+        coreSqrDist = sqr_distances[:, -1]
+        return np.log((weights.sum(axis = 1) - (weights*sqr_distances).sum(axis = 1)/coreSqrDist)/coreSqrDist**(d_features/2))
 
     @staticmethod
     @njit(fastmath = True)

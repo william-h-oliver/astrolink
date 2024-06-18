@@ -38,6 +38,7 @@ def test_astrolink():
     # _compute_logRho()
     sqr_distances = np.random.uniform(0, 1, (clusterer.n_samples, clusterer.k_den))
     arr = clusterer._compute_logRho.py_func(sqr_distances, clusterer.k_den, clusterer.d_features)
+    arr = clusterer._compute_weightedLogRho.py_func(sqr_distances, np.ones_like(sqr_distances), clusterer.d_features)
 
     # _normalise()
     x = np.random.uniform(0, 1, 100)

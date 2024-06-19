@@ -71,7 +71,7 @@ class AstroLink:
         `h_style` is set to 0, then the resultant hierarchy is styled
         similarly to SubFind and EnLink. If `h_style` is set to 1, then
         additional clusters are incorporated into the cluster hierarchy.
-    workers : `int`, default = -1
+    workers : `int`, default = 8
         The number of processors used in parallelised computations. If workers`
         is set to -1, then AstroLink will use all processors available.
         Otherwise, `workers` must be a value between 1 and N_cpu.
@@ -132,7 +132,7 @@ class AstroLink:
         Beta distribution.
     """
 
-    def __init__(self, P, weights = None, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = -1, verbose = 0):
+    def __init__(self, P, weights = None, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = 8, verbose = 0):
         # Input Data
         check_P = isinstance(P, np.ndarray) and len(P.shape) == 2
         assert check_P, "Input data 'P' needs to be a 2D numpy array!"
@@ -166,9 +166,9 @@ class AstroLink:
         assert check_h_style, "Parameter 'h_style' must be set as either '0' or '1'!"
         self.h_style = h_style
 
-        check_workers = 1 <= workers <= os.cpu_count() or workers == -1
-        assert check_workers, f"Parameter 'workers' must be set as either '-1' or needs to be an integer that is >= 1 and <= N_cpu (= {os.cpu_count()})"
-        os.environ["OMP_NUM_THREADS"] = f"{workers}" if workers != -1 else f"{os.cpu_count()}"
+        check_workers = 1 <= workers or workers == -1
+        assert check_workers, f"Parameter 'workers' must be set as either '-1' or needs to be an integer that is >= 1 (values > N_cpu will be set to N_cpu)"
+        os.environ["OMP_NUM_THREADS"] = f"{min(workers, os.cpu_count())}" if workers != -1 else f"{os.cpu_count()}"
         self.workers = workers
         self.verbose = verbose
 

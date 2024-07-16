@@ -17,6 +17,12 @@ The Python package `astrolink` can be installed from PyPI:
 python -m pip install astrolink
 ```
 
+Or if you use Anaconda:
+
+```
+conda install -c conda-forge astrolink
+```
+
 ## Basic usage
 
 AstroLink can be easily applied to any point-based input data expressed as a `np.ndarray` with shape `(n_samples, d_features)`.

@@ -189,7 +189,7 @@ python -m pytest
 If you have used AstroLink in a scientific publication, please use the following citation:
 
 ```
-@ARTICLE{2024MNRAS.530.2637O,
+@ARTICLE{Oliver2024,
        author = {{Oliver}, William H. and {Elahi}, Pascal J. and {Lewis}, Geraint F. and {Buck}, Tobias},
         title = "{The hierarchical structure of galactic haloes: differentiating clusters from stochastic clumping with ASTROLINK}",
       journal = {\mnras},

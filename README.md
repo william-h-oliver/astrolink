@@ -19,7 +19,7 @@ The Python package `astrolink` can be installed from PyPI:
 python -m pip install astrolink
 ```
 
-Or if you use Anaconda:
+Or, if you use Anaconda:
 
 ```
 conda install -c conda-forge astrolink

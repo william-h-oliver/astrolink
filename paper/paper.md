@@ -44,7 +44,7 @@ Extracting astrophysically-relevant structure from both simulations and observat
 
 By comparison, `AstroLink` is an open-source and generalised astrophysical structure finder that does not suffer from the same drawbacks as many of the existing codes in the field. `AstroLink` is efficient and versatile, astrophysically and statistically robust, and is capable of extracting a wide range of structure types from any size and dimensionality data set [@AstroLink]. In addition to being a state-of-the-art clustering algorithm, the `AstroLink` output can also be used to generate a visualisation of the clustering structure as shown in \autoref{fig:astrolink_example}. With this, the user can explore the structure within the input data in a way that can not be done with the output of other astrophysical clustering algorithms.
 
-![An example of the `AstroLink` clustering output on a 2D toy data set. The top panel shows the data coloured by which cluster the points are a part of. The bottom panel shows that corresponding ordered-density plot.\label{fig:astrolink_example}](astrolink_example.png){ width=80% }
+![An example of the `AstroLink` clustering output on a 2D toy data set. The top panel shows the data coloured by which cluster the points are found to be a part of. The bottom panel shows the corresponding ordered-density plot.\label{fig:astrolink_example}](astrolink_example.png){ width=80% }
 
 # Acknowledgements
 

@@ -1,3 +1,9 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/william-h-oliver/astrolink/main/images/readme/AstroLink_logo_animated_dark.gif">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/william-h-oliver/astrolink/main/images/readme/AstroLink_logo_animated_light.gif">
+  <img alt="Theme dependent AstroLink logo" src="https://raw.githubusercontent.com/william-h-oliver/astrolink/main/images/readme/AstroLink_logo_animated_light.gif">
+</picture>
+
 # Welcome to AstroLink
 
 [![PyPI Version](https://img.shields.io/pypi/v/astrolink.svg)](https://pypi.org/project/astrolink/)

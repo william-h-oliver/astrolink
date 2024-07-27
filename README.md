@@ -1,6 +1,6 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/william-h-oliver/astrolink/main/images/readme/AstroLink_logo_animated_dark.gif">
   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/william-h-oliver/astrolink/main/images/readme/AstroLink_logo_animated_light.gif">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/william-h-oliver/astrolink/main/images/readme/AstroLink_logo_animated_dark.gif">
   <img alt="Theme dependent AstroLink logo" src="https://raw.githubusercontent.com/william-h-oliver/astrolink/main/images/readme/AstroLink_logo_animated_light.gif">
 </picture>
 

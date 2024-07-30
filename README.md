@@ -37,7 +37,7 @@ AstroLink can be easily applied to any point-based input data expressed as a `np
 
 So first we need some data...
 
-```
+```python
 import numpy as np
 import sklearn.datasets as data
 
@@ -54,7 +54,7 @@ P = np.vstack([background, moons, gauss_1, gauss_2])
 
 ... then we run AstroLink over that data...
 
-```
+```python
 from astrolink import AstroLink
 
 clusterer = AstroLink(P)
@@ -66,7 +66,7 @@ clusterer.run()
 ### Visualising the estimated density field of the input data
 For low-dimensional input data, like we have in this example, it is then possible to visualise the estimated density field by plotting the input data and colouring it by the `logRho` attribute.
 
-```
+```python
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap as lscm
 
@@ -95,7 +95,7 @@ plt.show()
 ### Visualising the clustering structure of the input data
 Regardless of the dimensionality of the input data, the clustering structure within it can always be visualised via the 2-dimensional AstroLink ordered-density plot.
 
-```
+```python
 # Plot the data
 fig, ax = plt.subplots()
 ax.plot(range(clusterer.n_samples), clusterer.logRho[clusterer.ordering])
@@ -118,7 +118,7 @@ plt.show()
 ### Visualising the clusters found by AstroLink
 Although, since the input data in this example can be easily visualised as well, we may as well view this alongside the clusters themselves (as predicted by AstroLink).
 
-```
+```python
 # Create two figures
 fig1, ax1 = plt.subplots()
 fig2, ax2 = plt.subplots()
@@ -169,7 +169,7 @@ plt.show()
 ### Extracting the clusters for further analysis
 To do further analysis on the clustering output, the user may wish to know which points (with respect to the order in which they appear within the input data) belong to the clusters that AstroLink has found. These sets can be constructed from the `ordering` and `clusters` attributes.
 
-```
+```python
 cluster_members = [clusterer.ordering[clst[0]:clst[1]] for clst in clusterer.clusters]
 ```
 

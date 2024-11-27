@@ -1,6 +1,6 @@
 # How AstroLink Works
 
-AstroLink is an astrophysical clustering algorithm that extracts hierarchical structure from point-based data. It was designed as an improvement to its predecessors, [CluSTAR-ND](https://doi.org/10.1093/mnras/stac1701) and [Halo-OPTICS](https://doi.org/10.1093/mnras/staa3879), and by comparison boasts increased clustering power in shorter run-times. The goal of this page is to provide an intuitive overview of how the AstroLink algorithm works &mdash; a more pegagogical description of how it works can be found in the AstroLink [science paper](https://doi.org/10.1093/mnras/stae1029).
+AstroLink is an astrophysical clustering algorithm that extracts hierarchical structure from point-based data. It was designed as an improvement to its predecessors, [CluSTAR-ND](https://doi.org/10.1093/mnras/stac1701) and [Halo-OPTICS](https://doi.org/10.1093/mnras/staa3879), and by comparison boasts increased clustering power in shorter run-times. The goal of this page is to provide an intuitive overview of how the AstroLink algorithm works -- a more pegagogical description of how it works can be found in the AstroLink [science paper](https://doi.org/10.1093/mnras/stae1029).
 
 AstroLink shares algorithmic ties to OPTICS and HDBSCAN, which can be thought of hierarchical extensions of DBSCAN, which itself can be thought of as a _more-robust-to-noise_ version of the Friends-Of-Friends (FOF) algorithm (which is commonly used to identify galaxies/haloes from cosmological simulations and is the basis for many other astrophysical clustering algorithms). However instead of being referred to the concepts used within these algorithms, it's likely easier to understand the functionality of AstroLink by way of a visual analogy (before then interpreting the computational details within AstroLink).
 
@@ -64,20 +64,20 @@ This removes the effect of having different units within the input data and allo
 If we take the 2-dimensional toy data set in the analogy to be one of these cases where the relative scale of the features is meaningful, then we can should not transform the data and instead set `adaptive` to 0.
 
 ### Estimate the local-density field
-The second step is to estimate the local-density field at the position of each of the points within the data set. The density is estimated with a kernel function and each point's `k_den` nearest neighbours and a scaled logarithm of this density is also taken, giving us $\log\hat\rho$.
+The second step is to estimate the local-density field at the position of each of the points within the data set. The density is estimated with a kernel function and each point's `k_den` nearest neighbours and a scaled logarithm of this density is also taken, giving us :math:`\log\hat\rho`.
 
-This rescaling renders all noisy density fluctuations on the same scale (i.e. $\sigma_{\log\hat\rho}$ is approximately constant for a fixed `k_den` and `d_features`). This fact is used later in the algorithm to help distinguish clusters from noise.
+This rescaling renders all noisy density fluctuations on the same scale (i.e. :math:`\sigma_{\log\hat\rho}` is approximately constant for a fixed `k_den` and `d_features`). This fact is used later in the algorithm to help distinguish clusters from noise.
 
-The density is proportional to the underlying probability density function and, since the logarithmic rescaling is increasing function, the order is maintained. Hence if we order the $\log\hat\rho$ values and assign them colours from blue (low density) to red (high density), we can see something akin to the underlying probability density function.
+The density is proportional to the underlying probability density function and, since the logarithmic rescaling is increasing function, the order is maintained. Hence if we order the :math:`\log\hat\rho` values and assign them colours from blue (low density) to red (high density), we can see something akin to the underlying probability density function.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/william-h-oliver/astrolink/main/images/howitworks/data_coloured_by_logrho.png" alt="Toy data set coloured by local-density."/>
 </p>
 
-The spatial contrast from blue to red indicates that the $\log\hat\rho$ values provide relevant structural information about the data.
+The spatial contrast from blue to red indicates that the :math:`\log\hat\rho` values provide relevant structural information about the data.
 
 ### Compute an ordered list and a binary-tree of groups
-Since the order of the $\log\hat\rho$ values are a tracer for the order of the probability density function evaluated at the position of each point, we can use this order to descend the probability density function as in the analogy above. However, during the process we also need to know _how_ the points connect to each other so that we can group them together to form clusters. AstroLink achieves this by creating edges between pairs of neighbouring points, with the edge weights being set to the minimum of the densities of the two points. Then instead of processing the data point-by-point in order of descending density it is processed edge-by-edge in order of descending edge weight.
+Since the order of the :math:`\log\hat\rho` values are a tracer for the order of the probability density function evaluated at the position of each point, we can use this order to descend the probability density function as in the analogy above. However, during the process we also need to know _how_ the points connect to each other so that we can group them together to form clusters. AstroLink achieves this by creating edges between pairs of neighbouring points, with the edge weights being set to the minimum of the densities of the two points. Then instead of processing the data point-by-point in order of descending density it is processed edge-by-edge in order of descending edge weight.
 
 While the edges are being processed, the group that each point belongs to is also kept track of. When an edge is being processed; if neither of the connecting points belong to a group then a new group is created with those points; if only one of the connecting points belong a group then the other is added to it; and if both of the connecting points belong to different groups then the groups are merged into a new group. The latter possibility is the AstroLink algorithmic equivalent to finding a saddle point in the probability density function, and when it occurs the two merged groups will be marked for further consideration.
 
@@ -92,7 +92,7 @@ In this process, AstroLink also produces the 'ordered-density plot', shown here 
 ### Identify clusters as being statistical outliers from noisy density fluctuations
 Due to the adaptive density estimation, the aggregation process will produce many groups. Some of these may be clusters but, provided that `k_den` is not so large that the density estimate is globally smooth, most will simply be noise. Therefore if we compute an appropriate measure of 'clusteredness' for these groups we should be able to distinguish between clusters and noise.
 
-For this purpose AstroLink calculates each group's 'prominence', which is the maximum of the $\log\hat\rho$ values in the group subtracted by the $\log\hat\rho$ value at the boundary of the group and a measure of the intra-group noise. AstroLink takes the prominence value for each of the smaller groups merged at every saddle point (as they are inherently more noise-like) and fits a model to the resulting distribution.
+For this purpose AstroLink calculates each group's 'prominence', which is the maximum of the :math:`\log\hat\rho` values in the group subtracted by the :math:`\log\hat\rho` value at the boundary of the group and a measure of the intra-group noise. AstroLink takes the prominence value for each of the smaller groups merged at every saddle point (as they are inherently more noise-like) and fits a model to the resulting distribution.
 
 The model, intended to be descriptive of both noise-like and cluster-like groups, consists of a Beta distribution (truncated on the right at `c`) and a uniform distribution (from `c` to 1). The two are scaled appropriately so that the model pdf is continuous at `c`. The significance of `c` is that it marks the data-driven best-guess transition between the prominences of noise-like groups and the prominences of cluster-like groups. Hence it can be used to determine clusters.
 
@@ -102,7 +102,7 @@ By plotting a histogram of the prominences (for the smaller groups), the fitted 
   <img src="https://raw.githubusercontent.com/william-h-oliver/astrolink/main/images/howitworks/fitted_prominences.png" alt="The prominence distribution with fitted model."/>
 </p>
 
-These prominence values are also transformed into a sigma-value using the fitted Beta distribution, providing a data-driven value for the significance parameter, `S`. In this case `S` is computed to be $3.1$ and hence AstroLink will find (unless `S` is otherwise specified) clusters that are $\geq3.1\sigma$ overdensities when compared to the noisy density fluctuations within the data.
+These prominence values are also transformed into a sigma-value using the fitted Beta distribution, providing a data-driven value for the significance parameter, `S`. In this case `S` is computed to be :math:`3.1:math:` and hence AstroLink will find (unless `S` is otherwise specified) clusters that are :math:`\geq 3.1\sigma` overdensities when compared to the noisy density fluctuations within the data.
 
 If we plot the data and the ordered-density plot and colour these newly found clusters, we get the following:
 

@@ -48,17 +48,19 @@ def test_astrolink():
     x = np.random.uniform(0, 1, 100)
     arr = clusterer._normalise.py_func(x)
 
-    # aggregate_njit_float32()
+    # order_pairs_njit_float32() and aggregate_njit_float32()
     c = AstroLink(P.astype(np.float32))
     c.transform_data()
     c.estimate_density_and_kNN()
-    arr1, arr2, arr3, arr4, arr5 = c._aggregate_njit_float32.py_func(c.logRho, c.kNN)
+    ordered_pairs = c._order_pairs_njit_float32(c.logRho, c.kNN)
+    arr1, arr2, arr3, arr4, arr5 = c._aggregate_njit_float32.py_func(c.logRho, ordered_pairs)
 
-    # aggregate_njit_float64()
+    # order_pairs_njit_float64() and aggregate_njit_float64()
     c = AstroLink(P)
     c.transform_data()
     c.estimate_density_and_kNN()
-    arr1, arr2, arr3, arr4, arr5 = c._aggregate_njit_float64.py_func(c.logRho, c.kNN)
+    ordered_pairs = c._order_pairs_njit_float64(c.logRho, c.kNN)
+    arr1, arr2, arr3, arr4, arr5 = c._aggregate_njit_float64.py_func(c.logRho, ordered_pairs)
     del c, arr1, arr2, arr3, arr4, arr5
 
     # _minimize_init()

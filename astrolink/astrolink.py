@@ -327,11 +327,13 @@ class AstroLink:
     @staticmethod
     @njit(fastmath = True, parallel = True)
     def _order_pairs_njit_float64(logRho, kNN):
-        # Order points
+        # Create empty arrays
         n_samples, k_link = kNN.shape
         graphShape = n_samples*(k_link - 1)
         edges = np.empty(graphShape, dtype = np.float64)
         ordered_pairs = np.empty((graphShape, 2), dtype = np.uint32)
+
+        # For each pair of vertices find the adjoining edge weight
         for id_i in prange(n_samples):
             lr_i = logRho[id_i]
             pos = id_i*(k_link - 1)
@@ -348,6 +350,8 @@ class AstroLink:
                         pair_pos[0] = id_j
                         pair_pos[1] = id_i
                     pos += 1
+
+        # Order points by descending edge weight
         return ordered_pairs[edges.argsort()[::-1]]
 
     @staticmethod
@@ -480,11 +484,13 @@ class AstroLink:
     @staticmethod
     @njit(fastmath = True, parallel = True)
     def _order_pairs_njit_float32(logRho, kNN):
-        # Order points
+        # Create empty arrays
         n_samples, k_link = kNN.shape
         graphShape = n_samples*(k_link - 1)
         edges = np.empty(graphShape, dtype = np.float32)
         ordered_pairs = np.empty((graphShape, 2), dtype = np.uint32)
+
+        # For each pair of vertices find the adjoining edge weight
         for id_i in prange(n_samples):
             lr_i = logRho[id_i]
             pos = id_i*(k_link - 1)
@@ -501,6 +507,8 @@ class AstroLink:
                         pair_pos[0] = id_j
                         pair_pos[1] = id_i
                     pos += 1
+                    
+        # Order points by descending edge weight
         return ordered_pairs[edges.argsort()[::-1]]
 
     @staticmethod

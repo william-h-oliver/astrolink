@@ -494,7 +494,7 @@ class AstroLink:
         return ordered_pairs[edges.argsort()[::-1]]
 
     @staticmethod
-    @njit(fastmath = True, parallel = True)
+    @njit(fastmath = True)
     def _aggregate_njit_float32(logRho, ordered_pairs):
         # Empty lists and arrays for...
         # ... tracking connected components,

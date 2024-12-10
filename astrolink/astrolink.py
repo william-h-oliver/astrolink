@@ -314,19 +314,24 @@ class AstroLink:
 
         if self.verbose > 1: self._printFunction('Aggregating points...        ')
         start = time.perf_counter()
-        if self.logRho.dtype == np.float64: self.ordering, self.groups_leq, self.prominences_leq, self.groups_geq, self.prominences_geq = self._aggregate_njit_float64(self.logRho, self.kNN)
-        else: self.ordering, self.groups_leq, self.prominences_leq, self.groups_geq, self.prominences_geq = self._aggregate_njit_float32(self.logRho, self.kNN)
-        del self.kNN
+        if self.logRho.dtype == np.float64:
+            ordered_pairs = self._order_pairs_njit_float64(self.logRho, self.kNN)
+            del self.kNN
+            self.ordering, self.groups_leq, self.prominences_leq, self.groups_geq, self.prominences_geq = self._aggregate_njit_float64(self.logRho, ordered_pairs)
+        else:
+            ordered_pairs = self._order_pairs_njit_float32(self.logRho, self.kNN)
+            del self.kNN
+            self.ordering, self.groups_leq, self.prominences_leq, self.groups_geq, self.prominences_geq = self._aggregate_njit_float32(self.logRho, ordered_pairs)
         self._aggregateTime = time.perf_counter() - start
 
     @staticmethod
     @njit(fastmath = True, parallel = True)
-    def _aggregate_njit_float64(logRho, kNN):
+    def _order_pairs_njit_float64(logRho, kNN):
         # Order points
         n_samples, k_link = kNN.shape
-        shape_0 = n_samples*(k_link - 1)
-        edges = np.empty(shape_0, dtype = np.float64)
-        ordered_pairs = np.empty((shape_0, 2), dtype = np.uint32)
+        graphShape = n_samples*(k_link - 1)
+        edges = np.empty(graphShape, dtype = np.float64)
+        ordered_pairs = np.empty((graphShape, 2), dtype = np.uint32)
         for id_i in prange(n_samples):
             lr_i = logRho[id_i]
             pos = id_i*(k_link - 1)
@@ -343,8 +348,11 @@ class AstroLink:
                         pair_pos[0] = id_j
                         pair_pos[1] = id_i
                     pos += 1
-        ordered_pairs = ordered_pairs[edges.argsort()[::-1]]
+        return ordered_pairs[edges.argsort()[::-1]]
 
+    @staticmethod
+    @njit(fastmath = True, parallel = True)
+    def _aggregate_njit_float64(logRho, ordered_pairs):
         # Kruskal's minimum spanning tree + hierarchy tracking
         ids = np.full((logRho.size,), logRho.size, dtype = np.uint32)
         count = 0
@@ -471,12 +479,12 @@ class AstroLink:
 
     @staticmethod
     @njit(fastmath = True, parallel = True)
-    def _aggregate_njit_float32(logRho, kNN):
+    def _order_pairs_njit_float32(logRho, kNN):
         # Order points
         n_samples, k_link = kNN.shape
-        shape_0 = n_samples*(k_link - 1)
-        edges = np.empty(shape_0, dtype = np.float32)
-        ordered_pairs = np.empty((shape_0, 2), dtype = np.uint32)
+        graphShape = n_samples*(k_link - 1)
+        edges = np.empty(graphShape, dtype = np.float32)
+        ordered_pairs = np.empty((graphShape, 2), dtype = np.uint32)
         for id_i in prange(n_samples):
             lr_i = logRho[id_i]
             pos = id_i*(k_link - 1)
@@ -493,8 +501,11 @@ class AstroLink:
                         pair_pos[0] = id_j
                         pair_pos[1] = id_i
                     pos += 1
-        ordered_pairs = ordered_pairs[edges.argsort()[::-1]]
+        return ordered_pairs[edges.argsort()[::-1]]
 
+    @staticmethod
+    @njit(fastmath = True, parallel = True)
+    def _aggregate_njit_float32(logRho, ordered_pairs):
         # Kruskal's minimum spanning tree + hierarchy tracking
         ids = np.full((logRho.size,), logRho.size, dtype = np.uint32)
         count = 0

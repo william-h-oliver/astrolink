@@ -677,7 +677,7 @@ class AstroLink:
         return proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum, pFit_beta, x_sqrd_cumsum, pFit_halfnormal
 
     def _negLL_beta(self, p, proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum):
-        return self._negLL_njit(p, proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))
+        return self._negLL_beta_njit(p, proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))
 
     @staticmethod
     @njit()

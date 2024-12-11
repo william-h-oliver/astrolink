@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.special import beta as beta_fun
 from scipy.special import betainc as betainc_fun
+from scipy.special import erf
 from astrolink import AstroLink
 
 
@@ -64,11 +65,17 @@ def test_astrolink():
     del c, arr1, arr2, arr3, arr4, arr5
 
     # _minimize_init()
-    _proms_ordered, _lnx_cumsum, _ln_1_minus_x_cumsum, p = clusterer._minimize_init.py_func(clusterer.prominences_leq)
+    _proms_ordered, _lnx_cumsum, _ln_1_minus_x_cumsum, p_beta, _x_sqrd_cumsum, p_halfnormal = clusterer._minimize_init.py_func(clusterer.prominences_leq)
 
-    # _negLL_njit()
-    num = clusterer._negLL_njit.py_func(p, _proms_ordered, _lnx_cumsum, _ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))
-    del num, _proms_ordered, _lnx_cumsum, _ln_1_minus_x_cumsum, p
+    # _negLL_beta_njit()
+    num = clusterer._negLL_beta_njit.py_func(p_beta, _proms_ordered, _lnx_cumsum, _ln_1_minus_x_cumsum, beta_fun(p_beta[1], p_beta[2])*betainc_fun(p_beta[1], p_beta[2], p_beta[0]))
+    del num, _lnx_cumsum, _ln_1_minus_x_cumsum, p_beta
+
+    # _negLL_halfnormal_njit()
+    num = clusterer._negLL_halfnormal_njit.py_func(p_halfnormal, _proms_ordered, _x_sqrd_cumsum, erf(p[0]/(np.sqrt(2)*p[1])))
+    del num, _x_sqrd_cumsum, p_halfnormal
+
+
 
 
 

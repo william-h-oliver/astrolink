@@ -640,7 +640,7 @@ class AstroLink:
         # Fit model (Half-normal + uniform)
         bnds = ((tol, 1 - tol), (tol, None))
         sol = minimize(self._negLL_half_normal, pFit_halfnormal, args = (proms_ordered, x_sqrd_cumsum), jac = '3-point', bounds = bnds, tol = tol)
-        del _proms_ordered, _x_sqrd_cumsum
+        del proms_ordered, x_sqrd_cumsum
         success_halfnormal = True
         if sol.success: pFit_halfnormal = sol.x
         else: success_halfnormal = False
@@ -691,9 +691,10 @@ class AstroLink:
         uniform_term = (c**(a - 1))*((1 - c)**(b - 1))
         return lnx_cumsum.size*np.log(norm_constant + uniform_term*(1 - c)) - (a - 1)*lnx_cumsum[beta_cut] - (b - 1)*ln_1_minus_x_cumsum[beta_cut] - (lnx_cumsum.size - beta_cut - 1)*np.log(uniform_term)
 
-    def _negLL_half_normal(p, _proms_ordered, _x_sqrd_cumsum):
+    def _negLL_half_normal(self, p, _proms_ordered, _x_sqrd_cumsum):
         return self._negLL_half_normal_njit(p, _proms_ordered, _x_sqrd_cumsum, erf(p[0]/(np.sqrt(2)*p[1])))
 
+    @staticmethod
     @njit()
     def _negLL_half_normal_njit(p, proms_ordered, x_sqrd_cumsum, erfTerm):
         c, sigma = p

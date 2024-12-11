@@ -625,31 +625,31 @@ class AstroLink:
         start = time.perf_counter()
 
         # Setup for model fitting
-        proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum, pFit_beta, x_sqrd_cumsum, pFit_halfnormal = self._minimize_init(self.prominences_leq)
+        proms_ordered, proms_ordered_beta, lnx_cumsum, ln_1_minus_x_cumsum, pFit_beta, x_sqrd_cumsum, pFit_halfnormal = self._minimize_init(self.prominences_leq)
         tol = 1e-5
 
         # Fit model (Beta + uniform)
         bnds = ((tol, 1 - tol), (1 + tol, None), (1, None))
-        sol = minimize(self._negLL_beta, pFit_beta, args = (proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum), jac = '3-point', bounds = bnds, tol = tol)
-        del lnx_cumsum, ln_1_minus_x_cumsum
+        sol = minimize(self._negLL_beta, pFit_beta, args = (proms_ordered_beta, lnx_cumsum, ln_1_minus_x_cumsum), jac = '3-point', bounds = bnds, tol = tol)
         success_beta = True
         if sol.success: pFit_beta = sol.x
         else: success_beta = False
-        aic_beta = 2*pFit_beta.size + 2*sol.fun
+        aicc_beta = 2*pFit_beta.size + 2*sol.fun + 2*pFit_beta.size*(pFit_beta.size + 1)/(proms_ordered_beta.size - pFit_beta.size - 1)
+        del proms_ordered_beta, lnx_cumsum, ln_1_minus_x_cumsum
 
         # Fit model (Half-normal + uniform)
         bnds = ((tol, 1 - tol), (tol, None))
         sol = minimize(self._negLL_half_normal, pFit_halfnormal, args = (proms_ordered, x_sqrd_cumsum), jac = '3-point', bounds = bnds, tol = tol)
-        del proms_ordered, x_sqrd_cumsum
         success_halfnormal = True
         if sol.success: pFit_halfnormal = sol.x
         else: success_halfnormal = False
-        aic_halfnormal = 2*pFit_halfnormal.size + 2*sol.fun
+        aicc_halfnormal = 2*pFit_halfnormal.size + 2*sol.fun + 2*pFit_halfnormal.size*(pFit_halfnormal.size + 1)/(self.prominences_leq.size - pFit_halfnormal.size - 1)
+        del proms_ordered, x_sqrd_cumsum
         
         if not (success_beta or success_halfnormal): self._printFunction('[Warning] Prominence model may be incorrectly fitted!', returnLine = False, urgent = True)
         
         # Choose the best model and calculate statistical significance values
-        if aic_beta < aic_halfnormal:
+        if aicc_beta < aicc_halfnormal:
             self.pFit = pFit_beta
             self.noise_model = 'Beta'
             self.groups_leq_sigs = norm.isf(beta.sf(self.prominences_leq, self.pFit[1], self.pFit[2]))
@@ -664,7 +664,8 @@ class AstroLink:
     @staticmethod
     @njit(fastmath = True)
     def _minimize_init(prominences):
-        proms_ordered = np.sort(prominences[np.logical_and(prominences > 0, prominences < 1)])
+        proms_ordered = np.sort(prominences)
+        proms_ordered_beta = proms_ordered[np.logical_and(prominences > 0, prominences < 1)]
         mean, var = proms_ordered.mean(), proms_ordered.var()
         term1 = 1 - mean
         term2 = mean*term1/var - 1
@@ -674,19 +675,19 @@ class AstroLink:
         pFit_beta = np.array([cutOff, term2*mean, term2*term1])
         x_sqrd_cumsum = (proms_ordered**2).cumsum()
         pFit_halfnormal = np.array([cutOff, np.sqrt(np.pi/2)*mean])
-        return proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum, pFit_beta, x_sqrd_cumsum, pFit_halfnormal
+        return proms_ordered, proms_ordered_beta, lnx_cumsum, ln_1_minus_x_cumsum, pFit_beta, x_sqrd_cumsum, pFit_halfnormal
 
-    def _negLL_beta(self, p, proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum):
-        return self._negLL_beta_njit(p, proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))
+    def _negLL_beta(self, p, proms_ordered_beta, lnx_cumsum, ln_1_minus_x_cumsum):
+        return self._negLL_beta_njit(p, proms_ordered_beta, lnx_cumsum, ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))
 
     @staticmethod
     @njit()
-    def _negLL_beta_njit(p, proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum, norm_constant):
+    def _negLL_beta_njit(p, proms_ordered_beta, lnx_cumsum, ln_1_minus_x_cumsum, norm_constant):
         c, a, b = p
         beta_cut, right = 0, lnx_cumsum.size - 1
         while right - beta_cut > 1:
             middle = (right - beta_cut)//2 + beta_cut
-            if proms_ordered[middle] < c: beta_cut = middle
+            if proms_ordered_beta[middle] < c: beta_cut = middle
             else: right = middle
         uniform_term = (c**(a - 1))*((1 - c)**(b - 1))
         return lnx_cumsum.size*np.log(norm_constant + uniform_term*(1 - c)) - (a - 1)*lnx_cumsum[beta_cut] - (b - 1)*ln_1_minus_x_cumsum[beta_cut] - (lnx_cumsum.size - beta_cut - 1)*np.log(uniform_term)

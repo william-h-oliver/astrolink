@@ -17,7 +17,8 @@ from pykdtree.kdtree import KDTree
 from scipy.optimize import minimize
 from scipy.special import beta as beta_fun
 from scipy.special import betainc as betainc_fun
-from scipy.stats import norm, beta
+from scipy.special import erf
+from scipy.stats import norm, beta, halfnorm
 from sklearn import get_config
 from sklearn.utils import gen_batches
 
@@ -623,35 +624,64 @@ class AstroLink:
         if self.verbose > 1: self._printFunction('Finding significances...  ')
         start = time.perf_counter()
 
-        # Fit model
-        self._proms_ordered, self._lnx_cumsum, self._ln_1_minus_x_cumsum, self.pFit = self._minimize_init(self.prominences_leq)
+        # Setup for model fitting
+        proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum, pFit_beta, x_sqrd_cumsum, pFit_halfnormal = self._minimize_init(self.prominences_leq)
         tol = 1e-5
-        bnds = ((tol, 1 - tol), (1 + tol, None), (1, None))
-        sol = minimize(self._negLL, self.pFit, jac = '3-point', bounds = bnds, tol = tol)
-        del self._proms_ordered, self._lnx_cumsum, self._ln_1_minus_x_cumsum
-        if sol.success: self.pFit = sol.x
-        else: self._printFunction('[Warning] Prominence model may be incorrectly fitted!', returnLine = False, urgent = True)
 
-        # Calculate statistical significance values
-        self.groups_leq_sigs = norm.isf(beta.sf(self.prominences_leq, self.pFit[1], self.pFit[2]))
-        self.groups_geq_sigs = norm.isf(beta.sf(self.prominences_geq, self.pFit[1], self.pFit[2]))
+        # Fit model (Beta + uniform)
+        bnds = ((tol, 1 - tol), (1 + tol, None), (1, None))
+        sol = minimize(self._negLL_beta, pFit_beta, args = (proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum), jac = '3-point', bounds = bnds, tol = tol)
+        del lnx_cumsum, ln_1_minus_x_cumsum
+        success_beta = True
+        if sol.success: pFit_beta = sol.x
+        else: success_beta = False
+        aic_beta = 2*pFit_beta.size + 2*sol.fun
+
+        # Fit model (Half-normal + uniform)
+        bnds = ((tol, 1 - tol), (tol, None))
+        sol = minimize(self._negLL_half_normal, pFit_halfnormal, args = (proms_ordered, x_sqrd_cumsum), jac = '3-point', bounds = bnds, tol = tol)
+        del _proms_ordered, _x_sqrd_cumsum
+        success_halfnormal = True
+        if sol.success: pFit_halfnormal = sol.x
+        else: success_halfnormal = False
+        aic_halfnormal = 2*pFit_halfnormal.size + 2*sol.fun
+        
+        if not (success_beta or success_halfnormal): self._printFunction('[Warning] Prominence model may be incorrectly fitted!', returnLine = False, urgent = True)
+        
+        # Choose the best model and calculate statistical significance values
+        if aic_beta < aic_halfnormal:
+            self.pFit = pFit_beta
+            self.noise_model = 'Beta'
+            self.groups_leq_sigs = norm.isf(beta.sf(self.prominences_leq, self.pFit[1], self.pFit[2]))
+            self.groups_geq_sigs = norm.isf(beta.sf(self.prominences_geq, self.pFit[1], self.pFit[2]))
+        else:
+            self.pFit = pFit_halfnormal
+            self.noise_model = 'Half-normal'
+            self.groups_leq_sigs = norm.isf(halfnorm.sf(self.prominences_leq, 0, self.pFit[1]))
+            self.groups_geq_sigs = norm.isf(halfnorm.sf(self.prominences_geq, 0, self.pFit[1]))
         self._regrTime = time.perf_counter() - start
 
     @staticmethod
     @njit(fastmath = True)
     def _minimize_init(prominences):
         proms_ordered = np.sort(prominences[np.logical_and(prominences > 0, prominences < 1)])
-        med, var = proms_ordered[proms_ordered.size//2], proms_ordered.var()
-        term1 = 1 - med
-        term2 = med*term1/var - 1
-        return proms_ordered, np.log(proms_ordered).cumsum(), np.log(1 - proms_ordered).cumsum(), np.array([proms_ordered[int(0.99*proms_ordered.size)], term2*med, term2*term1])
+        mean, var = proms_ordered.mean(), proms_ordered.var()
+        term1 = 1 - mean
+        term2 = mean*term1/var - 1
+        lnx_cumsum = np.log(proms_ordered).cumsum()
+        ln_1_minus_x_cumsum = np.log(1 - proms_ordered).cumsum()
+        cutOff = proms_ordered[int(0.99*proms_ordered.size)]
+        pFit_beta = np.array([cutOff, term2*mean, term2*term1])
+        x_sqrd_cumsum = (proms_ordered**2).cumsum()
+        pFit_halfnormal = np.array([cutOff, np.sqrt(np.pi/2)*mean])
+        return proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum, pFit_beta, x_sqrd_cumsum, pFit_halfnormal
 
-    def _negLL(self, p):
-        return self._negLL_njit(p, self._proms_ordered, self._lnx_cumsum, self._ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))
+    def _negLL_beta(self, p, proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum):
+        return self._negLL_njit(p, proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))
 
     @staticmethod
     @njit()
-    def _negLL_njit(p, proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum, norm_constant):
+    def _negLL_beta_njit(p, proms_ordered, lnx_cumsum, ln_1_minus_x_cumsum, norm_constant):
         c, a, b = p
         beta_cut, right = 0, lnx_cumsum.size - 1
         while right - beta_cut > 1:
@@ -660,6 +690,22 @@ class AstroLink:
             else: right = middle
         uniform_term = (c**(a - 1))*((1 - c)**(b - 1))
         return lnx_cumsum.size*np.log(norm_constant + uniform_term*(1 - c)) - (a - 1)*lnx_cumsum[beta_cut] - (b - 1)*ln_1_minus_x_cumsum[beta_cut] - (lnx_cumsum.size - beta_cut - 1)*np.log(uniform_term)
+
+    def _negLL_half_normal(p, _proms_ordered, _x_sqrd_cumsum):
+        return self._negLL_half_normal_njit(p, _proms_ordered, _x_sqrd_cumsum, erf(p[0]/(np.sqrt(2)*p[1])))
+
+    @njit()
+    def _negLL_half_normal_njit(p, proms_ordered, x_sqrd_cumsum, erfTerm):
+        c, sigma = p
+        cSqr, twoSigmaSqr = c**2, 2*sigma**2
+        n = x_sqrd_cumsum.size
+        # Find the index of the first prominence that is greater than c
+        beta_cut, right = 0, n - 1
+        while right - beta_cut > 1:
+            middle = (right - beta_cut)//2 + beta_cut
+            if proms_ordered[middle] < c: beta_cut = middle
+            else: right = middle
+        return n*np.log(np.sqrt(np.pi/2)*sigma*erfTerm + (1 - c)*np.exp(-cSqr/twoSigmaSqr)) + (x_sqrd_cumsum[beta_cut] + (n - beta_cut - 1)*cSqr)/twoSigmaSqr
 
     def extract_clusters(self, rootID = '1'):
         """Classifies groups that have significance of at least `S` as clusters
@@ -695,7 +741,9 @@ class AstroLink:
         start = time.perf_counter()
 
         # Classify clusters as groups that are significant outliers
-        if self.S == 'auto': self.S = norm.isf(beta.sf(self.pFit[0], self.pFit[1], self.pFit[2]))
+        if self.S == 'auto':
+            if self.noise_model == 'Beta': self.S = norm.isf(beta.sf(self.pFit[0], self.pFit[1], self.pFit[2]))
+            else: self.S = norm.isf(halfnorm.sf(self.pFit[0], 0, self.pFit[1]))
         sl = self.groups_leq_sigs >= self.S
         self.clusters = self.groups_leq[sl]
         self.significances = self.groups_leq_sigs[sl]

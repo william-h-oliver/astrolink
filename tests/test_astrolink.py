@@ -72,7 +72,7 @@ def test_astrolink():
     del num, _lnx_cumsum, _ln_1_minus_x_cumsum, p_beta
 
     # _negLL_halfnormal_njit()
-    num = clusterer._negLL_halfnormal_njit.py_func(p_halfnormal, _proms_ordered, _x_sqrd_cumsum, erf(p[0]/(np.sqrt(2)*p[1])))
+    num = clusterer._negLL_halfnormal_njit.py_func(p_halfnormal, _proms_ordered, _x_sqrd_cumsum, erf(p_halfnormal[0]/(np.sqrt(2)*p_halfnormal[1])))
     del num, _x_sqrd_cumsum, p_halfnormal
 
 

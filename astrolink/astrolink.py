@@ -126,11 +126,23 @@ class AstroLink:
     groups_geq_sigs : `numpy.ndarray` of shape (n_groups_geq,)
         The statistical significance of each group in `groups_geq`, such that
         `groups_geq_sigs[i]` corresponds to group `i` in `groups_geq`.
-    pFit : `numpy.ndarray` of shape (3,)
-        The model parameters `[c, a, b]` for the model that fits the
-        distribution of `prominences_leq`. `c` is the cutoff between the Beta
-        and Uniform distributions. `a` and `b` are the shape parameters for the
-        Beta distribution.
+    pFit : `numpy.ndarray` of shape (2,) or (3,)
+        The model parameters for the model that fits the distribution of 
+        `prominences_leq`. If the best-fitting noise model is 'Beta', then 
+        `pFit` has the form `[c, a, b]`, where `a` and `b` are the shape 
+        parameters for the Beta distribution. If the best-fitting noise model is 
+        'Half-Normal', then `pFit` has the form `[c, sigma]`, where `sigma` is 
+        the standard deviation of the Half-Normal distribution. If the 
+        best-fitting noise model is 'Log-Normal', then `pFit` has the form 
+        `[c, mu, sigma]`, where `mu` and `sigma` are the mean and standard 
+        deviation of the Log-Normal distribution. In all cases, `c` is the 
+        cutoff between the noise model and Uniform distribution used to prevent 
+        overfitting of the noise model to sufficiently clustered overdensities. 
+        The best-fitting noise model, the fitted parameters of all models, the 
+        success states of the fitting procedure on each model, and the 
+        second-order Akaike Information Criterion (AICc) values for each model 
+        can be found with the `_noiseModel`, `_modelParams`, `_modelSuccess`, 
+        and `_modelAICc` attibutes respectively.
     """
 
     def __init__(self, P, weights = None, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = 8, verbose = 0):
@@ -607,12 +619,14 @@ class AstroLink:
         """Computes statistical significances for all groups by fitting a
         descriptive model to the prominences of groups.
 
-        Constructs the subgroup prominence model (a combination of a Beta
+        Constructs the subgroup prominence model (a combination of a noise model 
         and a Uniform distribution) and fits it by minimising the negative
-        log-likelihood of the resulting probability distribution. The Beta
-        distribution (with model-fitted parameters) is then used alongside the
-        standard normal distribution to transform prominence values into
-        statistical significance values.
+        log-likelihood of the resulting probability distribution. The noise 
+        model (with model-fitted parameters) is then used alongside the standard 
+        normal distribution to transform prominence values into statistical 
+        significance values. The noise model is chosen from among the Beta, 
+        Half-normal, and Log-normal distributions using the second-order Akaike 
+        Information Criterion (AICc).
 
         The method requires the `prominences_leq` and `prominences_geq` attributes
         to have already been created, via the `aggregate` method or otherwise.

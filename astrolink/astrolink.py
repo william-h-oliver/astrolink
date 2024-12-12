@@ -625,32 +625,32 @@ class AstroLink:
         start = time.perf_counter()
 
         # Setup for model fitting
-        self.modelParams, modelArgs, modelBounds, tol, self.modelAICc = self._minimize_init(self.prominences_leq)
+        self._modelParams, modelArgs, modelBounds, tol, self._modelAICc = self._minimize_init(self.prominences_leq)
 
         # Fit models
         modelNegLLs = [self._negLL_beta, self._negLL_halfnormal, self._negLL_lognormal]
-        self.modelSuccess = np.ones(self.modelAICc.size, dtype = np.bool_)
-        for i, (negLL, params, args, bounds) in enumerate(zip(modelNegLLs, self.modelParams, modelArgs, modelBounds)):
+        self._modelSuccess = np.ones(self._modelAICc.size, dtype = np.bool_)
+        for i, (negLL, params, args, bounds) in enumerate(zip(modelNegLLs, self._modelParams, modelArgs, modelBounds)):
             sol = minimize(negLL, params, args = tuple(args), jac = '3-point', bounds = tuple(bounds), tol = tol)
-            if sol.success: self.modelParams[i] = sol.x
-            else: self.modelSuccess[i] = False
-            self.modelAICc[i] += 2*sol.fun
+            if sol.success: self._modelParams[i] = sol.x
+            else: self._modelSuccess[i] = False
+            self._modelAICc[i] += 2*sol.fun
         del modelNegLLs, modelArgs, modelBounds, tol
 
-        if not self.modelSuccess.any(): self._printFunction('[Warning] Prominence model may be incorrectly fitted!', returnLine = False, urgent = True)
+        if not self._modelSuccess.any(): self._printFunction('[Warning] Prominence model may be incorrectly fitted!', returnLine = False, urgent = True)
 
         # Choose the best model and calculate statistical significance values
-        bestModel = np.argmin(self.modelAICc)
-        self.pFit = self.modelParams[bestModel]
+        bestModel = np.argmin(self._modelAICc)
+        self.pFit = self._modelParams[bestModel]
         noiseModels = ['Beta', 'Half-normal', 'Log-normal']
-        self.noise_model = noiseModels[bestModel]
-        if self.noise_model == 'Beta':
+        self._noiseModel = noiseModels[bestModel]
+        if self._noiseModel == 'Beta':
             self.groups_leq_sigs = norm.isf(beta.sf(self.prominences_leq, self.pFit[1], self.pFit[2]))
             self.groups_geq_sigs = norm.isf(beta.sf(self.prominences_geq, self.pFit[1], self.pFit[2]))
-        elif self.noise_model == 'Half-normal':
+        elif self._noiseModel == 'Half-normal':
             self.groups_leq_sigs = norm.isf(halfnorm.sf(self.prominences_leq, 0, self.pFit[1]))
             self.groups_geq_sigs = norm.isf(halfnorm.sf(self.prominences_geq, 0, self.pFit[1]))
-        elif self.noise_model == 'Log-normal':
+        elif self._noiseModel == 'Log-normal':
             self.groups_leq_sigs = norm.isf(lognorm.sf(self.prominences_leq, self.pFit[2], scale = np.exp(self.pFit[1])))
             self.groups_geq_sigs = norm.isf(lognorm.sf(self.prominences_geq, self.pFit[2], scale = np.exp(self.pFit[1])))
 
@@ -787,9 +787,9 @@ class AstroLink:
 
         # Classify clusters as groups that are significant outliers
         if self.S == 'auto':
-            if self.noise_model == 'Beta': self.S = norm.isf(beta.sf(self.pFit[0], self.pFit[1], self.pFit[2]))
-            elif self.noise_model == 'Half-normal': self.S = norm.isf(halfnorm.sf(self.pFit[0], 0, self.pFit[1]))
-            elif self.noise_model == 'Log-normal': self.S = norm.isf(lognorm.sf(self.pFit[0], self.pFit[2], scale = np.exp(self.pFit[1])))
+            if self._noiseModel == 'Beta': self.S = norm.isf(beta.sf(self.pFit[0], self.pFit[1], self.pFit[2]))
+            elif self._noiseModel == 'Half-normal': self.S = norm.isf(halfnorm.sf(self.pFit[0], 0, self.pFit[1]))
+            elif self._noiseModel == 'Log-normal': self.S = norm.isf(lognorm.sf(self.pFit[0], self.pFit[2], scale = np.exp(self.pFit[1])))
         sl = self.groups_leq_sigs >= self.S
         self.clusters = self.groups_leq[sl]
         self.significances = self.groups_leq_sigs[sl]

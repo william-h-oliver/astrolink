@@ -18,7 +18,7 @@ from scipy.optimize import minimize
 from scipy.special import beta as beta_fun
 from scipy.special import betainc as betainc_fun
 from scipy.special import erf
-from scipy.stats import norm, beta, halfnorm
+from scipy.stats import norm, beta, halfnorm, lognorm
 from sklearn import get_config
 from sklearn.utils import gen_batches
 
@@ -625,89 +625,132 @@ class AstroLink:
         start = time.perf_counter()
 
         # Setup for model fitting
-        proms_ordered, proms_ordered_beta, lnx_cumsum, ln_1_minus_x_cumsum, pFit_beta, x_sqrd_cumsum, pFit_halfnormal = self._minimize_init(self.prominences_leq)
-        tol = 1e-5
+        self.modelParams, modelArgs, modelBounds, tol, self.modelAICc = self._minimize_init(self.prominences_leq)
 
-        # Fit model (Beta + uniform)
-        bnds = ((tol, 1 - tol), (1 + tol, None), (1, None))
-        sol = minimize(self._negLL_beta, pFit_beta, args = (proms_ordered_beta, lnx_cumsum, ln_1_minus_x_cumsum), jac = '3-point', bounds = bnds, tol = tol)
-        success_beta = True
-        if sol.success: pFit_beta = sol.x
-        else: success_beta = False
-        aicc_beta = 2*pFit_beta.size + 2*sol.fun + 2*pFit_beta.size*(pFit_beta.size + 1)/(proms_ordered_beta.size - pFit_beta.size - 1)
-        del proms_ordered_beta, lnx_cumsum, ln_1_minus_x_cumsum
+        # Fit models
+        modelNegLLs = [self._negLL_beta, self._negLL_halfnormal, self._negLL_lognormal]
+        self.modelSuccess = np.ones(self.modelAICc.size, dtype = np.bool_)
+        for i, (negLL, params, args, bounds) in enumerate(zip(modelNegLLs, self.modelParams, modelArgs, modelBounds)):
+            sol = minimize(negLL, params, args = tuple(args), jac = '3-point', bounds = tuple(bounds), tol = tol)
+            if sol.success: self.modelParams[i] = sol.x
+            else: self.modelSuccess[i] = False
+            self.modelAICc[i] += 2*sol.fun
+        del modelNegLLs, modelArgs, modelBounds, tol
 
-        # Fit model (Half-normal + uniform)
-        bnds = ((tol, 1 - tol), (tol, None))
-        sol = minimize(self._negLL_half_normal, pFit_halfnormal, args = (proms_ordered, x_sqrd_cumsum), jac = '3-point', bounds = bnds, tol = tol)
-        success_halfnormal = True
-        if sol.success: pFit_halfnormal = sol.x
-        else: success_halfnormal = False
-        aicc_halfnormal = 2*pFit_halfnormal.size + 2*sol.fun + 2*pFit_halfnormal.size*(pFit_halfnormal.size + 1)/(self.prominences_leq.size - pFit_halfnormal.size - 1)
-        del proms_ordered, x_sqrd_cumsum
-        
-        if not (success_beta or success_halfnormal): self._printFunction('[Warning] Prominence model may be incorrectly fitted!', returnLine = False, urgent = True)
-        
+        if not self.modelSuccess.any(): self._printFunction('[Warning] Prominence model may be incorrectly fitted!', returnLine = False, urgent = True)
+
         # Choose the best model and calculate statistical significance values
-        if aicc_beta < aicc_halfnormal:
-            self.pFit = pFit_beta
-            self.noise_model = 'Beta'
+        bestModel = np.argmin(self.modelAICc)
+        self.pFit = self.modelParams[bestModel]
+        noiseModels = ['Beta', 'Half-normal', 'Log-normal']
+        self.noise_model = noiseModels[bestModel]
+        if self.noise_model == 'Beta':
             self.groups_leq_sigs = norm.isf(beta.sf(self.prominences_leq, self.pFit[1], self.pFit[2]))
             self.groups_geq_sigs = norm.isf(beta.sf(self.prominences_geq, self.pFit[1], self.pFit[2]))
-        else:
-            self.pFit = pFit_halfnormal
-            self.noise_model = 'Half-normal'
+        elif self.noise_model == 'Half-normal':
             self.groups_leq_sigs = norm.isf(halfnorm.sf(self.prominences_leq, 0, self.pFit[1]))
             self.groups_geq_sigs = norm.isf(halfnorm.sf(self.prominences_geq, 0, self.pFit[1]))
+        elif self.noise_model == 'Log-normal':
+            self.groups_leq_sigs = norm.isf(lognorm.sf(self.prominences_leq, self.pFit[2], scale = np.exp(self.pFit[1])))
+            self.groups_geq_sigs = norm.isf(lognorm.sf(self.prominences_geq, self.pFit[2], scale = np.exp(self.pFit[1])))
+
         self._regrTime = time.perf_counter() - start
 
     @staticmethod
     @njit(fastmath = True)
     def _minimize_init(prominences):
-        proms_ordered = np.sort(prominences)
-        proms_ordered_beta = proms_ordered[np.logical_and(prominences > 0, prominences < 1)]
-        mean, var = proms_ordered.mean(), proms_ordered.var()
-        term1 = 1 - mean
-        term2 = mean*term1/var - 1
-        lnx_cumsum = np.log(proms_ordered).cumsum()
-        ln_1_minus_x_cumsum = np.log(1 - proms_ordered).cumsum()
-        cutOff = proms_ordered[int(0.99*proms_ordered.size)]
-        pFit_beta = np.array([cutOff, term2*mean, term2*term1])
-        x_sqrd_cumsum = (proms_ordered**2).cumsum()
-        pFit_halfnormal = np.array([cutOff, np.sqrt(np.pi/2)*mean])
-        return proms_ordered, proms_ordered_beta, lnx_cumsum, ln_1_minus_x_cumsum, pFit_beta, x_sqrd_cumsum, pFit_halfnormal
+        # Precalculated properties of the prominence values
+        promOrd = np.sort(prominences)
+        cutOff = promOrd[int(0.99*promOrd.size)]
+        mu, var = promOrd.mean(), promOrd.var()
+        tol = 1e-5
+        
+        # Precalculated transforms of the prominence values
+        promOrdOpenBorder = promOrd[np.logical_and(promOrd > 0, promOrd < 1)]
+        lnx = np.log(promOrdOpenBorder)
+        lnx_cumsum = lnx.cumsum()
+        lnx_sqrd_cumsum = (lnx**2).cumsum()
+        ln_1_minus_x_cumsum = np.log(1 - promOrdOpenBorder).cumsum()
+        x_sqrd_cumsum = (promOrd**2).cumsum()
+        
+        # For Beta model
+        term1 = 1 - mu
+        term2 = mu*term1/var - 1
+        modelParams = [np.array([cutOff, term2*mu, term2*term1])]
+        modelArgs = [[promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum]]
+        modelBounds = [[(tol, 1 - tol), (1 + tol, np.inf), (1, np.inf)]]
+        
+        # For Half-normal model
+        modelParams.append(np.array([cutOff, np.sqrt(np.pi/2)*mu]))
+        modelArgs.append([promOrd, x_sqrd_cumsum])
+        modelBounds.append([(tol, 1 - tol), (tol, np.inf)])
+        
+        # For log-normal model
+        muSqr = mu**2
+        modelParams.append(np.array([cutOff, np.log(muSqr/np.sqrt(muSqr + var)), np.sqrt(np.log(1 + var/muSqr))]))
+        modelArgs.append([promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum])
+        modelBounds.append([(tol, 1 - tol), (-np.inf, np.inf), (tol, np.inf)])
 
-    def _negLL_beta(self, p, proms_ordered_beta, lnx_cumsum, ln_1_minus_x_cumsum):
-        return self._negLL_beta_njit(p, proms_ordered_beta, lnx_cumsum, ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))
+        # Second-order correction of the Akaike information criterion
+        modelAICc = np.zeros(len(modelParams))
+        for i, (params, args) in enumerate(zip(modelParams, modelArgs)):
+            modelAICc[i] = 2*params.size + 2*params.size*(params.size + 1)/(args[0].size - params.size - 1)
+
+        return modelParams, modelArgs, modelBounds, tol, modelAICc
+
+    def _negLL_beta(self, p, promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum):
+        return self._negLL_beta_njit(p, promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))
 
     @staticmethod
     @njit()
-    def _negLL_beta_njit(p, proms_ordered_beta, lnx_cumsum, ln_1_minus_x_cumsum, norm_constant):
+    def _negLL_beta_njit(p, promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum, norm_constant):
         c, a, b = p
-        beta_cut, right = 0, lnx_cumsum.size - 1
-        while right - beta_cut > 1:
-            middle = (right - beta_cut)//2 + beta_cut
-            if proms_ordered_beta[middle] < c: beta_cut = middle
+        n = promOrdOpenBorder.size
+        transitionPoint, right = 0, lnx_cumsum.size - 1
+        while right - transitionPoint > 1:
+            middle = (right - transitionPoint)//2 + transitionPoint
+            if promOrdOpenBorder[middle] < c: transitionPoint = middle
             else: right = middle
         uniform_term = (c**(a - 1))*((1 - c)**(b - 1))
-        return lnx_cumsum.size*np.log(norm_constant + uniform_term*(1 - c)) - (a - 1)*lnx_cumsum[beta_cut] - (b - 1)*ln_1_minus_x_cumsum[beta_cut] - (lnx_cumsum.size - beta_cut - 1)*np.log(uniform_term)
+        normalisationFactor = norm_constant + uniform_term*(1 - c)
+        return n*np.log(normalisationFactor) - (a - 1)*lnx_cumsum[transitionPoint] - (b - 1)*ln_1_minus_x_cumsum[transitionPoint] - (n - transitionPoint - 1)*np.log(uniform_term)
 
-    def _negLL_half_normal(self, p, _proms_ordered, _x_sqrd_cumsum):
-        return self._negLL_half_normal_njit(p, _proms_ordered, _x_sqrd_cumsum, erf(p[0]/(np.sqrt(2)*p[1])))
+    def _negLL_halfnormal(self, p, promOrd, x_sqrd_cumsum):
+        return self._negLL_halfnormal_njit(p, promOrd, x_sqrd_cumsum, erf(p[0]/(np.sqrt(2)*p[1])))
 
     @staticmethod
     @njit()
-    def _negLL_half_normal_njit(p, proms_ordered, x_sqrd_cumsum, erfTerm):
+    def _negLL_halfnormal_njit(p, promOrd, x_sqrd_cumsum, erfTerm):
         c, sigma = p
         cSqr, twoSigmaSqr = c**2, 2*sigma**2
-        n = x_sqrd_cumsum.size
+        n = promOrd.size
         # Find the index of the first prominence that is greater than c
-        beta_cut, right = 0, n - 1
-        while right - beta_cut > 1:
-            middle = (right - beta_cut)//2 + beta_cut
-            if proms_ordered[middle] < c: beta_cut = middle
+        transitionPoint, right = 0, n - 1
+        while right - transitionPoint > 1:
+            middle = (right - transitionPoint)//2 + transitionPoint
+            if promOrd[middle] < c: transitionPoint = middle
             else: right = middle
-        return n*np.log(np.sqrt(np.pi/2)*sigma*erfTerm + (1 - c)*np.exp(-cSqr/twoSigmaSqr)) + (x_sqrd_cumsum[beta_cut] + (n - beta_cut - 1)*cSqr)/twoSigmaSqr
+        return n*np.log(np.sqrt(np.pi/2)*sigma*erfTerm + (1 - c)*np.exp(-cSqr/twoSigmaSqr)) + (x_sqrd_cumsum[transitionPoint] + (n - transitionPoint - 1)*cSqr)/twoSigmaSqr
+
+    def _negLL_lognormal(self, p, promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum):
+        return self._negLL_lognormal_njit(p, promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum, erf((np.log(p[0]) - p[1])/(np.sqrt(2)*p[2])))
+
+    @staticmethod
+    @njit()
+    def _negLL_lognormal_njit(p, promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum, erfTerm):
+        c, mu, sigma = p
+        logc, twoSigmaSqr = np.log(c), 2*sigma**2
+        n = promOrdOpenBorder.size
+        # Find the index of the first prominence that is greater than c
+        transitionPoint, right = 0, n - 1
+        while right - transitionPoint > 1:
+            middle = (right - transitionPoint)//2 + transitionPoint
+            if promOrdOpenBorder[middle] < c: transitionPoint = middle
+            else: right = middle
+        uniformTerm = np.exp(-(logc - mu)**2/twoSigmaSqr)/c
+        normalisationFactor = np.sqrt(np.pi/2)*sigma*(1 + erfTerm) + (1 - c)*uniformTerm
+        return n*(np.log(normalisationFactor) + mu**2/twoSigmaSqr) + (1 - 2*mu/twoSigmaSqr)*(lnx_cumsum[transitionPoint] + (n - transitionPoint - 1)*logc) + (lnx_sqrd_cumsum[transitionPoint] + (n - transitionPoint - 1)*logc**2)/twoSigmaSqr
+
 
     def extract_clusters(self, rootID = '1'):
         """Classifies groups that have significance of at least `S` as clusters
@@ -745,7 +788,8 @@ class AstroLink:
         # Classify clusters as groups that are significant outliers
         if self.S == 'auto':
             if self.noise_model == 'Beta': self.S = norm.isf(beta.sf(self.pFit[0], self.pFit[1], self.pFit[2]))
-            else: self.S = norm.isf(halfnorm.sf(self.pFit[0], 0, self.pFit[1]))
+            elif self.noise_model == 'Half-normal': self.S = norm.isf(halfnorm.sf(self.pFit[0], 0, self.pFit[1]))
+            elif self.noise_model == 'Log-normal': self.S = norm.isf(lognorm.sf(self.pFit[0], self.pFit[2], scale = np.exp(self.pFit[1])))
         sl = self.groups_leq_sigs >= self.S
         self.clusters = self.groups_leq[sl]
         self.significances = self.groups_leq_sigs[sl]

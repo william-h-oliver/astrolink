@@ -45,6 +45,10 @@ class AstroLink:
     P : `numpy.ndarray` of shape (n_samples, d_features)
         A feature array of the point-cloud data set from which AstroLink finds
         clusters.
+    d_intrinsic : `int`, default = None
+        The intrinsic dimensionality of the input data. If `d_intrinsic` is set
+        to None, then AstroLink assumes that the data has the same 
+        dimensionality as the number of features in `P`.
     weights : `numpy.ndarray` of shape (n_samples,), default = None
         The weights of each point in the input data. If `weights` is set to
         None, then all points are given equal weight. Otherwise, the weights
@@ -141,12 +145,17 @@ class AstroLink:
         attibutes respectively.
     """
 
-    def __init__(self, P, weights = None, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = 8, verbose = 0):
+    def __init__(self, P, d_intrinsic = None, weights = None, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = 8, verbose = 0):
         # Input Data
         check_P = isinstance(P, np.ndarray) and len(P.shape) == 2
         assert check_P, "Input data 'P' needs to be a 2D numpy array!"
         self.P = P
         self.n_samples, self.d_features = self.P.shape
+
+        # Intrinsic Dimensionality
+        check_d_intrinsic = d_intrinsic is None or (isinstance(d_intrinsic, int) and 1 <= d_intrinsic <= self.d_features)
+        assert check_d_intrinsic, "Parameter 'd_intrinsic' must be None or an integer between 1 and the number of features in 'P'!"
+        self.d_intrinsic = d_intrinsic if d_intrinsic is not None else self.d_features
 
         # Weights
         check_weights = weights is None or (isinstance(weights, np.ndarray) and len(weights.shape) == 1 and weights.size == self.n_samples)
@@ -168,7 +177,7 @@ class AstroLink:
 
         check_k_link = k_link == 'auto' or 1 < k_link <= self.k_den
         assert check_k_link, "Parameter 'k_link' needs to be an integer satisfying 1 < k_link <= k_den or 'auto'!"
-        if k_link == 'auto': self.k_link = max(int(np.ceil(11.97*self.d_features**(-2.23) - 22.97*self.k_den**(-0.57) + 10.03)), 7) # Fitted params [ 11.97420072  -2.22754059 -22.96660813  -0.56948651   9.03446908]
+        if k_link == 'auto': self.k_link = max(int(np.ceil(11.97*self.d_intrinsic**(-2.23) - 22.97*self.k_den**(-0.57) + 10.03)), 7) # Fitted params [ 11.97420072  -2.22754059 -22.96660813  -0.56948651   9.03446908]
         else: self.k_link = k_link
 
         check_h_style = h_style in [0, 1]
@@ -244,7 +253,8 @@ class AstroLink:
     def _rescale(P):
         P_transform = np.empty_like(P)
         for i in prange(P.shape[-1]):
-            P_transform[:, i] = P[:, i]/P[:, i].std()
+            std = P[:, i].std()
+            if std > 0: P_transform[:, i] = P[:, i]/P[:, i].std()
         return P_transform
 
     def estimate_density_and_kNN(self):
@@ -274,8 +284,8 @@ class AstroLink:
         chunk_n_rows = max(min(int(working_memory * (2**20) // 16*self.k_den), self.n_samples), 1)
         for sl in gen_batches(self.n_samples, chunk_n_rows):
             sqr_distances, indices = nbrs.query(self.P_transform[sl], k = self.k_den, sqr_dists = True)
-            if self.weights is None: self.logRho[sl] = self._compute_logRho(sqr_distances, self.k_den, self.d_features)
-            else: self.logRho[sl] = self._compute_weightedLogRho(sqr_distances, self.weights[indices], self.d_features)
+            if self.weights is None: self.logRho[sl] = self._compute_logRho(sqr_distances, self.k_den, self.d_intrinsic)
+            else: self.logRho[sl] = self._compute_weightedLogRho(sqr_distances, self.weights[indices], self.d_intrinsic)
             self.kNN[sl] = indices[:, :self.k_link]
         del self.P_transform
         self.logRho = self._normalise(self.logRho)
@@ -283,15 +293,15 @@ class AstroLink:
 
     @staticmethod
     @njit()
-    def _compute_logRho(sqr_distances, k_den, d_features):
+    def _compute_logRho(sqr_distances, k_den, d_intrinsic):
         coreSqrDist = sqr_distances[:, -1]
-        return np.log((k_den - sqr_distances.sum(axis = 1)/coreSqrDist)/coreSqrDist**(d_features/2))
+        return np.log((k_den - sqr_distances.sum(axis = 1)/coreSqrDist)/coreSqrDist**(d_intrinsic/2))
 
     @staticmethod
     @njit()
-    def _compute_weightedLogRho(sqr_distances, weights, d_features):
+    def _compute_weightedLogRho(sqr_distances, weights, d_intrinsic):
         coreSqrDist = sqr_distances[:, -1]
-        return np.log((weights.sum(axis = 1) - (weights*sqr_distances).sum(axis = 1)/coreSqrDist)/coreSqrDist**(d_features/2))
+        return np.log((weights.sum(axis = 1) - (weights*sqr_distances).sum(axis = 1)/coreSqrDist)/coreSqrDist**(d_intrinsic/2))
 
     @staticmethod
     @njit(fastmath = True)

@@ -758,7 +758,6 @@ class AstroLink:
         normalisationFactor = np.sqrt(np.pi/2)*sigma*(1 + erfTerm) + (1 - c)*uniformTerm
         return n*(np.log(normalisationFactor) + mu**2/twoSigmaSqr) + (1 - 2*mu/twoSigmaSqr)*(lnx_cumsum[transitionPoint] + (n - transitionPoint - 1)*logc) + (lnx_sqrd_cumsum[transitionPoint] + (n - transitionPoint - 1)*logc**2)/twoSigmaSqr
 
-
     def extract_clusters(self, rootID = '1'):
         """Classifies groups that have significance of at least `S` as clusters
         and forms the hierarchy according to the parameter `h_style`.

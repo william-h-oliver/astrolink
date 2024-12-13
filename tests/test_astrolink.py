@@ -1,7 +1,4 @@
 import numpy as np
-from scipy.special import beta as beta_fun
-from scipy.special import betainc as betainc_fun
-from scipy.special import erf
 from astrolink import AstroLink
 
 

@@ -124,21 +124,21 @@ class AstroLink:
         `groups[i]`.
     pFit : `numpy.ndarray` of shape (2,) or (3,)
         The model parameters for the model that fits the distribution of 
-        `prominences_leq`. If the best-fitting noise model is 'Beta', then 
-        `pFit` has the form `[c, a, b]`, where `a` and `b` are the shape 
-        parameters for the Beta distribution. If the best-fitting noise model is 
-        'Half-Normal', then `pFit` has the form `[c, sigma]`, where `sigma` is 
-        the standard deviation of the Half-Normal distribution. If the 
-        best-fitting noise model is 'Log-Normal', then `pFit` has the form 
-        `[c, mu, sigma]`, where `mu` and `sigma` are the mean and standard 
-        deviation of the Log-Normal distribution. In all cases, `c` is the 
-        cutoff between the noise model and Uniform distribution used to prevent 
-        overfitting of the noise model to sufficiently clustered overdensities. 
-        The best-fitting noise model, the fitted parameters of all models, the 
-        success states of the fitting procedure on each model, and the 
-        second-order Akaike Information Criterion (AICc) values for each model 
-        can be found with the `_noiseModel`, `_modelParams`, `_modelSuccess`, 
-        and `_modelAICc` attibutes respectively.
+        `prominences`. If the best-fitting noise model is 'Beta', then  `pFit` 
+        has the form `[c, a, b]`, where `a` and `b` are the shape parameters for 
+        the Beta distribution. If the best-fitting noise model is 'Half-Normal', 
+        then `pFit` has the form `[c, sigma]`, where `sigma` is the standard 
+        deviation of the Half-Normal distribution. If the best-fitting noise 
+        model is 'Log-Normal', then `pFit` has the form `[c, mu, sigma]`, where 
+        `mu` and `sigma` are the mean and standard deviation of the Log-Normal 
+        distribution. In all cases, `c` is the cutoff between the noise model 
+        and Uniform distribution used to prevent overfitting of the noise model 
+        to sufficiently clustered overdensities. The best-fitting noise model, 
+        the fitted parameters of all models, the success states of the fitting 
+        procedure on each model, and the second-order Akaike Information 
+        Criterion (AICc) values for each model can be found with the 
+        `_noiseModel`, `_modelParams`, `_modelSuccess`, and `_modelAICc` 
+        attibutes respectively.
     """
 
     def __init__(self, P, weights = None, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = 8, verbose = 0):

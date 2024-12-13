@@ -37,7 +37,7 @@ def test_astrolink():
     arr = clusterer._rescale.py_func(clusterer.P)
 
     # _compute_logRho()
-    sqr_distances = np.random.uniform(0, 1, (clusterer.n_samples, clusterer.k_den))
+    sqr_distances = np.sort(np.random.uniform(0, 1, (clusterer.n_samples, clusterer.k_den)), axis = 1)
     arr = clusterer._compute_logRho.py_func(sqr_distances, clusterer.k_den, clusterer.d_features)
     arr = clusterer._compute_weightedLogRho.py_func(sqr_distances, np.ones_like(sqr_distances), clusterer.d_features)
 
@@ -54,18 +54,18 @@ def test_astrolink():
     c.transform_data()
     c.estimate_density_and_kNN()
     ordered_pairs = c._order_pairs_njit_float32(c.logRho, c.kNN)
-    arr1, arr2, arr3, arr4, arr5 = c._aggregate_njit_float32.py_func(c.logRho, ordered_pairs)
+    arr1, arr2, arr3 = c._aggregate_njit_float32.py_func(c.logRho, ordered_pairs)
 
     # order_pairs_njit_float64() and aggregate_njit_float64()
     c = AstroLink(P)
     c.transform_data()
     c.estimate_density_and_kNN()
     ordered_pairs = c._order_pairs_njit_float64(c.logRho, c.kNN)
-    arr1, arr2, arr3, arr4, arr5 = c._aggregate_njit_float64.py_func(c.logRho, ordered_pairs)
-    del c, arr1, arr2, arr3, arr4, arr5
+    arr1, arr2, arr3 = c._aggregate_njit_float64.py_func(c.logRho, ordered_pairs)
+    del c, arr1, arr2, arr3
 
     # _minimize_init()
-    modelParams, modelArgs, _, _, _ = clusterer._minimize_init.py_func(clusterer.prominences_leq)
+    modelParams, modelArgs, _, _, _ = clusterer._minimize_init.py_func(clusterer.prominences)
 
     # _negLL_**_njit() functions
     modelNegLLs = [clusterer._negLL_beta_njit.py_func, clusterer._negLL_halfnormal_njit.py_func, clusterer._negLL_lognormal_njit.py_func]
@@ -141,49 +141,29 @@ def test_astrolink():
     assert arr.dtype in [np.dtype('float32'), np.dtype('float64')], "significances does not have the correct dtype"
     assert (arr >= clusterer.S).all(), "significances contains invalid values"
 
-    # groups_leq
-    arr = clusterer.groups_leq
-    assert isinstance(arr, np.ndarray), "groups_leq must be a numpy array"
-    assert len(arr.shape) == 2 and arr.shape[1] == 2, "groups_leq does not have the correct shape"
-    assert arr.dtype == np.dtype('uint32'), "groups_leq does not have the correct dtype"
-    assert (arr[:, 1] > arr[:, 0]).all() and arr.min() >= 0 and arr.max() <= clusterer.P.shape[0], "groups_leq contains invalid indices"
+    # groups
+    arr = clusterer.groups
+    assert isinstance(arr, np.ndarray), "groups must be a numpy array"
+    assert len(arr.shape) == 2 and arr.shape[1] == 3, "groups does not have the correct shape"
+    assert arr.dtype == np.dtype('uint32'), "groups does not have the correct dtype"
+    assert (arr[:, 1] > arr[:, 0]).all() and (arr[:, 2] > arr[:, 1]).all() and arr.min() >= 0 and arr.max() <= clusterer.P.shape[0], "groups contains invalid indices"
 
-    # prominences_leq
-    arr = clusterer.prominences_leq
-    assert isinstance(arr, np.ndarray), "prominences_leq must be a numpy array"
-    assert arr.shape == (clusterer.groups_leq.shape[0],), "prominences_leq does not have the correct shape"
-    assert arr.dtype in [np.dtype('float32'), np.dtype('float64')], "prominences_leq does not have the correct dtype"
-    assert np.logical_and(arr >= 0.0, arr <= 1.0).all(), "prominences_leq is not bounded between 0 and 1"
+    # prominences
+    arr = clusterer.prominences
+    assert isinstance(arr, np.ndarray), "prominences must be a numpy array"
+    assert arr.shape == (clusterer.groups.shape[0],), "prominences does not have the correct shape"
+    assert arr.dtype in [np.dtype('float32'), np.dtype('float64')], "prominences does not have the correct dtype"
+    assert np.logical_and(arr >= 0.0, arr <= 1.0).all(), "prominences is not bounded between 0 and 1"
 
-    # groups_leq_sigs
-    arr = clusterer.groups_leq_sigs
-    assert isinstance(arr, np.ndarray), "groups_leq_sigs must be a numpy array"
-    assert arr.shape == (clusterer.groups_leq.shape[0],), "groups_leq_sigs does not have the correct shape"
-    assert arr.dtype in [np.dtype('float32'), np.dtype('float64')], "groups_leq_sigs does not have the correct dtype"
-
-    # groups_geq
-    arr = clusterer.groups_geq
-    assert isinstance(arr, np.ndarray), "groups_geq must be a numpy array"
-    assert arr.shape == clusterer.groups_leq.shape, "groups_geq does not have the correct shape"
-    assert arr.dtype == np.dtype('uint32'), "groups_geq does not have the correct dtype"
-    assert (arr[:, 1] > arr[:, 0]).all() and arr.min() >= 0 and arr.max() <= clusterer.P.shape[0], "groups_geq contains invalid indices"
-
-    # prominences_geq
-    arr = clusterer.prominences_geq
-    assert isinstance(arr, np.ndarray), "prominences_geq must be a numpy array"
-    assert arr.shape == (clusterer.groups_geq.shape[0],), "prominences_geq does not have the correct shape"
-    assert arr.dtype in [np.dtype('float32'), np.dtype('float64')], "prominences_geq does not have the correct dtype"
-    assert np.logical_and(arr >= 0.0, arr <= 1.0).all(), "prominences_geq is not bounded between 0 and 1"
-
-    # groups_geq_sigs
-    arr = clusterer.groups_geq_sigs
-    assert isinstance(arr, np.ndarray), "groups_geq_sigs must be a numpy array"
-    assert arr.shape == (clusterer.groups_geq.shape[0],), "groups_geq_sigs does not have the correct shape"
-    assert arr.dtype in [np.dtype('float32'), np.dtype('float64')], "groups_geq_sigs does not have the correct dtype"
+    # groups_sigs
+    arr = clusterer.groups_sigs
+    assert isinstance(arr, np.ndarray), "groups_sigs must be a numpy array"
+    assert arr.shape == (clusterer.groups.shape[0],), "groups_sigs does not have the correct shape"
+    assert arr.dtype in [np.dtype('float32'), np.dtype('float64')], "groups_sigs does not have the correct dtype"
 
     # pFit
     arr = clusterer.pFit
     assert isinstance(arr, np.ndarray), "pFit must be a numpy array"
-    assert arr.shape == (3,), "pFit does not have the correct shape"
+    assert (arr.shape == (2,)) or (arr.shape == (3,)), "pFit does not have the correct shape"
     assert arr.dtype in [np.dtype('float32'), np.dtype('float64')], "pFit does not have the correct dtype"
     assert (arr >= 0.0).all() and arr[0] <= 1.0, "pFit contains invalid values"

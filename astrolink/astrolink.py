@@ -331,6 +331,7 @@ class AstroLink:
             ordered_pairs = self._order_pairs_njit_float32(self.logRho, self.kNN)
             del self.kNN
             self.ordering, self.groups, self.prominences = self._aggregate_njit_float32(self.logRho, ordered_pairs)
+        self.prominences = self.prominences.min(axis = 1)
         self._aggregateTime = time.perf_counter() - start
 
     @staticmethod
@@ -470,7 +471,7 @@ class AstroLink:
         # Clean and reorder arrays
         groups[:, 2] += groups[:, 1]
         reorder = groups[:, 1].argsort()[1:]
-        return ordering, groups[reorder], prominences[reorder].min(axis = 1)
+        return ordering, groups[reorder], prominences[reorder]
 
     @staticmethod
     @njit(fastmath = True, parallel = True)
@@ -609,7 +610,7 @@ class AstroLink:
         # Clean and reorder arrays
         groups[:, 2] += groups[:, 1]
         reorder = groups[:, 1].argsort()[1:]
-        return ordering, groups[reorder], prominences[reorder].min(axis = 1)
+        return ordering, groups[reorder], prominences[reorder]
 
     def compute_significances(self):
         """Computes statistical significances for all groups by fitting a

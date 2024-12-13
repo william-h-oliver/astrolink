@@ -106,43 +106,39 @@ class AstroLink:
         `significance[i]` corresponds to cluster `i`. These values equivalent to
         'how many sigma' outliers the clusters are from the noise within the
         input data.
-    groups_leq : `numpy.ndarray` of shape (n_groups_leq, 2)
-        Similar to structure and meaning as `clusters`, however `groups_leq`
-        includes all smaller groups merged within the aggregation tree
-        (including noise).
-    prominences_leq : `numpy.ndarray` of shape (n_groups_leq,)
-        The prominence values of each group in `groups_leq`, such that
-        `prominences_leq[i]` corresponds to group `i` in `groups_leq`.
-    groups_leq_sigs : `numpy.ndarray` of shape (n_groups_leq,)
-        The statistical significance of each group, such that
-        `groups_leq_sigs[i]` corresponds to group `i` in `groups_leq`.
-    groups_geq : `numpy.ndarray` of shape (n_groups_geq, 2)
-        Similar to structure and meaning as `clusters`, however `groups_geq`
-        includes all larger groups merged within the aggregation tree
-        (including noise).
-    prominences_geq : `numpy.ndarray` of shape (n_groups_geq,)
-        The prominence values of each group in `groups_geq`, such that
-        `prominences_geq[i]` corresponds to group `i` in `groups_geq`.
-    groups_geq_sigs : `numpy.ndarray` of shape (n_groups_geq,)
-        The statistical significance of each group in `groups_geq`, such that
-        `groups_geq_sigs[i]` corresponds to group `i` in `groups_geq`.
+    groups : `numpy.ndarray` of shape (n_groups, 3)
+        Similar to `clusters`, however `groups` contains the start and end 
+        positions of all pairs of larger and smaller groups that were merged 
+        together during the aggregation process. Here `groups[:, 0]` and 
+        `groups[:, 1]` correspond to the start and end positions of the larger 
+        groups, while `groups[:, 1]` and `groups[:, 2]` correspond to the start 
+        and end positions of the smaller groups. `groups` can be used to 
+        visualise the aggregation merge tree.
+    prominences : `numpy.ndarray` of shape (n_groups, 2)
+        The prominence values of each group in `groups`, such that
+        `prominences[i]` contains the prominence values of both groups stored in 
+        `groups[i]`.
+    groups_sigs : `numpy.ndarray` of shape (n_groups, 2)
+        The statistical significance of each group, such that `groups_sigs[i]` 
+        contains the statistical significance values of both groups stored in 
+        `groups[i]`.
     pFit : `numpy.ndarray` of shape (2,) or (3,)
         The model parameters for the model that fits the distribution of 
-        `prominences_leq`. If the best-fitting noise model is 'Beta', then 
-        `pFit` has the form `[c, a, b]`, where `a` and `b` are the shape 
-        parameters for the Beta distribution. If the best-fitting noise model is 
-        'Half-Normal', then `pFit` has the form `[c, sigma]`, where `sigma` is 
-        the standard deviation of the Half-Normal distribution. If the 
-        best-fitting noise model is 'Log-Normal', then `pFit` has the form 
-        `[c, mu, sigma]`, where `mu` and `sigma` are the mean and standard 
-        deviation of the Log-Normal distribution. In all cases, `c` is the 
-        cutoff between the noise model and Uniform distribution used to prevent 
-        overfitting of the noise model to sufficiently clustered overdensities. 
-        The best-fitting noise model, the fitted parameters of all models, the 
-        success states of the fitting procedure on each model, and the 
-        second-order Akaike Information Criterion (AICc) values for each model 
-        can be found with the `_noiseModel`, `_modelParams`, `_modelSuccess`, 
-        and `_modelAICc` attibutes respectively.
+        `prominences`. If the best-fitting noise model is 'Beta', then  `pFit` 
+        has the form `[c, a, b]`, where `a` and `b` are the shape parameters for 
+        the Beta distribution. If the best-fitting noise model is 'Half-Normal', 
+        then `pFit` has the form `[c, sigma]`, where `sigma` is the standard 
+        deviation of the Half-Normal distribution. If the best-fitting noise 
+        model is 'Log-Normal', then `pFit` has the form `[c, mu, sigma]`, where 
+        `mu` and `sigma` are the mean and standard deviation of the Log-Normal 
+        distribution. In all cases, `c` is the cutoff between the noise model 
+        and Uniform distribution used to prevent overfitting of the noise model 
+        to sufficiently clustered overdensities. The best-fitting noise model, 
+        the fitted parameters of all models, the success states of the fitting 
+        procedure on each model, and the second-order Akaike Information 
+        Criterion (AICc) values for each model can be found with the 
+        `_noiseModel`, `_modelParams`, `_modelSuccess`, and `_modelAICc` 
+        attibutes respectively.
     """
 
     def __init__(self, P, weights = None, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = 8, verbose = 0):
@@ -319,8 +315,8 @@ class AstroLink:
         This method requires the `logRho` and 'kNN' attributes to have already
         been created, via the `estimate_density_and_kNN` method or otherwise.
 
-        This method generates the `ordering`, `groups_leq`, `prominences_leq`,
-        `groups_geq`, and `prominences_geq` attributes.
+        This method generates the `ordering`, `groups`, `prominences` 
+        attributes.
 
         This method deletes the `kNN` attribute.
         """
@@ -330,11 +326,11 @@ class AstroLink:
         if self.logRho.dtype == np.float64:
             ordered_pairs = self._order_pairs_njit_float64(self.logRho, self.kNN)
             del self.kNN
-            self.ordering, self.groups_leq, self.prominences_leq, self.groups_geq, self.prominences_geq = self._aggregate_njit_float64(self.logRho, ordered_pairs)
+            self.ordering, self.groups, self.prominences = self._aggregate_njit_float64(self.logRho, ordered_pairs)
         else:
             ordered_pairs = self._order_pairs_njit_float32(self.logRho, self.kNN)
             del self.kNN
-            self.ordering, self.groups_leq, self.prominences_leq, self.groups_geq, self.prominences_geq = self._aggregate_njit_float32(self.logRho, ordered_pairs)
+            self.ordering, self.groups, self.prominences = self._aggregate_njit_float32(self.logRho, ordered_pairs)
         self._aggregateTime = time.perf_counter() - start
 
     @staticmethod
@@ -474,7 +470,7 @@ class AstroLink:
         # Clean and reorder arrays
         groups[:, 2] += groups[:, 1]
         reorder = groups[:, 1].argsort()[1:]
-        return ordering, groups[reorder, 1:], prominences[reorder, 1], groups[reorder, :2], prominences[reorder, 0]
+        return ordering, groups[reorder], prominences[reorder]
 
     @staticmethod
     @njit(fastmath = True, parallel = True)
@@ -613,7 +609,7 @@ class AstroLink:
         # Clean and reorder arrays
         groups[:, 2] += groups[:, 1]
         reorder = groups[:, 1].argsort()[1:]
-        return ordering, groups[reorder, 1:], prominences[reorder, 1], groups[reorder, :2], prominences[reorder, 0]
+        return ordering, groups[reorder], prominences[reorder]
 
     def compute_significances(self):
         """Computes statistical significances for all groups by fitting a
@@ -628,18 +624,17 @@ class AstroLink:
         Half-normal, and Log-normal distributions using the second-order Akaike 
         Information Criterion (AICc).
 
-        The method requires the `prominences_leq` and `prominences_geq` attributes
-        to have already been created, via the `aggregate` method or otherwise.
+        The method requires the `prominences` attribute to have already been 
+        created, via the `aggregate` method or otherwise.
 
-        This method generates the `group_leq_sigs`, `group_geq_sigs`, and `pFit`
-        attributes.
+        This method generates the `group_sigs` and `pFit` attributes.
         """
 
         if self.verbose > 1: self._printFunction('Finding significances...  ')
         start = time.perf_counter()
 
         # Setup for model fitting
-        self._modelParams, modelArgs, modelBounds, tol, self._modelAICc = self._minimize_init(self.prominences_leq)
+        self._modelParams, modelArgs, modelBounds, tol, self._modelAICc = self._minimize_init(self.prominences[:, 1])
 
         # Fit models
         modelNegLLs = [self._negLL_beta, self._negLL_halfnormal, self._negLL_lognormal]
@@ -659,14 +654,11 @@ class AstroLink:
         noiseModels = ['Beta', 'Half-normal', 'Log-normal']
         self._noiseModel = noiseModels[bestModel]
         if self._noiseModel == 'Beta':
-            self.groups_leq_sigs = norm.isf(beta.sf(self.prominences_leq, self.pFit[1], self.pFit[2]))
-            self.groups_geq_sigs = norm.isf(beta.sf(self.prominences_geq, self.pFit[1], self.pFit[2]))
+            self.groups_sigs = norm.isf(beta.sf(self.prominences, self.pFit[1], self.pFit[2]))
         elif self._noiseModel == 'Half-normal':
-            self.groups_leq_sigs = norm.isf(halfnorm.sf(self.prominences_leq, 0, self.pFit[1]))
-            self.groups_geq_sigs = norm.isf(halfnorm.sf(self.prominences_geq, 0, self.pFit[1]))
+            self.groups_sigs = norm.isf(halfnorm.sf(self.prominences, 0, self.pFit[1]))
         elif self._noiseModel == 'Log-normal':
-            self.groups_leq_sigs = norm.isf(lognorm.sf(self.prominences_leq, self.pFit[2], scale = np.exp(self.pFit[1])))
-            self.groups_geq_sigs = norm.isf(lognorm.sf(self.prominences_geq, self.pFit[2], scale = np.exp(self.pFit[1])))
+            self.groups_sigs = norm.isf(lognorm.sf(self.prominences, self.pFit[2], scale = np.exp(self.pFit[1])))
 
         self._regrTime = time.perf_counter() - start
 
@@ -765,24 +757,22 @@ class AstroLink:
         normalisationFactor = np.sqrt(np.pi/2)*sigma*(1 + erfTerm) + (1 - c)*uniformTerm
         return n*(np.log(normalisationFactor) + mu**2/twoSigmaSqr) + (1 - 2*mu/twoSigmaSqr)*(lnx_cumsum[transitionPoint] + (n - transitionPoint - 1)*logc) + (lnx_sqrd_cumsum[transitionPoint] + (n - transitionPoint - 1)*logc**2)/twoSigmaSqr
 
-
     def extract_clusters(self, rootID = '1'):
         """Classifies groups that have significance of at least `S` as clusters
         and forms the hierarchy according to the parameter `h_style`.
 
-        First classifies any groups_leq that are statistical outliers. Then if
-        `h_style` is set to 1, finds the corresponding groups_geq that are also
+        First classifies any groups that are statistical outliers. Then if
+        `h_style` is set to 1, finds the corresponding groups that are also
         statistical outliers. For each of these that are the smallest out of
         those that share the same starting position within the ordered list,
         classify them too as clusters. Following this, if rootID is not set as
         `None` then also classify the input data the root cluster.
         Finally, generate the array of id strings for the clusters.
 
-        This method requires the `groups_leq` and `groups_geq` attributes to have
-        already been created, via the `aggregate()` method or otherwise. It also
-        requires the `group_leq_sigs` and `group_geq_sigs` attributes to have
-        already been created, via the `compute_significance` method or
-        otherwise.
+        This method requires the `groups` attribute to have already been 
+        created, via the `aggregate()` method or otherwise. It also requires the 
+        `group_sigs` and `pFit` attributes to have already been created, via the 
+        `compute_significance` method or otherwise.
 
         This method generates the 'clusters', `ids`, and `significances`
         attributes.
@@ -804,17 +794,17 @@ class AstroLink:
             if self._noiseModel == 'Beta': self.S = norm.isf(beta.sf(self.pFit[0], self.pFit[1], self.pFit[2]))
             elif self._noiseModel == 'Half-normal': self.S = norm.isf(halfnorm.sf(self.pFit[0], 0, self.pFit[1]))
             elif self._noiseModel == 'Log-normal': self.S = norm.isf(lognorm.sf(self.pFit[0], self.pFit[2], scale = np.exp(self.pFit[1])))
-        sl = self.groups_leq_sigs >= self.S
-        self.clusters = self.groups_leq[sl]
-        self.significances = self.groups_leq_sigs[sl]
+        sl = self.groups_sigs[:, 1] >= self.S
+        self.clusters = self.groups[sl, 1:]
+        self.significances = self.groups_sigs[sl, 1]
 
         # Optional hierarchy correction
         if self.h_style == 1:
             # Retrieve complementary groups whose corresponding subgroup is
             # significantly clustered and who is itself significantly clustered
-            sl = np.logical_and(sl, self.groups_geq_sigs >= self.S)
-            significances_geq = self.groups_geq_sigs[sl]
-            clusters_geq = self.groups_geq[sl]
+            sl = np.logical_and(sl, self.groups_sigs[:, 0] >= self.S)
+            significances_geq = self.groups_sigs[sl, 0]
+            clusters_geq = self.groups[sl, :2]
 
             # Keep only those complementary groups that are the smallest in their cascade
             sl = np.zeros(clusters_geq.shape[0], dtype = np.bool_)
@@ -823,11 +813,11 @@ class AstroLink:
                 sl[np.where(clusters_geq[:, 0] == cascade_start)[0][0]] = 1
 
             # Merge the hierarchy and clean arrays
-            self.significances = np.concatenate((self.significances, significances_geq[sl]))
             self.clusters = np.vstack((self.clusters, clusters_geq[sl]))
+            self.significances = np.concatenate((self.significances, significances_geq[sl]))
             reorder = np.array(sorted(np.arange(self.clusters.shape[0]), key = lambda i: [self.clusters[i, 0], self.n_samples - self.clusters[i, 1]]), dtype = np.uint32)
-            self.significances = self.significances[reorder]
             self.clusters = self.clusters[reorder]
+            self.significances = self.significances[reorder]
 
         # Add on root-level cluster
         if rootID is not None:

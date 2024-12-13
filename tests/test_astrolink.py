@@ -65,7 +65,7 @@ def test_astrolink():
     del c, arr1, arr2, arr3
 
     # _minimize_init()
-    modelParams, modelArgs, _, _, _ = clusterer._minimize_init.py_func(clusterer.prominences)
+    modelParams, modelArgs, _, _, _ = clusterer._minimize_init.py_func(clusterer.prominences[:, 0])
 
     # _negLL_**_njit() functions
     modelNegLLs = [clusterer._negLL_beta_njit.py_func, clusterer._negLL_halfnormal_njit.py_func, clusterer._negLL_lognormal_njit.py_func]
@@ -151,14 +151,14 @@ def test_astrolink():
     # prominences
     arr = clusterer.prominences
     assert isinstance(arr, np.ndarray), "prominences must be a numpy array"
-    assert arr.shape == (clusterer.groups.shape[0],), "prominences does not have the correct shape"
+    assert arr.shape == (clusterer.groups.shape[0], 2), "prominences does not have the correct shape"
     assert arr.dtype in [np.dtype('float32'), np.dtype('float64')], "prominences does not have the correct dtype"
     assert np.logical_and(arr >= 0.0, arr <= 1.0).all(), "prominences is not bounded between 0 and 1"
 
     # groups_sigs
     arr = clusterer.groups_sigs
     assert isinstance(arr, np.ndarray), "groups_sigs must be a numpy array"
-    assert arr.shape == (clusterer.groups.shape[0],), "groups_sigs does not have the correct shape"
+    assert arr.shape == (clusterer.groups.shape[0], 2), "groups_sigs does not have the correct shape"
     assert arr.dtype in [np.dtype('float32'), np.dtype('float64')], "groups_sigs does not have the correct dtype"
 
     # pFit

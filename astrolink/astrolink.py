@@ -114,13 +114,13 @@ class AstroLink:
         groups, while `groups[:, 1]` and `groups[:, 2]` correspond to the start 
         and end positions of the smaller groups. `groups` can be used to 
         visualise the aggregation merge tree.
-    prominences : `numpy.ndarray` of shape (n_groups,)
+    prominences : `numpy.ndarray` of shape (n_groups, 2)
         The prominence values of each group in `groups`, such that
-        `prominences[i]` is the prominence value of both groups stored in 
+        `prominences[i]` contains the prominence values of both groups stored in 
         `groups[i]`.
-    groups_sigs : `numpy.ndarray` of shape (n_groups,)
+    groups_sigs : `numpy.ndarray` of shape (n_groups, 2)
         The statistical significance of each group, such that `groups_sigs[i]` 
-        is the statistical significance value of both groups stored in 
+        contains the statistical significance values of both groups stored in 
         `groups[i]`.
     pFit : `numpy.ndarray` of shape (2,) or (3,)
         The model parameters for the model that fits the distribution of 
@@ -331,7 +331,6 @@ class AstroLink:
             ordered_pairs = self._order_pairs_njit_float32(self.logRho, self.kNN)
             del self.kNN
             self.ordering, self.groups, self.prominences = self._aggregate_njit_float32(self.logRho, ordered_pairs)
-        self.prominences = self.prominences.min(axis = 1)
         self._aggregateTime = time.perf_counter() - start
 
     @staticmethod
@@ -635,7 +634,7 @@ class AstroLink:
         start = time.perf_counter()
 
         # Setup for model fitting
-        self._modelParams, modelArgs, modelBounds, tol, self._modelAICc = self._minimize_init(self.prominences)
+        self._modelParams, modelArgs, modelBounds, tol, self._modelAICc = self._minimize_init(self.prominences[:, 1])
 
         # Fit models
         modelNegLLs = [self._negLL_beta, self._negLL_halfnormal, self._negLL_lognormal]
@@ -795,14 +794,16 @@ class AstroLink:
             if self._noiseModel == 'Beta': self.S = norm.isf(beta.sf(self.pFit[0], self.pFit[1], self.pFit[2]))
             elif self._noiseModel == 'Half-normal': self.S = norm.isf(halfnorm.sf(self.pFit[0], 0, self.pFit[1]))
             elif self._noiseModel == 'Log-normal': self.S = norm.isf(lognorm.sf(self.pFit[0], self.pFit[2], scale = np.exp(self.pFit[1])))
-        sl = self.groups_sigs >= self.S
+        sl = self.groups_sigs[:, 1] >= self.S
         self.clusters = self.groups[sl, 1:]
-        self.significances = self.groups_sigs[sl]
+        self.significances = self.groups_sigs[sl, 1]
 
         # Optional hierarchy correction
         if self.h_style == 1:
             # Retrieve complementary groups whose corresponding subgroup is
             # significantly clustered and who is itself significantly clustered
+            sl = np.logical_and(sl, self.groups_sigs[:, 0] >= self.S)
+            significances_geq = self.groups_sigs[sl, 0]
             clusters_geq = self.groups[sl, :2]
 
             # Keep only those complementary groups that are the smallest in their cascade
@@ -813,7 +814,7 @@ class AstroLink:
 
             # Merge the hierarchy and clean arrays
             self.clusters = np.vstack((self.clusters, clusters_geq[sl]))
-            self.significances = np.concatenate((self.significances, self.significances[sl]))
+            self.significances = np.concatenate((self.significances, significances_geq[sl]))
             reorder = np.array(sorted(np.arange(self.clusters.shape[0]), key = lambda i: [self.clusters[i, 0], self.n_samples - self.clusters[i, 1]]), dtype = np.uint32)
             self.clusters = self.clusters[reorder]
             self.significances = self.significances[reorder]

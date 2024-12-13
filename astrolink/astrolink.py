@@ -106,26 +106,22 @@ class AstroLink:
         `significance[i]` corresponds to cluster `i`. These values equivalent to
         'how many sigma' outliers the clusters are from the noise within the
         input data.
-    groups_leq : `numpy.ndarray` of shape (n_groups_leq, 2)
-        Similar to structure and meaning as `clusters`, however `groups_leq`
-        includes all smaller groups merged within the aggregation tree
-        (including noise).
-    prominences_leq : `numpy.ndarray` of shape (n_groups_leq,)
-        The prominence values of each group in `groups_leq`, such that
-        `prominences_leq[i]` corresponds to group `i` in `groups_leq`.
-    groups_leq_sigs : `numpy.ndarray` of shape (n_groups_leq,)
-        The statistical significance of each group, such that
-        `groups_leq_sigs[i]` corresponds to group `i` in `groups_leq`.
-    groups_geq : `numpy.ndarray` of shape (n_groups_geq, 2)
-        Similar to structure and meaning as `clusters`, however `groups_geq`
-        includes all larger groups merged within the aggregation tree
-        (including noise).
-    prominences_geq : `numpy.ndarray` of shape (n_groups_geq,)
-        The prominence values of each group in `groups_geq`, such that
-        `prominences_geq[i]` corresponds to group `i` in `groups_geq`.
-    groups_geq_sigs : `numpy.ndarray` of shape (n_groups_geq,)
-        The statistical significance of each group in `groups_geq`, such that
-        `groups_geq_sigs[i]` corresponds to group `i` in `groups_geq`.
+    groups : `numpy.ndarray` of shape (n_groups, 3)
+        Similar to `clusters`, however `groups` contains the start and end 
+        positions of all pairs of larger and smaller groups that were merged 
+        together during the aggregation process. Here `groups[:, 0]` and 
+        `groups[:, 1]` correspond to the start and end positions of the larger 
+        groups, while `groups[:, 1]` and `groups[:, 2]` correspond to the start 
+        and end positions of the smaller groups. `groups` can be used to 
+        visualise the aggregation merge tree.
+    prominences : `numpy.ndarray` of shape (n_groups,)
+        The prominence values of each group in `groups`, such that
+        `prominences[i]` is the prominence value of both groups stored in 
+        `groups[i]`.
+    groups_sigs : `numpy.ndarray` of shape (n_groups,)
+        The statistical significance of each group, such that `groups_sigs[i]` 
+        is the statistical significance value of both groups stored in 
+        `groups[i]`.
     pFit : `numpy.ndarray` of shape (2,) or (3,)
         The model parameters for the model that fits the distribution of 
         `prominences_leq`. If the best-fitting noise model is 'Beta', then 
@@ -774,11 +770,10 @@ class AstroLink:
         `None` then also classify the input data the root cluster.
         Finally, generate the array of id strings for the clusters.
 
-        This method requires the `groups` attribute to have
-        already been created, via the `aggregate()` method or otherwise. It also
-        requires the `group_leq_sigs` and `group_geq_sigs` attributes to have
-        already been created, via the `compute_significance` method or
-        otherwise.
+        This method requires the `groups` attribute to have already been 
+        created, via the `aggregate()` method or otherwise. It also requires the 
+        `group_sigs` and `pFit` attributes to have already been created, via the 
+        `compute_significance` method or otherwise.
 
         This method generates the 'clusters', `ids`, and `significances`
         attributes.

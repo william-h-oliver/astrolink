@@ -285,7 +285,7 @@ def significanceModel(clusterer, ax = None, histKwargs = {}, modelKwargs = {}, c
 
     # Plot group significances histogram
     finiteSigs = clusterer.groups_sigs[np.isfinite(clusterer.groups_sigs[:, 1]), 1]
-    h, bins, patches = ax.hist(finiteSigs, density = True, histtype = 'stepfilled', **histKwargs)
+    h, bins, patches = ax.hist(finiteSigs, **histKwargs)
 
     # Plot fitted prominence model
     xs = np.linspace(np.floor(finiteSigs.min()), np.ceil(finiteSigs.max()), 10**4)

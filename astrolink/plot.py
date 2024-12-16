@@ -209,8 +209,7 @@ def prominenceModel(clusterer, ax = None, histKwargs = {}, modelKwargs = {}, cut
 
     # Plot prominences histogram
     bw = 2*np.subtract(*np.percentile(clusterer.prominences[:, 1], [75, 25]))*clusterer.prominences[:, 1].size**(-1/3) # Freedman-Diaconis rule
-    h, bins, patches = ax.hist(clusterer.prominences[:, 1], bins = np.arange(np.ceil(clusterer.prominences[:, 1].max()/bw).astype(np.int64) + 1)*bw,
-                               density = True, histtype = 'stepfilled', **histKwargs)
+    h, bins, patches = ax.hist(clusterer.prominences[:, 1], bins = np.arange(np.ceil(clusterer.prominences[:, 1].max()/bw).astype(np.int64) + 1)*bw, **histKwargs)
 
     # Plot fitted prominence model
     xs = np.linspace(0, 1, 10**4)

@@ -226,3 +226,30 @@ def plotSignificanceModel(clusterer, ax = None):
     ax.set_ylabel('Probability Density')
 
     return h, bins, patches, line, lineCollection
+
+def plotLogRhoOnX(clusterer, X, ax = None, colorbar = True):
+    """
+    Make a plot of the data X coloured by the AstroLink log-density on the data.
+
+    Parameters
+    ----------
+    clusterer : AstroLink
+        An instance of the AstroLink class.
+    X : array
+        The data to be plotted.
+    ax : matplotlib.axes._axes.Axes
+        The axes on which to plot the data. If not provided, the current axes 
+        will be used.
+    """
+
+    # Check if the axes have been provided
+    if ax is None: ax = plt.gca()
+
+    # Colour map that shows low/high values in blue/red
+    cmap = mcolors.LinearSegmentedColormap.from_list('density', [(0, 'royalblue'), (1, 'red')])
+
+    # Plot the data
+    densityField = ax.scatter(*X.T, c = clusterer.logRho, cmap = cmap)
+
+    # Add colour bar
+    if colorbar: plt.colorbar(densityField, label = r'$\log\hat\rho$', ax = ax)

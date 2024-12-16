@@ -18,13 +18,19 @@ def test_plotting():
 
     # Plotting
     try: line, polyCollections = plot.orderedDensity(clusterer)
-    except: assert False, "AstroLink.plotOrderedDensity() could not be run"
+    except: assert False, "plot.orderedDensity() could not be run"
 
     try: plot.aggregationTree(clusterer)
-    except: assert False, "AstroLink.plotAggregationTree() could not be run"
+    except: assert False, "plot.aggregationTree() could not be run"
 
     try: h, bins, patches, line, lineCollection = plot.prominenceModel(clusterer)
-    except: assert False, "AstroLink.plotProminenceModel() could not be run"
+    except: assert False, "plot.prominenceModel() could not be run"
 
     try: h, bins, patches, line, lineCollection = plot.significanceModel(clusterer)
-    except: assert False, "AstroLink.plotSignificanceModel() could not be run"
+    except: assert False, "plot.significanceModel() could not be run"
+
+    try: plot.logRhoOnX(clusterer, clusterer.P)
+    except: assert False, "plot.logRhoOnX() could not be run"
+
+    try: plot.labelsOnX(clusterer, clusterer.P)
+    except: assert False, "plot.labelsOnX() could not be run"

@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from scipy.stats import norm, beta, halfnorm, lognorm
 
-def plotOrderedDensity(clusterer, ax = None):
+def orderedDensity(clusterer, ax = None):
     """
     Make the AstroLink ordered-density plot.
 
@@ -57,7 +57,7 @@ def plotOrderedDensity(clusterer, ax = None):
 
     return line, polyCollections
 
-def plotAggregationTree(clusterer, ax = None):
+def aggregationTree(clusterer, ax = None):
     """
     Make the AstroLink aggregation tree plot.
 
@@ -123,7 +123,7 @@ def plotAggregationTree(clusterer, ax = None):
     ax.text(0.9505 - offSetx, 0.99 - offSety, ', ', ha = 'right', va = 'top', zorder = 3, transform = ax.transAxes)
     ax.text(0.99 - offSetx, 0.99 - offSety, r'$G_\leq$', ha = 'right', va = 'top', color = 'red', zorder = 3, transform = ax.transAxes)
 
-def plotProminenceModel(clusterer, ax = None):
+def prominenceModel(clusterer, ax = None):
     """
     Make a plot of AstroLink prominences.
 
@@ -178,7 +178,7 @@ def plotProminenceModel(clusterer, ax = None):
 
     return h, bins, patches, line, lineCollection
 
-def plotSignificanceModel(clusterer, ax = None):
+def significanceModel(clusterer, ax = None):
     """
     Make a plot of AstroLink significances.
 
@@ -227,7 +227,7 @@ def plotSignificanceModel(clusterer, ax = None):
 
     return h, bins, patches, line, lineCollection
 
-def plotLogRhoOnX(clusterer, X, ax = None, colorbar = True):
+def logRhoOnX(clusterer, X, ax = None, colorbar = True):
     """
     Make a plot of the data X coloured by the AstroLink log-density on the data.
 
@@ -254,7 +254,7 @@ def plotLogRhoOnX(clusterer, X, ax = None, colorbar = True):
     # Add colour bar
     if colorbar: plt.colorbar(densityField, label = r'$\log\hat\rho$', ax = ax)
 
-def plotLabelsOnX(clusterer, X, ax = None):
+def labelsOnX(clusterer, X, ax = None):
     """
     Make a plot of the data X coloured by the AstroLink cluster labels.
 

@@ -1,6 +1,6 @@
 import numpy as np
 from astrolink import AstroLink
-from astrolink import plotting
+from astrolink import plot
 
 
 
@@ -17,14 +17,14 @@ def test_plotting():
     except: assert False, "AstroLink.run() could not be run with input-data type np.float64"
 
     # Plotting
-    try: line, polyCollections = plotting.plotOrderedDensity(clusterer)
+    try: line, polyCollections = plot.orderedDensity(clusterer)
     except: assert False, "AstroLink.plotOrderedDensity() could not be run"
 
-    try: plotting.plotAggregationTree(clusterer)
+    try: plot.aggregationTree(clusterer)
     except: assert False, "AstroLink.plotAggregationTree() could not be run"
 
-    try: h, bins, patches, line, lineCollection = plotting.plotProminenceModel(clusterer)
+    try: h, bins, patches, line, lineCollection = plot.prominenceModel(clusterer)
     except: assert False, "AstroLink.plotProminenceModel() could not be run"
 
-    try: h, bins, patches, line, lineCollection = plotting.plotSignificanceModel(clusterer)
+    try: h, bins, patches, line, lineCollection = plot.significanceModel(clusterer)
     except: assert False, "AstroLink.plotSignificanceModel() could not be run"

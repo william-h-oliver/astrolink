@@ -253,3 +253,26 @@ def plotLogRhoOnX(clusterer, X, ax = None, colorbar = True):
 
     # Add colour bar
     if colorbar: plt.colorbar(densityField, label = r'$\log\hat\rho$', ax = ax)
+
+def plotLabelsOnX(clusterer, X, ax = None):
+    """
+    Make a plot of the data X coloured by the AstroLink cluster labels.
+
+    Parameters
+    ----------
+    clusterer : AstroLink
+        An instance of the AstroLink class.
+    X : array
+        The data to be plotted.
+    ax : matplotlib.axes._axes.Axes
+        The axes on which to plot the data. If not provided, the current axes 
+        will be used.
+    """
+
+    # Check if the axes have been provided
+    if ax is None: ax = plt.gca()
+
+    # Plot the clusters
+    for clst, clstID in zip(clusterer.clusters, clusterer.ids):
+        clusterMembers = clusterer.ordering[clst[0]:clst[1]]
+        ax.scatter(*X[clusterMembers].T, label = clstID)

@@ -32,6 +32,7 @@ dependencies = [
     "pykdtree",
     "scipy",
     "scikit-learn",
+    "matplotlib",
 ]
 
 [project.optional-dependencies]

@@ -68,15 +68,11 @@ For low-dimensional input data, like we have in this example, it is then possibl
 
 ```python
 import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap as lscm
+from astrolink import plot
 
-# Colour map that shows low/high values in blue/red
-cm = lscm.from_list('density', [(0, 'royalblue'), (1, 'red')])
-
-# Plot the data with colorbar
+# Plot the data, colour by the clusterer.logRho attribute, and add a colorbar (default)
 fig, ax = plt.subplots()
-d_field = ax.scatter(P[:, 0], P[:, 1], c = clusterer.logRho, cmap = cm)
-plt.colorbar(d_field, label = r'$\log\hat\rho$', ax = ax)
+plot.logRhoOnX(clusterer, P)
 
 # Tidy up
 ax.set_title('Estimated Density Field')
@@ -96,16 +92,11 @@ plt.show()
 Regardless of the dimensionality of the input data, the clustering structure within it can always be visualised via the 2-dimensional AstroLink ordered-density plot.
 
 ```python
-# Plot the data
-fig, ax = plt.subplots()
-ax.plot(range(clusterer.n_samples), clusterer.logRho[clusterer.ordering])
+# Plot clusterer.logRho[clusterer.ordering] without marking any clusters
+plot.orderedDensity(clusterer, fillKwargs = {'alpha': 0})
 
 # Tidy up
-ax.set_xlim(0, clusterer.n_samples - 1)
-ax.set_ylim(0, 1)
-ax.set_title('Ordered-Density Plot')
-ax.set_xlabel('Ordered Index')
-ax.set_ylabel(r'$\log\hat\rho$')
+plt.title('Ordered-Density Plot')
 
 # Show plot
 plt.show()
@@ -123,28 +114,14 @@ Although, since the input data in this example can be easily visualised as well,
 fig1, ax1 = plt.subplots()
 fig2, ax2 = plt.subplots()
 
-# Make the ordered-density plot
-ax1.plot(range(clusterer.n_samples), clusterer.logRho[clusterer.ordering], c = 'k', zorder = 2)
+# Make the ordered-density plot and mark regions with AstroLink clusters
+plot.orderedDensity(clusterer, ax = ax1)
 
-# Colour the ordered-density and input data plots by each cluster
-for i, (clst, clst_id) in enumerate(zip(clusterer.clusters, clusterer.ids)):
-    # Indices of points in cluster
-    clst_members = clusterer.ordering[clst[0]:clst[1]]
-
-    # Section of ordered-density plot corresponding to cluster
-    clst_ordered_density = clusterer.logRho[clst_members]
-    ax1.fill_between(range(clst[0], clst[1]), clst_ordered_density, color = f"C{i}", zorder = 1)
-    
-    # Points in cluster
-    clst_P = P[clst_members]
-    ax2.scatter(clst_P[:, 0], clst_P[:, 1], facecolors = f"C{i}", edgecolors = 'k', lw = 0.1, label = clst_id)
+# Plot the data and colour by the AstroLink cluster ids
+plot.labelsOnX(clusterer, P, ax = ax2, scatterKwargs = {'edgecolor': 'k', 'lw': 0.1})
 
 # Tidy up
-ax1.set_xlim(0, clusterer.n_samples - 1)
-ax1.set_ylim(0, 1)
 ax1.set_title('Ordered-Density Plot (Coloured by Cluster ID)')
-ax1.set_xlabel('Ordered Index')
-ax1.set_ylabel(r'$\log\hat\rho$')
 ax2.set_title('Input Data (Coloured by Cluster ID)')
 ax2.set_xlabel('x')
 ax2.set_ylabel('y')

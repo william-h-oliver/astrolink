@@ -334,13 +334,31 @@ class AstroLink:
         if self.verbose > 1: self._printFunction('Aggregating points...        ')
         start = time.perf_counter()
         if self.logRho.dtype == np.float64:
+            # Get vertices of the minimum spanning tree
             ordered_pairs = self._order_pairs_njit_float64(self.logRho, self.kNN)
             del self.kNN
-            self.ordering, self.groups, self.prominences = self._aggregate_njit_float64(self.logRho, ordered_pairs)
+
+            # Aggregate points
+            self.ordering, self.groups, self.prominences, children, id_final = self._aggregate_njit_float64(self.logRho, ordered_pairs)
+            del ordered_pairs
         else:
+            # Get vertices of the minimum spanning tree
             ordered_pairs = self._order_pairs_njit_float32(self.logRho, self.kNN)
             del self.kNN
-            self.ordering, self.groups, self.prominences = self._aggregate_njit_float32(self.logRho, ordered_pairs)
+
+            # Aggregate points
+            self.ordering, self.groups, self.prominences, children, id_final = self._aggregate_njit_float32(self.logRho, ordered_pairs)
+            del ordered_pairs
+
+        # Adjust groups and correct for noise
+        _adjust_groups_njit(self.groups, self.prominences, children, id_final, self.logRho.size)
+
+        # Clean and reorder arrays
+        reorder = self.groups[:, 1].argsort()[1:]
+        self.groups = self.groups[reorder]
+        self.groups[:, 2] += self.groups[:, 1]
+        self.prominences = self.prominences[reorder]
+
         self._aggregateTime = time.perf_counter() - start
 
     @staticmethod
@@ -378,13 +396,14 @@ class AstroLink:
     def _aggregate_njit_float64(logRho, ordered_pairs):
         # Empty lists and arrays for...
         # ... tracking connected components,
-        ids = np.full((logRho.size,), logRho.size, dtype = np.uint32)
+        n = np.uint32(logRho.size)
+        ids = np.full((n,), n, dtype = np.uint32)
         count = 0
         aggregations = [[np.uint32(0) for i in range(0)] for i in range(0)]
         # ... tracking groups,
         groups = [[np.uint32(0) for i in range(0)] for i in range(0)]
         prominences = [[np.float64(0.0) for i in range(0)] for i in range(0)]
-        children = [[np.uint32(0) for i in range(0)] for i in range(0)]
+        children = [[n for i in range(0)] for i in range(0)]
         # ... and freeing up memory.
         emptyIntList = [np.uint32(0) for i in range(0)]
 
@@ -414,7 +433,10 @@ class AstroLink:
                     prominences[id_1][0] = prominences[id_0][1] - currLogRho
                     prominences[id_0][1] = max(prominences[id_0][1], prominences[id_1][1])
                     prominences[id_1][1] -= currLogRho
-                    children[id_0].append(id_1)
+
+                    # Track children
+                    children[id_1][0] = children[id_0][1]
+                    children[id_0][1] = id_1
             elif id_1 == logRho.size: # Neither are aggregated
                 ids[pair] = count
                 count += 1
@@ -423,7 +445,7 @@ class AstroLink:
                 # Create new group
                 groups.append([np.uint32(0), np.uint32(0), np.uint32(2)])
                 prominences.append([np.float64(0.0), logRho[pair[0]]])
-                children.append([np.uint32(0) for i in range(0)])
+                children.append([n for i in range(2)])
             else: # pair[1] is already aggregated (but not pair[0])
                 p_0 = pair[0]
                 ids[p_0] = id_1
@@ -449,7 +471,8 @@ class AstroLink:
                 
                 # Merge
                 groups[id_final][2] += size_leq
-                children[id_final].append(id_leq)
+                children[id_leq][0] = children[id_final][1]
+                children[id_final][1] = id_leq
         aggArr = emptyIntArr
 
         # Ordered list
@@ -459,28 +482,10 @@ class AstroLink:
         # Lists to Arrays
         groups = np.array(groups, dtype = np.uint32)
         prominences = np.array(prominences, dtype = np.float64)
+        children = np.array(children, dtype = np.uint32)
 
-        # Finalise groups and correct for noise
-        activeGroups = [id_final]
-        while activeGroups:
-            id_leq = activeGroups.pop()
-            childIDs = children[id_leq]
-            if childIDs:
-                startAdjust = groups[id_leq][1]
-                activeGroups.extend(childIDs)
-                noise = 0.0
-                for id_geq, childID in enumerate(childIDs):
-                    groups[childID][0] += startAdjust
-                    groups[childID][1] += startAdjust
-                    if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
-                    noise += prominences[childID, 1]**2
-                prominences[id_leq, 1] -= np.sqrt(noise/(id_geq + 1))
-                children[id_leq] = emptyIntList
-
-        # Clean and reorder arrays
-        groups[:, 2] += groups[:, 1]
-        reorder = groups[:, 1].argsort()[1:]
-        return ordering, groups[reorder], prominences[reorder]
+        # Return arrays
+        return ordering, groups, prominences, children, id_final
 
     @staticmethod
     @njit(fastmath = True, parallel = True)
@@ -517,7 +522,8 @@ class AstroLink:
     def _aggregate_njit_float32(logRho, ordered_pairs):
         # Empty lists and arrays for...
         # ... tracking connected components,
-        ids = np.full((logRho.size,), logRho.size, dtype = np.uint32)
+        n = np.uint32(logRho.size)
+        ids = np.full((n,), n, dtype = np.uint32)
         count = 0
         aggregations = [[np.uint32(0) for i in range(0)] for i in range(0)]
         # ... freeing up memory,
@@ -525,7 +531,7 @@ class AstroLink:
         # ... and tracking groups.
         groups = [[np.uint32(0) for i in range(0)] for i in range(0)]
         prominences = [[np.float32(0.0) for i in range(0)] for i in range(0)]
-        children = [[np.uint32(0) for i in range(0)] for i in range(0)]
+        children = [[n for i in range(0)] for i in range(0)]
 
         # Kruskal's minimum spanning tree + hierarchy tracking
         for pair in ordered_pairs:
@@ -553,7 +559,10 @@ class AstroLink:
                     prominences[id_1][0] = prominences[id_0][1] - currLogRho
                     prominences[id_0][1] = max(prominences[id_0][1], prominences[id_1][1])
                     prominences[id_1][1] -= currLogRho
-                    children[id_0].append(id_1)
+
+                    # Track children
+                    children[id_1][0] = children[id_0][1]
+                    children[id_0][1] = id_1
             elif id_1 == logRho.size: # Neither are aggregated
                 ids[pair] = count
                 count += 1
@@ -562,7 +571,7 @@ class AstroLink:
                 # Create new group
                 groups.append([np.uint32(0), np.uint32(0), np.uint32(2)])
                 prominences.append([np.float32(0.0), logRho[pair[0]]])
-                children.append([np.uint32(0) for i in range(0)])
+                children.append([n for i in range(2)])
             else: # pair[1] is already aggregated (but not pair[0])
                 p_0 = pair[0]
                 ids[p_0] = id_1
@@ -588,7 +597,8 @@ class AstroLink:
                 
                 # Merge
                 groups[id_final][2] += size_leq
-                children[id_final].append(id_leq)
+                children[id_leq][0] = children[id_final][1]
+                children[id_final][1] = id_leq
         aggArr = emptyIntArr
 
         # Ordered list
@@ -597,29 +607,11 @@ class AstroLink:
 
         # Lists to Arrays
         groups = np.array(groups, dtype = np.uint32)
-        prominences = np.array(prominences, dtype = np.float32)
+        prominences = np.array(prominences, dtype = np.float64)
+        children = np.array(children, dtype = np.uint32)
 
-        # Finalise groups and correct for noise
-        activeGroups = [id_final]
-        while activeGroups:
-            id_leq = activeGroups.pop()
-            childIDs = children[id_leq]
-            if childIDs:
-                startAdjust = groups[id_leq][1]
-                activeGroups.extend(childIDs)
-                noise = 0.0
-                for id_geq, childID in enumerate(childIDs):
-                    groups[childID][0] += startAdjust
-                    groups[childID][1] += startAdjust
-                    if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
-                    noise += prominences[childID, 1]**2
-                prominences[id_leq, 0] -= np.sqrt(noise/(id_geq + 1))
-                children[id_leq] = emptyIntList
-
-        # Clean and reorder arrays
-        groups[:, 2] += groups[:, 1]
-        reorder = groups[:, 1].argsort()[1:]
-        return ordering, groups[reorder], prominences[reorder]
+        # Return arrays
+        return ordering, groups, prominences, children, id_final
 
     def compute_significances(self):
         """Computes statistical significances for all groups by fitting a
@@ -848,3 +840,21 @@ class AstroLink:
                 self.ids.append(rootID)
         self.ids = np.array(self.ids)
         self._rejTime = time.perf_counter() - start
+
+@njit(fastmath = True)
+def _adjust_groups_njit(groups, prominences, children, parentID, n):
+    # Finalise groups and correct for noise
+    childIDs = children[parentID]
+    noise, childCount = 0.0, 0
+    for i, childID in enumerate(childIDs):
+        if childID < n:
+            groups[childID][:2] += groups[parentID][i]
+            noiseChildren, numChildren = _adjust_groups_njit(groups, prominences, children, childID, n)
+            if numChildren: prominences[parentID, i] -= np.sqrt(noiseChildren/numChildren)
+            if i == 0:
+                noise += noiseChildren
+                childCount += numChildren
+            else:
+                noise += prominences[childID, 1]**2
+                childCount += 1
+    return noise, childCount

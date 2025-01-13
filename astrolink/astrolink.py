@@ -11,7 +11,7 @@ import os
 import time
 
 # Third-party libraries
-from numba import njit, prange
+from numba import njit, prange, set_num_threads
 import numpy as np
 from pykdtree.kdtree import KDTree
 from scipy.optimize import minimize
@@ -187,6 +187,7 @@ class AstroLink:
         check_workers = 1 <= workers or workers == -1
         assert check_workers, f"Parameter 'workers' must be set as either '-1' or needs to be an integer that is >= 1 (values > N_cpu will be set to N_cpu)"
         os.environ["OMP_NUM_THREADS"] = f"{min(workers, os.cpu_count())}" if workers != -1 else f"{os.cpu_count()}"
+        set_num_threads(min(workers, os.cpu_count()))
         self.workers = workers
         self.verbose = verbose
 

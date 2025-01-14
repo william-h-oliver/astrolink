@@ -768,7 +768,7 @@ class AstroLink:
         normalisationFactor = np.sqrt(np.pi/2)*sigma*(1 + erfTerm) + (1 - c)*uniformTerm
         return n*(np.log(normalisationFactor) + mu**2/twoSigmaSqr) + (1 - 2*mu/twoSigmaSqr)*(lnx_cumsum[transitionPoint] + (n - transitionPoint - 1)*logc) + (lnx_sqrd_cumsum[transitionPoint] + (n - transitionPoint - 1)*logc**2)/twoSigmaSqr
 
-    def extract_clusters(self, rootID = '1'):
+    def extract_clusters(self):
         """Classifies groups that have significance of at least `S` as clusters
         and forms the hierarchy according to the parameter `h_style`.
 
@@ -776,9 +776,9 @@ class AstroLink:
         `h_style` is set to 1, finds the corresponding groups that are also
         statistical outliers. For each of these that are the smallest out of
         those that share the same starting position within the ordered list,
-        classify them too as clusters. Following this, if rootID is not set as
-        `None` then also classify the input data the root cluster.
-        Finally, generate the array of id strings for the clusters.
+        classify them too as clusters. The input data is always classified as 
+        the root cluster in addition to these overdensities. Finally, generate 
+        the array of id strings for the clusters.
 
         This method requires the `groups` attribute to have already been 
         created, via the `aggregate()` method or otherwise. It also requires the 
@@ -787,14 +787,6 @@ class AstroLink:
 
         This method generates the 'clusters', `ids`, and `significances`
         attributes.
-
-        Parameters
-        ----------
-        rootID : `str` or `None`, default = '1'
-            If `rootID` is set as a `str`, it must be in the format 'x-y-...',
-            e.g. '1', '1-2', etc. In this case, a cluster representing the
-            entire input data will appear in the `clusters` attribute.
-            Contrarily, this will not be the case if `rootID` is set to `None`.
         """
 
         if self.verbose > 1: self._printFunction('Finding clusters...       ')
@@ -831,21 +823,20 @@ class AstroLink:
             self.significances = self.significances[reorder]
 
         # Add on root-level cluster
-        if rootID is not None:
-            self.significances = np.concatenate((np.array([np.inf]), self.significances))
-            self.clusters = np.vstack((np.array([[0, self.n_samples]], dtype = np.uint32), self.clusters))
-        else: rootID = '1'
+        self.significances = np.concatenate((np.array([np.inf]), self.significances))
+        self.clusters = np.vstack((np.array([[0, self.n_samples]], dtype = np.uint32), self.clusters))
+        self.ids = ['1']
 
         # Label clusters according to their hierarchy
-        self.ids = []
-        children = []
-        for i, clst in enumerate(self.clusters):
-            children.append(0)
-            parent = next((-j - 1 for j, v in enumerate(self.clusters[:i][::-1]) if clst[0] < v[1] and clst[1] <= v[1]), None)
-            if parent is not None: # Child cluster of parent
-                children[parent] += 1
-                self.ids.append(self.ids[parent] + '-' + str(children[parent]))
-            else: # First root cluster
-                self.ids.append(rootID)
+        currentParents = [0]
+        children = np.zeros(self.clusters.shape[0], dtype = np.uint32)
+        for i, clst in enumerate(self.clusters[1:]):
+            while clst[0] >= self.clusters[currentParents[-1]][1]:
+                currentParents.pop(-1)
+            parent = currentParents[-1]
+            currentParents.append(i + 1)
+            # Assign cluster id to child cluster of parent
+            children[parent] += 1
+            self.ids.append(f"{self.ids[parent]}-{children[parent]}")
         self.ids = np.array(self.ids)
         self._rejTime = time.perf_counter() - start

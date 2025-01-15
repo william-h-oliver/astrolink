@@ -342,6 +342,7 @@ class AstroLink:
             ordered_pairs = self._order_pairs_njit_float32(self.logRho, self.kNN)
             del self.kNN
             self.ordering, self.groups, self.prominences = self._aggregate_njit_float32(self.logRho, ordered_pairs)
+        del ordered_pairs
         self._aggregateTime = time.perf_counter() - start
 
     @staticmethod

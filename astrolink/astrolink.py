@@ -278,17 +278,30 @@ class AstroLink:
 
         if self.verbose > 1: self._printFunction('Computing densities...    ')
         start = time.perf_counter()
+
+        # Empty arrays for logRho and kNN and build kd-tree
         self.logRho = np.empty_like(self.P_transform, shape = (self.n_samples,))
         self.kNN = np.empty((self.n_samples, self.k_link), dtype = np.uint32)
         nbrs = KDTree(self.P_transform)
+
+        # Chunking for memory efficiency
         working_memory = get_config()["working_memory"]
         chunk_n_rows = max(min(int(working_memory * (2**20) // 16*self.k_den), self.n_samples), 1)
+
+        # Estimate densities and find kNN in a memory efficient way
         for sl in gen_batches(self.n_samples, chunk_n_rows):
+            # k-nearest neighbours query
             sqr_distances, indices = nbrs.query(self.P_transform[sl], k = self.k_den, sqr_dists = True)
+
+            # Compute logRho for this slice
             if self.weights is None: self.logRho[sl] = self._compute_logRho_njit(sqr_distances, self.k_den, self.d_intrinsic)
             else: self.logRho[sl] = self._compute_weighted_logRho_njit(sqr_distances, self.weights[indices], self.d_intrinsic)
+
+            # Keep only the k_link nearest neighbours
             self.kNN[sl] = indices[:, :self.k_link]
         del self.P_transform
+
+        # Normalise logRho
         self.logRho = self._normalise_njit(self.logRho)
         self._logRhoTime = time.perf_counter() - start
 

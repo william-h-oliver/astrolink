@@ -255,7 +255,7 @@ class AstroLink:
         P_transform = np.empty_like(P)
         for i in prange(P.shape[-1]):
             std = P[:, i].std()
-            if std > 0: P_transform[:, i] = P[:, i]/P[:, i].std()
+            if std > 0: P_transform[:, i] = P[:, i]/std
         return P_transform
 
     def estimate_density_and_kNN(self):

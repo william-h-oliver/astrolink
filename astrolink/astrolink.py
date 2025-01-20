@@ -281,7 +281,8 @@ class AstroLink:
 
         # Empty arrays for logRho and kNN and build kd-tree
         self.logRho = np.empty_like(self.P_transform, shape = (self.n_samples,))
-        self.kNN = np.empty((self.n_samples, self.k_link), dtype = np.uint32)
+        intType = np.uint32 if self.n_samples < 2**32 - 1 else np.uint64
+        self.kNN = np.empty((self.n_samples, self.k_link), dtype = intType)
         nbrs = KDTree(self.P_transform)
 
         # Chunking for memory efficiency

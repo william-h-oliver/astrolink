@@ -357,9 +357,14 @@ class AstroLink:
         ordered_pairs = pairs[edges.argsort()[::-1]]
         del pairs, edges
 
-        # Aggregate points into groups
-        if self.logRho.dtype == np.float64: self.ordering, self.groups, self.prominences = self._aggregate_njit_float64(self.logRho, ordered_pairs)
-        else: self.ordering, self.groups, self.prominences = self._aggregate_njit_float32(self.logRho, ordered_pairs)
+        # Choose method based on typing and aggregate points into groups
+        typeCase = (self.logRho.dtype == np.float64) + 2*(ordered_pairs.dtype == np.float64)
+        if typeCase == 0: aggregate_func = self._aggregate_njit_float32_uint32
+        elif typeCase == 1: aggregate_func = self._aggregate_njit_float64_uint32
+        elif typeCase == 2: aggregate_func = self._aggregate_njit_float32_uint64
+        elif typeCase == 3: aggregate_func = self._aggregate_njit_float64_uint64
+        else: raise ValueError("Unexpected data type in AstroLink.aggregate()!")
+        self.ordering, self.groups, self.prominences = aggregate_func(self.logRho, ordered_pairs)
         del ordered_pairs
         self._aggregateTime = time.perf_counter() - start
 
@@ -394,7 +399,115 @@ class AstroLink:
 
     @staticmethod
     @njit(fastmath = True)
-    def _aggregate_njit_float64(logRho, ordered_pairs):
+    def _aggregate_njit_float32_uint32(logRho, ordered_pairs):
+        # Empty lists and arrays for...
+        # ... tracking connected components,
+        ids = np.full((logRho.size,), logRho.size, dtype = np.uint32)
+        count = 0
+        aggregations = [[np.uint32(0) for i in range(0)] for i in range(0)]
+        # ... freeing up memory,
+        emptyIntList = [np.uint32(0) for i in range(0)]
+        # ... and tracking groups.
+        groups = [[np.uint32(0) for i in range(0)] for i in range(0)]
+        prominences = [[np.float32(0.0) for i in range(0)] for i in range(0)]
+        children = [[np.uint32(0) for i in range(0)] for i in range(0)]
+
+        # Kruskal's minimum spanning tree + hierarchy tracking
+        for pair in ordered_pairs:
+            id_0, id_1 = ids[pair]
+            if id_0 != logRho.size: # pair[0] is already aggregated
+                if id_0 == id_1: pass # Same group
+                elif id_1 == logRho.size: # pair[1] is not yet aggregated
+                    p_1 = pair[1]
+                    ids[p_1] = id_0
+                    aggregations[id_0].append(p_1)
+                    groups[id_0][2] += 1
+                else: # Different groups -> merge the smaller group into the larger group
+                    # Make id_0 correspond to the larger group
+                    if groups[id_0][2] < groups[id_1][2]: id_0, id_1 = id_1, id_0
+                    
+                    # Update the ids of the smaller group
+                    for id_i in aggregations[id_1]: ids[id_i] = id_0
+                    aggregations[id_0].extend(aggregations[id_1])
+                    aggregations[id_1] = emptyIntList
+                    currLogRho = logRho[pair[1]]
+
+                    # Merge groups
+                    groups[id_1][:2] = groups[id_0][1:]
+                    groups[id_0][2] += groups[id_1][2]
+                    prominences[id_1][0] = prominences[id_0][1] - currLogRho
+                    prominences[id_0][1] = max(prominences[id_0][1], prominences[id_1][1])
+                    prominences[id_1][1] -= currLogRho
+                    children[id_0].append(id_1)
+            elif id_1 == logRho.size: # Neither are aggregated
+                ids[pair] = count
+                count += 1
+                aggregations.append([pair[0], pair[1]])
+
+                # Create new group
+                groups.append([np.uint32(0), np.uint32(0), np.uint32(2)])
+                prominences.append([np.float32(0.0), logRho[pair[0]]])
+                children.append([np.uint32(0) for i in range(0)])
+            else: # pair[1] is already aggregated (but not pair[0])
+                p_0 = pair[0]
+                ids[p_0] = id_1
+                aggregations[id_1].append(p_0)
+                groups[id_1][2] += 1
+                prominences[id_1][1] = max(prominences[id_1][1], logRho[p_0])
+
+        # Check if all points were aggregated together
+        aggArr = np.unique(ids)
+        emptyIntArr = np.empty(0, dtype = np.uint32)
+        ids = emptyIntArr
+        if aggArr.size == 1: id_final = aggArr[0]
+        else: # If points were not all aggregated together, merge them in order of decreasing size.
+            sortedAggregations = sorted(zip([groups[id_i][2] for id_i in aggArr], aggArr))
+            _, id_final = sortedAggregations[-1]
+            for size_leq, id_leq in sortedAggregations[-2::-1]:
+                aggregations[id_final].extend(aggregations[id_leq])
+                aggregations[id_leq] = emptyIntList
+
+                # Track complementary group
+                groups[id_leq][:2] = groups[id_final][1:]
+                prominences[id_leq][0] = prominences[id_final][1]
+                
+                # Merge
+                groups[id_final][2] += size_leq
+                children[id_final].append(id_leq)
+        aggArr = emptyIntArr
+
+        # Ordered list
+        ordering = np.array(aggregations[id_final], dtype = np.uint32)
+        aggregations[id_final] = emptyIntList
+
+        # Lists to Arrays
+        groups = np.array(groups, dtype = np.uint32)
+        prominences = np.array(prominences, dtype = np.float32)
+
+        # Finalise groups and correct for noise
+        activeGroups = [id_final]
+        while activeGroups:
+            id_leq = activeGroups.pop()
+            childIDs = children[id_leq]
+            if childIDs:
+                startAdjust = groups[id_leq][1]
+                activeGroups.extend(childIDs)
+                noise = 0.0
+                for id_geq, childID in enumerate(childIDs):
+                    groups[childID][:2] += startAdjust
+                    if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
+                    noise += prominences[childID, 1]**2
+                prominences[id_leq, 0] -= np.sqrt(noise/(id_geq + 1))
+                children[id_leq] = emptyIntList
+
+        # Clean and reorder arrays
+        groups[:, 2] += groups[:, 1]
+        reorder = groups[:, 1].argsort()[1:]
+        return ordering, groups[reorder], prominences[reorder]
+    
+    @staticmethod
+    @njit(fastmath = True)
+    def _aggregate_njit_float64_uint32(logRho, ordered_pairs):
         # Empty lists and arrays for...
         # ... tracking connected components,
         ids = np.full((logRho.size,), logRho.size, dtype = np.uint32)
@@ -502,18 +615,18 @@ class AstroLink:
 
     @staticmethod
     @njit(fastmath = True)
-    def _aggregate_njit_float32(logRho, ordered_pairs):
+    def _aggregate_njit_float32_uint64(logRho, ordered_pairs):
         # Empty lists and arrays for...
         # ... tracking connected components,
-        ids = np.full((logRho.size,), logRho.size, dtype = np.uint32)
+        ids = np.full((logRho.size,), logRho.size, dtype = np.uint64)
         count = 0
-        aggregations = [[np.uint32(0) for i in range(0)] for i in range(0)]
+        aggregations = [[np.uint64(0) for i in range(0)] for i in range(0)]
         # ... freeing up memory,
-        emptyIntList = [np.uint32(0) for i in range(0)]
+        emptyIntList = [np.uint64(0) for i in range(0)]
         # ... and tracking groups.
-        groups = [[np.uint32(0) for i in range(0)] for i in range(0)]
+        groups = [[np.uint64(0) for i in range(0)] for i in range(0)]
         prominences = [[np.float32(0.0) for i in range(0)] for i in range(0)]
-        children = [[np.uint32(0) for i in range(0)] for i in range(0)]
+        children = [[np.uint64(0) for i in range(0)] for i in range(0)]
 
         # Kruskal's minimum spanning tree + hierarchy tracking
         for pair in ordered_pairs:
@@ -548,9 +661,9 @@ class AstroLink:
                 aggregations.append([pair[0], pair[1]])
 
                 # Create new group
-                groups.append([np.uint32(0), np.uint32(0), np.uint32(2)])
+                groups.append([np.uint64(0), np.uint64(0), np.uint64(2)])
                 prominences.append([np.float32(0.0), logRho[pair[0]]])
-                children.append([np.uint32(0) for i in range(0)])
+                children.append([np.uint64(0) for i in range(0)])
             else: # pair[1] is already aggregated (but not pair[0])
                 p_0 = pair[0]
                 ids[p_0] = id_1
@@ -560,7 +673,7 @@ class AstroLink:
 
         # Check if all points were aggregated together
         aggArr = np.unique(ids)
-        emptyIntArr = np.empty(0, dtype = np.uint32)
+        emptyIntArr = np.empty(0, dtype = np.uint64)
         ids = emptyIntArr
         if aggArr.size == 1: id_final = aggArr[0]
         else: # If points were not all aggregated together, merge them in order of decreasing size.
@@ -580,11 +693,11 @@ class AstroLink:
         aggArr = emptyIntArr
 
         # Ordered list
-        ordering = np.array(aggregations[id_final], dtype = np.uint32)
+        ordering = np.array(aggregations[id_final], dtype = np.uint64)
         aggregations[id_final] = emptyIntList
 
         # Lists to Arrays
-        groups = np.array(groups, dtype = np.uint32)
+        groups = np.array(groups, dtype = np.uint64)
         prominences = np.array(prominences, dtype = np.float32)
 
         # Finalise groups and correct for noise
@@ -607,6 +720,115 @@ class AstroLink:
         groups[:, 2] += groups[:, 1]
         reorder = groups[:, 1].argsort()[1:]
         return ordering, groups[reorder], prominences[reorder]
+
+    @staticmethod
+    @njit(fastmath = True)
+    def _aggregate_njit_float64_uint64(logRho, ordered_pairs):
+        # Empty lists and arrays for...
+        # ... tracking connected components,
+        ids = np.full((logRho.size,), logRho.size, dtype = np.uint64)
+        count = 0
+        aggregations = [[np.uint64(0) for i in range(0)] for i in range(0)]
+        # ... freeing up memory,
+        emptyIntList = [np.uint64(0) for i in range(0)]
+        # ... and tracking groups.
+        groups = [[np.uint64(0) for i in range(0)] for i in range(0)]
+        prominences = [[np.float64(0.0) for i in range(0)] for i in range(0)]
+        children = [[np.uint64(0) for i in range(0)] for i in range(0)]
+
+        # Kruskal's minimum spanning tree + hierarchy tracking
+        for pair in ordered_pairs:
+            id_0, id_1 = ids[pair]
+            if id_0 != logRho.size: # pair[0] is already aggregated
+                if id_0 == id_1: pass # Same group
+                elif id_1 == logRho.size: # pair[1] is not yet aggregated
+                    p_1 = pair[1]
+                    ids[p_1] = id_0
+                    aggregations[id_0].append(p_1)
+                    groups[id_0][2] += 1
+                else: # Different groups -> merge the smaller group into the larger group
+                    # Make id_0 correspond to the larger group
+                    if groups[id_0][2] < groups[id_1][2]: id_0, id_1 = id_1, id_0
+                    
+                    # Update the ids of the smaller group
+                    for id_i in aggregations[id_1]: ids[id_i] = id_0
+                    aggregations[id_0].extend(aggregations[id_1])
+                    aggregations[id_1] = emptyIntList
+                    currLogRho = logRho[pair[1]]
+
+                    # Merge groups
+                    groups[id_1][:2] = groups[id_0][1:]
+                    groups[id_0][2] += groups[id_1][2]
+                    prominences[id_1][0] = prominences[id_0][1] - currLogRho
+                    prominences[id_0][1] = max(prominences[id_0][1], prominences[id_1][1])
+                    prominences[id_1][1] -= currLogRho
+                    children[id_0].append(id_1)
+            elif id_1 == logRho.size: # Neither are aggregated
+                ids[pair] = count
+                count += 1
+                aggregations.append([pair[0], pair[1]])
+
+                # Create new group
+                groups.append([np.uint64(0), np.uint64(0), np.uint64(2)])
+                prominences.append([np.float64(0.0), logRho[pair[0]]])
+                children.append([np.uint64(0) for i in range(0)])
+            else: # pair[1] is already aggregated (but not pair[0])
+                p_0 = pair[0]
+                ids[p_0] = id_1
+                aggregations[id_1].append(p_0)
+                groups[id_1][2] += 1
+                prominences[id_1][1] = max(prominences[id_1][1], logRho[p_0])
+
+        # Check if all points were aggregated together
+        aggArr = np.unique(ids)
+        emptyIntArr = np.empty(0, dtype = np.uint64)
+        ids = emptyIntArr
+        if aggArr.size == 1: id_final = aggArr[0]
+        else: # If points were not all aggregated together, merge them in order of decreasing size.
+            sortedAggregations = sorted(zip([groups[id_i][2] for id_i in aggArr], aggArr))
+            _, id_final = sortedAggregations[-1]
+            for size_leq, id_leq in sortedAggregations[-2::-1]:
+                aggregations[id_final].extend(aggregations[id_leq])
+                aggregations[id_leq] = emptyIntList
+
+                # Track complementary group
+                groups[id_leq][:2] = groups[id_final][1:]
+                prominences[id_leq][0] = prominences[id_final][1]
+                
+                # Merge
+                groups[id_final][2] += size_leq
+                children[id_final].append(id_leq)
+        aggArr = emptyIntArr
+
+        # Ordered list
+        ordering = np.array(aggregations[id_final], dtype = np.uint64)
+        aggregations[id_final] = emptyIntList
+
+        # Lists to Arrays
+        groups = np.array(groups, dtype = np.uint64)
+        prominences = np.array(prominences, dtype = np.float64)
+
+        # Finalise groups and correct for noise
+        activeGroups = [id_final]
+        while activeGroups:
+            id_leq = activeGroups.pop()
+            childIDs = children[id_leq]
+            if childIDs:
+                startAdjust = groups[id_leq][1]
+                activeGroups.extend(childIDs)
+                noise = 0.0
+                for id_geq, childID in enumerate(childIDs):
+                    groups[childID][:2] += startAdjust
+                    if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
+                    noise += prominences[childID, 1]**2
+                prominences[id_leq, 0] -= np.sqrt(noise/(id_geq + 1))
+                children[id_leq] = emptyIntList
+
+        # Clean and reorder arrays
+        groups[:, 2] += groups[:, 1]
+        reorder = groups[:, 1].argsort()[1:]
+        return ordering, groups[reorder], prominences[reorder]
+
 
     def compute_significances(self):
         """Computes statistical significances for all groups by fitting a

@@ -244,14 +244,14 @@ class AstroLink:
         start = time.perf_counter()
         if self.adaptive:
             if self.verbose > 1: self._printFunction('Transforming data...      ')
-            if self.d_features > 1: self.P_transform = self._rescale(self.P)
+            if self.d_features > 1: self.P_transform = self._rescale_njit(self.P)
             else: self.P_transform = self.P/self.P.std()
         else: self.P_transform = self.P
         self._transformTime = time.perf_counter() - start
 
     @staticmethod
     @njit(fastmath = True, parallel = True)
-    def _rescale(P):
+    def _rescale_njit(P):
         P_transform = np.empty_like(P)
         for i in prange(P.shape[-1]):
             std = P[:, i].std()
@@ -285,28 +285,28 @@ class AstroLink:
         chunk_n_rows = max(min(int(working_memory * (2**20) // 16*self.k_den), self.n_samples), 1)
         for sl in gen_batches(self.n_samples, chunk_n_rows):
             sqr_distances, indices = nbrs.query(self.P_transform[sl], k = self.k_den, sqr_dists = True)
-            if self.weights is None: self.logRho[sl] = self._compute_logRho(sqr_distances, self.k_den, self.d_intrinsic)
-            else: self.logRho[sl] = self._compute_weightedLogRho(sqr_distances, self.weights[indices], self.d_intrinsic)
+            if self.weights is None: self.logRho[sl] = self._compute_logRho_njit(sqr_distances, self.k_den, self.d_intrinsic)
+            else: self.logRho[sl] = self._compute_weighted_logRho_njit(sqr_distances, self.weights[indices], self.d_intrinsic)
             self.kNN[sl] = indices[:, :self.k_link]
         del self.P_transform
-        self.logRho = self._normalise(self.logRho)
+        self.logRho = self._normalise_njit(self.logRho)
         self._logRhoTime = time.perf_counter() - start
 
     @staticmethod
     @njit()
-    def _compute_logRho(sqr_distances, k_den, d_intrinsic):
+    def _compute_logRho_njit(sqr_distances, k_den, d_intrinsic):
         coreSqrDist = sqr_distances[:, -1]
         return np.log((k_den - sqr_distances.sum(axis = 1)/coreSqrDist)/coreSqrDist**(d_intrinsic/2))
 
     @staticmethod
     @njit()
-    def _compute_weightedLogRho(sqr_distances, weights, d_intrinsic):
+    def _compute_weighted_logRho_njit(sqr_distances, weights, d_intrinsic):
         coreSqrDist = sqr_distances[:, -1]
         return np.log((weights.sum(axis = 1) - (weights*sqr_distances).sum(axis = 1)/coreSqrDist)/coreSqrDist**(d_intrinsic/2))
 
     @staticmethod
     @njit(fastmath = True)
-    def _normalise(x):
+    def _normalise_njit(x):
         minVal = x[0]
         maxVal = x[0]
         for xi in x[1:]:
@@ -646,7 +646,7 @@ class AstroLink:
         start = time.perf_counter()
 
         # Setup for model fitting
-        self._modelParams, modelArgs, modelBounds, tol, self._modelAICc = self._minimize_init(self.prominences[:, 1])
+        self._modelParams, modelArgs, modelBounds, tol, self._modelAICc = self._minimize_init_njit(self.prominences[:, 1])
 
         # Fit models
         modelNegLLs = [self._negLL_beta, self._negLL_halfnormal, self._negLL_lognormal]
@@ -676,7 +676,7 @@ class AstroLink:
 
     @staticmethod
     @njit(fastmath = True)
-    def _minimize_init(prominences):
+    def _minimize_init_njit(prominences):
         # Precalculated properties of the prominence values
         promOrd = np.sort(prominences)
         cutOff = promOrd[int(0.99*promOrd.size)]

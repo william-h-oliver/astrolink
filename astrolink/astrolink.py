@@ -488,8 +488,7 @@ class AstroLink:
                 activeGroups.extend(childIDs)
                 noise = 0.0
                 for id_geq, childID in enumerate(childIDs):
-                    groups[childID][0] += startAdjust
-                    groups[childID][1] += startAdjust
+                    groups[childID][:2] += startAdjust
                     if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
                     noise += prominences[childID, 1]**2
                 prominences[id_leq, 1] -= np.sqrt(noise/(id_geq + 1))
@@ -597,8 +596,7 @@ class AstroLink:
                 activeGroups.extend(childIDs)
                 noise = 0.0
                 for id_geq, childID in enumerate(childIDs):
-                    groups[childID][0] += startAdjust
-                    groups[childID][1] += startAdjust
+                    groups[childID][:2] += startAdjust
                     if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
                     noise += prominences[childID, 1]**2
                 prominences[id_leq, 0] -= np.sqrt(noise/(id_geq + 1))
@@ -823,7 +821,7 @@ class AstroLink:
                 currentParents.pop(-1)
             parent = currentParents[-1]
             currentParents.append(i + 1)
-            
+
             # Assign cluster id to child cluster of parent
             children[parent] += 1
             self.ids.append(f"{self.ids[parent]}-{children[parent]}")

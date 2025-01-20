@@ -352,7 +352,7 @@ class AstroLink:
         pairs, edges = self._make_graph_njit(self.logRho, self.kNN)
         del self.kNN
 
-        # Order the pairs by descending edge weight
+        # Order the pairs by descending edge weight (faster outside of njit)
         ordered_pairs = pairs[edges.argsort()[::-1]]
         del pairs, edges
 
@@ -818,10 +818,12 @@ class AstroLink:
         currentParents = [0]
         children = np.zeros(self.clusters.shape[0], dtype = np.uint32)
         for i, clst in enumerate(self.clusters[1:]):
+            # Search through hierarchy to find parent cluster
             while clst[0] >= self.clusters[currentParents[-1]][1]:
                 currentParents.pop(-1)
             parent = currentParents[-1]
             currentParents.append(i + 1)
+            
             # Assign cluster id to child cluster of parent
             children[parent] += 1
             self.ids.append(f"{self.ids[parent]}-{children[parent]}")

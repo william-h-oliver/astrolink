@@ -804,7 +804,7 @@ class AstroLink:
             # Merge the hierarchy and clean arrays
             self.clusters = np.vstack((self.clusters, clusters_geq[sl]))
             self.significances = np.concatenate((self.significances, significances_geq[sl]))
-            reorder = np.lexsort((np.arange(self.clusters.shape[0]), self.clusters[:, 0], self.n_samples - self.clusters[:, 1]))
+            reorder = np.lexsort((np.arange(self.clusters.shape[0]), self.n_samples - self.clusters[:, 1], self.clusters[:, 0]))
             self.clusters = self.clusters[reorder]
             self.significances = self.significances[reorder]
 

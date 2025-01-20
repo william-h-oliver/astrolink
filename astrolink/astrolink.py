@@ -829,7 +829,6 @@ class AstroLink:
         reorder = groups[:, 1].argsort()[1:]
         return ordering, groups[reorder], prominences[reorder]
 
-
     def compute_significances(self):
         """Computes statistical significances for all groups by fitting a
         descriptive model to the prominences of groups.

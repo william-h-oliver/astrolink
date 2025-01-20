@@ -334,25 +334,29 @@ class AstroLink:
 
         if self.verbose > 1: self._printFunction('Aggregating points...        ')
         start = time.perf_counter()
-        if self.logRho.dtype == np.float64:
-            ordered_pairs = self._order_pairs_njit_float64(self.logRho, self.kNN)
-            del self.kNN
-            self.ordering, self.groups, self.prominences = self._aggregate_njit_float64(self.logRho, ordered_pairs)
-        else:
-            ordered_pairs = self._order_pairs_njit_float32(self.logRho, self.kNN)
-            del self.kNN
-            self.ordering, self.groups, self.prominences = self._aggregate_njit_float32(self.logRho, ordered_pairs)
+
+        # Construct a graph from the edges between each point and its k_link nearest neighbours
+        pairs, edges = self._make_graph_njit(self.logRho, self.kNN)
+        del self.kNN
+
+        # Order the pairs by descending edge weight
+        ordered_pairs = pairs[edges.argsort()[::-1]]
+        del pairs, edges
+
+        # Aggregate points into groups
+        if self.logRho.dtype == np.float64: self.ordering, self.groups, self.prominences = self._aggregate_njit_float64(self.logRho, ordered_pairs)
+        else: self.ordering, self.groups, self.prominences = self._aggregate_njit_float32(self.logRho, ordered_pairs)
         del ordered_pairs
         self._aggregateTime = time.perf_counter() - start
 
     @staticmethod
     @njit(fastmath = True, parallel = True)
-    def _order_pairs_njit_float64(logRho, kNN):
+    def _make_graph_njit(logRho, kNN):
         # Create empty arrays
         n_samples, k_link = kNN.shape
         graphShape = n_samples*(k_link - 1)
-        edges = np.empty(graphShape, dtype = np.float64)
-        ordered_pairs = np.empty((graphShape, 2), dtype = np.uint32)
+        edges = np.empty(graphShape, dtype = logRho.dtype)
+        pairs = np.empty((graphShape, 2), dtype = kNN.dtype)
 
         # For each pair of vertices find the adjoining edge weight
         for id_i in prange(n_samples):
@@ -361,7 +365,7 @@ class AstroLink:
             for id_j in kNN[id_i]:
                 if id_i != id_j:
                     lr_j = logRho[id_j]
-                    pair_pos = ordered_pairs[pos]
+                    pair_pos = pairs[pos]
                     if lr_i >= lr_j:
                         edges[pos] = lr_j
                         pair_pos[0] = id_i
@@ -372,8 +376,7 @@ class AstroLink:
                         pair_pos[1] = id_i
                     pos += 1
 
-        # Order points by descending edge weight
-        return ordered_pairs[edges.argsort()[::-1]]
+        return pairs, edges
 
     @staticmethod
     @njit(fastmath = True)
@@ -483,36 +486,6 @@ class AstroLink:
         groups[:, 2] += groups[:, 1]
         reorder = groups[:, 1].argsort()[1:]
         return ordering, groups[reorder], prominences[reorder]
-
-    @staticmethod
-    @njit(fastmath = True, parallel = True)
-    def _order_pairs_njit_float32(logRho, kNN):
-        # Create empty arrays
-        n_samples, k_link = kNN.shape
-        graphShape = n_samples*(k_link - 1)
-        edges = np.empty(graphShape, dtype = np.float32)
-        ordered_pairs = np.empty((graphShape, 2), dtype = np.uint32)
-
-        # For each pair of vertices find the adjoining edge weight
-        for id_i in prange(n_samples):
-            lr_i = logRho[id_i]
-            pos = id_i*(k_link - 1)
-            for id_j in kNN[id_i]:
-                if id_i != id_j:
-                    lr_j = logRho[id_j]
-                    pair_pos = ordered_pairs[pos]
-                    if lr_i >= lr_j:
-                        edges[pos] = lr_j
-                        pair_pos[0] = id_i
-                        pair_pos[1] = id_j
-                    else:
-                        edges[pos] = lr_i
-                        pair_pos[0] = id_j
-                        pair_pos[1] = id_i
-                    pos += 1
-                    
-        # Order points by descending edge weight
-        return ordered_pairs[edges.argsort()[::-1]]
 
     @staticmethod
     @njit(fastmath = True)

@@ -18,7 +18,7 @@ from scipy.optimize import minimize
 from scipy.special import beta as beta_fun
 from scipy.special import betainc as betainc_fun
 from scipy.special import erf
-from scipy.stats import norm, beta, halfnorm, lognorm
+from scipy.stats import norm, beta, truncnorm, lognorm
 from sklearn import get_config
 from sklearn.utils import gen_batches
 
@@ -869,12 +869,12 @@ class AstroLink:
         # Choose the best model and calculate statistical significance values
         bestModel = np.argmin(self._modelAICc)
         self.pFit = self._modelParams[bestModel]
-        noiseModels = ['Beta', 'Half-normal', 'Log-normal']
+        noiseModels = ['Beta', 'Truncated-normal', 'Log-normal']
         self._noiseModel = noiseModels[bestModel]
         if self._noiseModel == 'Beta':
             self.groups_sigs = norm.isf(beta.sf(self.prominences, self.pFit[1], self.pFit[2]))
-        elif self._noiseModel == 'Half-normal':
-            self.groups_sigs = norm.isf(halfnorm.sf(self.prominences, 0, self.pFit[1]))
+        elif self._noiseModel == 'Truncated-normal':
+            self.groups_sigs = norm.isf(truncnorm.sf(self.prominences, -self.pFit[1]/self.pFit[2], np.inf, loc = self.pFit[1], scale = self.pFit[2]))
         elif self._noiseModel == 'Log-normal':
             self.groups_sigs = norm.isf(lognorm.sf(self.prominences, self.pFit[2], scale = np.exp(self.pFit[1])))
 
@@ -895,6 +895,7 @@ class AstroLink:
         lnx_cumsum = lnx.cumsum()
         lnx_sqrd_cumsum = (lnx**2).cumsum()
         ln_1_minus_x_cumsum = np.log(1 - promOrdOpenBorder).cumsum()
+        x_cumsum = promOrd.cumsum()
         x_sqrd_cumsum = (promOrd**2).cumsum()
         
         # For Beta model
@@ -904,10 +905,10 @@ class AstroLink:
         modelArgs = [[promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum]]
         modelBounds = [[(tol, 1 - tol), (1 + tol, np.inf), (1, np.inf)]]
         
-        # For Half-normal model
-        modelParams.append(np.array([cutOff, np.sqrt(np.pi/2)*mu]))
-        modelArgs.append([promOrd, x_sqrd_cumsum])
-        modelBounds.append([(tol, 1 - tol), (tol, np.inf)])
+        # For truncated-normal model
+        modelParams.append(np.array([cutOff, 0, np.sqrt(np.pi/2)*mu]))
+        modelArgs.append([promOrd, x_cumsum, x_sqrd_cumsum])
+        modelBounds.append([(tol, 1 - tol), (0, np.inf), (tol, np.inf)])
         
         # For log-normal model
         muSqr = mu**2
@@ -947,19 +948,22 @@ class AstroLink:
         # Calculate and return the negative log-likelihood
         return n*np.log(normalisationFactor) - (a - 1)*lnx_cumsum[transitionPoint] - (b - 1)*ln_1_minus_x_cumsum[transitionPoint] - (n - transitionPoint - 1)*np.log(uniform_term)
 
-    def _negLL_halfnormal(self, p, promOrd, x_sqrd_cumsum):
+    def _negLL_truncatednormal(self, p, promOrd, x_cumsum, x_sqrd_cumsum):
         # Calculate the negative log-likelihood
-        return self._negLL_halfnormal_njit(p, promOrd, x_sqrd_cumsum, erf(p[0]/(np.sqrt(2)*p[1])))
+        diffErfTerm = erf(p[1]/(np.sqrt(2)*p[2])) - erf((p[1] - p[0])/(np.sqrt(2)*p[2]))
+        return self._negLL_truncatednormal_njit(p, promOrd, x_cumsum, x_sqrd_cumsum, diffErfTerm)
 
     @staticmethod
     @njit()
-    def _negLL_halfnormal_njit(p, promOrd, x_sqrd_cumsum, erfTerm):
+    def _negLL_truncatednormal_njit(p, promOrd, x_cumsum, x_sqrd_cumsum, diffErfTerm):
         # Get parameters
-        c, sigma = p
+        c, mu, sigma = p
         n = promOrd.size
 
         # Calculate constant terms
-        cSqr, twoSigmaSqr = c**2, 2*sigma**2
+        twoSigmaSqr = 2*sigma**2
+        halfZSqr = (c - mu)**2/twoSigmaSqr
+        normalisationFactor = np.sqrt(np.pi/2)*sigma*diffErfTerm + (1 - c)*np.exp(-halfZSqr)
 
         # Find the index of the first prominence that is greater than c
         transitionPoint, right = 0, n - 1
@@ -969,7 +973,7 @@ class AstroLink:
             else: right = middle
 
         # Calculate and return the negative log-likelihood
-        return n*np.log(np.sqrt(np.pi/2)*sigma*erfTerm + (1 - c)*np.exp(-cSqr/twoSigmaSqr)) + (x_sqrd_cumsum[transitionPoint] + (n - transitionPoint - 1)*cSqr)/twoSigmaSqr
+        return n*np.log(normalisationFactor) + (x_sqrd_cumsum[transitionPoint] - 2*mu*x_cumsum[transitionPoint] + (transitionPoint + 1)*mu**2)/twoSigmaSqr + (n - transitionPoint - 1)*halfZSqr
 
     def _negLL_lognormal(self, p, promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum):
         # Calculate the negative log-likelihood
@@ -1024,7 +1028,7 @@ class AstroLink:
         # Classify clusters as groups that are significant outliers
         if self.S == 'auto':
             if self._noiseModel == 'Beta': self.S = norm.isf(beta.sf(self.pFit[0], self.pFit[1], self.pFit[2]))
-            elif self._noiseModel == 'Half-normal': self.S = norm.isf(halfnorm.sf(self.pFit[0], 0, self.pFit[1]))
+            elif self._noiseModel == 'Half-normal': self.S = norm.isf(truncnorm.sf(self.pFit[0], -self.pFit[1]/self.pFit[2], np.inf, loc = self.pFit[1], scale = self.pFit[2]))
             elif self._noiseModel == 'Log-normal': self.S = norm.isf(lognorm.sf(self.pFit[0], self.pFit[2], scale = np.exp(self.pFit[1])))
         sl = self.groups_sigs[:, 1] >= self.S
         self.clusters = self.groups[sl, 1:]

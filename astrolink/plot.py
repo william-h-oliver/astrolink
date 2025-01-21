@@ -197,7 +197,7 @@ def prominenceModel(clusterer, ax = None, histKwargs = {}, modelKwargs = {}, cut
     # Set default histogram, model, and cutoff kwargs
     histKwargs['density'] = True
     histKwargs['histtype'] = 'stepfilled'
-    if ('color' not in histKwargs) and ('fc' not in histKwargs) and ('facecolor' not in histKwargs): histKwargs['facecolor'] = mcolors.to_rgba('k', alpha = 0.2)
+    if ('color' not in histKwargs) and ('fc' not in histKwargs) and ('facecolor' not in histKwargs): histKwargs['facecolor'] = np.array([mcolors.to_rgba('k', alpha = 0.2)])
     if ('color' not in histKwargs) and ('ec' not in histKwargs) and ('edgecolor' not in histKwargs): histKwargs['edgecolor'] = 'k'
     if ('lw' not in histKwargs) and ('linewidth' not in histKwargs): histKwargs['lw'] = 1
     if ('c' not in modelKwargs) and ('color' not in modelKwargs): modelKwargs['c'] = 'red'

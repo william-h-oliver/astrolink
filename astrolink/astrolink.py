@@ -855,7 +855,7 @@ class AstroLink:
         self._modelParams, modelArgs, modelBounds, tol, self._modelAICc = self._minimize_init_njit(self.prominences[:, 1])
 
         # Fit models
-        modelNegLLs = [self._negLL_beta, self._negLL_halfnormal, self._negLL_lognormal]
+        modelNegLLs = [self._negLL_beta, self._negLL_truncatednormal, self._negLL_lognormal]
         self._modelSuccess = np.ones(self._modelAICc.size, dtype = np.bool_)
         for i, (negLL, params, args, bounds) in enumerate(zip(modelNegLLs, self._modelParams, modelArgs, modelBounds)):
             sol = minimize(negLL, params, args = tuple(args), jac = '3-point', bounds = tuple(bounds), tol = tol)

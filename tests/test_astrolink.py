@@ -31,41 +31,36 @@ def test_astrolink():
 
     # Run jitted methods in python mode for increased test coverage, these are tested in the runs above and in their salient outputs below
     # _rescale()
-    arr = clusterer._rescale.py_func(clusterer.P)
+    arr = clusterer._rescale_njit.py_func(clusterer.P)
 
     # _compute_logRho()
     sqr_distances = np.sort(np.random.uniform(0, 1, (clusterer.n_samples, clusterer.k_den)), axis = 1)
-    arr = clusterer._compute_logRho.py_func(sqr_distances, clusterer.k_den, clusterer.d_features)
-    arr = clusterer._compute_weightedLogRho.py_func(sqr_distances, np.ones_like(sqr_distances), clusterer.d_features)
+    arr = clusterer._compute_logRho_njit.py_func(sqr_distances, clusterer.k_den, clusterer.d_features)
+    arr = clusterer._compute_weighted_logRho_njit.py_func(sqr_distances, np.ones_like(sqr_distances), clusterer.d_features)
 
     # _normalise()
     x = np.random.uniform(0, 1, 100)
-    arr = clusterer._normalise.py_func(x)
+    arr = clusterer._normalise_njit.py_func(x)
 
-    # _normalise()
-    x = np.random.uniform(0, 1, 100)
-    arr = clusterer._normalise.py_func(x)
-
-    # order_pairs_njit_float32() and aggregate_njit_float32()
+    # _make_graph_njit()
     c = AstroLink(P.astype(np.float32))
     c.transform_data()
     c.estimate_density_and_kNN()
-    ordered_pairs = c._order_pairs_njit_float32(c.logRho, c.kNN)
-    arr1, arr2, arr3 = c._aggregate_njit_float32.py_func(c.logRho, ordered_pairs)
+    pairs, edges = c._make_graph_njit.py_func(c.logRho, c.kNN)
+    ordered_pairs = pairs[edges.argsort()[::-1]]
 
-    # order_pairs_njit_float64() and aggregate_njit_float64()
-    c = AstroLink(P)
-    c.transform_data()
-    c.estimate_density_and_kNN()
-    ordered_pairs = c._order_pairs_njit_float64(c.logRho, c.kNN)
-    arr1, arr2, arr3 = c._aggregate_njit_float64.py_func(c.logRho, ordered_pairs)
+    # _aggregate_njit_floatXX_uintXX()
+    arr1, arr2, arr3 = c._aggregate_njit_float32_uint32.py_func(c.logRho.astype(np.float32), ordered_pairs.astype(np.uint32))
+    arr1, arr2, arr3 = c._aggregate_njit_float32_uint64.py_func(c.logRho.astype(np.float32), ordered_pairs.astype(np.uint64))
+    arr1, arr2, arr3 = c._aggregate_njit_float64_uint32.py_func(c.logRho.astype(np.float64), ordered_pairs.astype(np.uint32))
+    arr1, arr2, arr3 = c._aggregate_njit_float64_uint64.py_func(c.logRho.astype(np.float64), ordered_pairs.astype(np.uint64))
     del c, arr1, arr2, arr3
 
     # _minimize_init()
-    modelParams, modelArgs, _, _, _ = clusterer._minimize_init.py_func(clusterer.prominences[:, 0])
+    modelParams, modelArgs, _, _, _ = clusterer._minimize_init_njit.py_func(clusterer.prominences[:, 0])
 
     # _negLL_**_njit() functions
-    modelNegLLs = [clusterer._negLL_beta_njit.py_func, clusterer._negLL_halfnormal_njit.py_func, clusterer._negLL_lognormal_njit.py_func]
+    modelNegLLs = [clusterer._negLL_beta_njit.py_func, clusterer._negLL_truncatednormal_njit.py_func, clusterer._negLL_lognormal_njit.py_func]
     for negLL, params, args in zip(modelNegLLs, modelParams, modelArgs):
         num = negLL(params, *args, 0.5)
     del num, modelNegLLs, modelParams, modelArgs

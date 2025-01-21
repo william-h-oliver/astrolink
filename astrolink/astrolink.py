@@ -18,7 +18,7 @@ from scipy.optimize import minimize
 from scipy.special import beta as beta_fun
 from scipy.special import betainc as betainc_fun
 from scipy.special import erf
-from scipy.stats import norm, beta, halfnorm, lognorm
+from scipy.stats import norm, beta, truncnorm, lognorm
 from sklearn import get_config
 from sklearn.utils import gen_batches
 
@@ -244,18 +244,18 @@ class AstroLink:
         start = time.perf_counter()
         if self.adaptive:
             if self.verbose > 1: self._printFunction('Transforming data...      ')
-            if self.d_features > 1: self.P_transform = self._rescale(self.P)
+            if self.d_features > 1: self.P_transform = self._rescale_njit(self.P)
             else: self.P_transform = self.P/self.P.std()
         else: self.P_transform = self.P
         self._transformTime = time.perf_counter() - start
 
     @staticmethod
     @njit(fastmath = True, parallel = True)
-    def _rescale(P):
+    def _rescale_njit(P):
         P_transform = np.empty_like(P)
         for i in prange(P.shape[-1]):
             std = P[:, i].std()
-            if std > 0: P_transform[:, i] = P[:, i]/P[:, i].std()
+            if std > 0: P_transform[:, i] = P[:, i]/std
         return P_transform
 
     def estimate_density_and_kNN(self):
@@ -278,35 +278,49 @@ class AstroLink:
 
         if self.verbose > 1: self._printFunction('Computing densities...    ')
         start = time.perf_counter()
+
+        # Empty arrays for logRho and kNN and build kd-tree
         self.logRho = np.empty_like(self.P_transform, shape = (self.n_samples,))
-        self.kNN = np.empty((self.n_samples, self.k_link), dtype = np.uint32)
+        intType = np.uint32 if self.n_samples < 2**32 - 1 else np.uint64
+        self.kNN = np.empty((self.n_samples, self.k_link), dtype = intType)
         nbrs = KDTree(self.P_transform)
+
+        # Chunking for memory efficiency
         working_memory = get_config()["working_memory"]
         chunk_n_rows = max(min(int(working_memory * (2**20) // 16*self.k_den), self.n_samples), 1)
+
+        # Estimate densities and find kNN in a memory efficient way
         for sl in gen_batches(self.n_samples, chunk_n_rows):
+            # k-nearest neighbours query
             sqr_distances, indices = nbrs.query(self.P_transform[sl], k = self.k_den, sqr_dists = True)
-            if self.weights is None: self.logRho[sl] = self._compute_logRho(sqr_distances, self.k_den, self.d_intrinsic)
-            else: self.logRho[sl] = self._compute_weightedLogRho(sqr_distances, self.weights[indices], self.d_intrinsic)
+
+            # Compute logRho for this slice
+            if self.weights is None: self.logRho[sl] = self._compute_logRho_njit(sqr_distances, self.k_den, self.d_intrinsic)
+            else: self.logRho[sl] = self._compute_weighted_logRho_njit(sqr_distances, self.weights[indices], self.d_intrinsic)
+
+            # Keep only the k_link nearest neighbours
             self.kNN[sl] = indices[:, :self.k_link]
         del self.P_transform
-        self.logRho = self._normalise(self.logRho)
+
+        # Normalise logRho
+        self.logRho = self._normalise_njit(self.logRho)
         self._logRhoTime = time.perf_counter() - start
 
     @staticmethod
     @njit()
-    def _compute_logRho(sqr_distances, k_den, d_intrinsic):
+    def _compute_logRho_njit(sqr_distances, k_den, d_intrinsic):
         coreSqrDist = sqr_distances[:, -1]
         return np.log((k_den - sqr_distances.sum(axis = 1)/coreSqrDist)/coreSqrDist**(d_intrinsic/2))
 
     @staticmethod
     @njit()
-    def _compute_weightedLogRho(sqr_distances, weights, d_intrinsic):
+    def _compute_weighted_logRho_njit(sqr_distances, weights, d_intrinsic):
         coreSqrDist = sqr_distances[:, -1]
         return np.log((weights.sum(axis = 1) - (weights*sqr_distances).sum(axis = 1)/coreSqrDist)/coreSqrDist**(d_intrinsic/2))
 
     @staticmethod
     @njit(fastmath = True)
-    def _normalise(x):
+    def _normalise_njit(x):
         minVal = x[0]
         maxVal = x[0]
         for xi in x[1:]:
@@ -334,25 +348,34 @@ class AstroLink:
 
         if self.verbose > 1: self._printFunction('Aggregating points...        ')
         start = time.perf_counter()
-        if self.logRho.dtype == np.float64:
-            ordered_pairs = self._order_pairs_njit_float64(self.logRho, self.kNN)
-            del self.kNN
-            self.ordering, self.groups, self.prominences = self._aggregate_njit_float64(self.logRho, ordered_pairs)
-        else:
-            ordered_pairs = self._order_pairs_njit_float32(self.logRho, self.kNN)
-            del self.kNN
-            self.ordering, self.groups, self.prominences = self._aggregate_njit_float32(self.logRho, ordered_pairs)
+
+        # Construct a graph from the edges between each point and its k_link nearest neighbours
+        pairs, edges = self._make_graph_njit(self.logRho, self.kNN)
+        del self.kNN
+
+        # Order the pairs by descending edge weight (faster outside of njit)
+        ordered_pairs = pairs[edges.argsort()[::-1]]
+        del pairs, edges
+
+        # Choose method based on typing and aggregate points into groups
+        typeCase = (self.logRho.dtype == np.float64) + 2*(ordered_pairs.dtype == np.float64)
+        if typeCase == 0: aggregate_func = self._aggregate_njit_float32_uint32
+        elif typeCase == 1: aggregate_func = self._aggregate_njit_float64_uint32
+        elif typeCase == 2: aggregate_func = self._aggregate_njit_float32_uint64
+        elif typeCase == 3: aggregate_func = self._aggregate_njit_float64_uint64
+        else: raise ValueError("Unexpected data type in AstroLink.aggregate()!")
+        self.ordering, self.groups, self.prominences = aggregate_func(self.logRho, ordered_pairs)
         del ordered_pairs
         self._aggregateTime = time.perf_counter() - start
 
     @staticmethod
     @njit(fastmath = True, parallel = True)
-    def _order_pairs_njit_float64(logRho, kNN):
+    def _make_graph_njit(logRho, kNN):
         # Create empty arrays
         n_samples, k_link = kNN.shape
         graphShape = n_samples*(k_link - 1)
-        edges = np.empty(graphShape, dtype = np.float64)
-        ordered_pairs = np.empty((graphShape, 2), dtype = np.uint32)
+        edges = np.empty(graphShape, dtype = logRho.dtype)
+        pairs = np.empty((graphShape, 2), dtype = kNN.dtype)
 
         # For each pair of vertices find the adjoining edge weight
         for id_i in prange(n_samples):
@@ -361,7 +384,7 @@ class AstroLink:
             for id_j in kNN[id_i]:
                 if id_i != id_j:
                     lr_j = logRho[id_j]
-                    pair_pos = ordered_pairs[pos]
+                    pair_pos = pairs[pos]
                     if lr_i >= lr_j:
                         edges[pos] = lr_j
                         pair_pos[0] = id_i
@@ -372,151 +395,11 @@ class AstroLink:
                         pair_pos[1] = id_i
                     pos += 1
 
-        # Order points by descending edge weight
-        return ordered_pairs[edges.argsort()[::-1]]
+        return pairs, edges
 
     @staticmethod
     @njit(fastmath = True)
-    def _aggregate_njit_float64(logRho, ordered_pairs):
-        # Empty lists and arrays for...
-        # ... tracking connected components,
-        ids = np.full((logRho.size,), logRho.size, dtype = np.uint32)
-        count = 0
-        aggregations = [[np.uint32(0) for i in range(0)] for i in range(0)]
-        # ... tracking groups,
-        groups = [[np.uint32(0) for i in range(0)] for i in range(0)]
-        prominences = [[np.float64(0.0) for i in range(0)] for i in range(0)]
-        children = [[np.uint32(0) for i in range(0)] for i in range(0)]
-        # ... and freeing up memory.
-        emptyIntList = [np.uint32(0) for i in range(0)]
-
-        # Kruskal's minimum spanning tree + hierarchy tracking
-        for pair in ordered_pairs:
-            id_0, id_1 = ids[pair]
-            if id_0 != logRho.size: # pair[0] is already aggregated
-                if id_0 == id_1: pass # Same group
-                elif id_1 == logRho.size: # pair[1] is not yet aggregated
-                    p_1 = pair[1]
-                    ids[p_1] = id_0
-                    aggregations[id_0].append(p_1)
-                    groups[id_0][2] += 1
-                else: # Different groups -> merge the smaller group into the larger group
-                    # Make id_0 correspond to the larger group
-                    if groups[id_0][2] < groups[id_1][2]: id_0, id_1 = id_1, id_0
-                    
-                    # Update the ids of the smaller group
-                    for id_i in aggregations[id_1]: ids[id_i] = id_0
-                    aggregations[id_0].extend(aggregations[id_1])
-                    aggregations[id_1] = emptyIntList
-                    currLogRho = logRho[pair[1]]
-
-                    # Merge groups
-                    groups[id_1][:2] = groups[id_0][1:]
-                    groups[id_0][2] += groups[id_1][2]
-                    prominences[id_1][0] = prominences[id_0][1] - currLogRho
-                    prominences[id_0][1] = max(prominences[id_0][1], prominences[id_1][1])
-                    prominences[id_1][1] -= currLogRho
-                    children[id_0].append(id_1)
-            elif id_1 == logRho.size: # Neither are aggregated
-                ids[pair] = count
-                count += 1
-                aggregations.append([pair[0], pair[1]])
-
-                # Create new group
-                groups.append([np.uint32(0), np.uint32(0), np.uint32(2)])
-                prominences.append([np.float64(0.0), logRho[pair[0]]])
-                children.append([np.uint32(0) for i in range(0)])
-            else: # pair[1] is already aggregated (but not pair[0])
-                p_0 = pair[0]
-                ids[p_0] = id_1
-                aggregations[id_1].append(p_0)
-                groups[id_1][2] += 1
-                prominences[id_1][1] = max(prominences[id_1][1], logRho[p_0])
-
-        # Check if all points were aggregated together
-        aggArr = np.unique(ids)
-        emptyIntArr = np.empty(0, dtype = np.uint32)
-        ids = emptyIntArr
-        if aggArr.size == 1: id_final = aggArr[0]
-        else: # If points were not all aggregated together, merge them in order of decreasing size.
-            sortedAggregations = sorted(zip([groups[id_i][2] for id_i in aggArr], aggArr))
-            _, id_final = sortedAggregations[-1]
-            for size_leq, id_leq in sortedAggregations[-2::-1]:
-                aggregations[id_final].extend(aggregations[id_leq])
-                aggregations[id_leq] = emptyIntList
-
-                # Track complementary group
-                groups[id_leq][:2] = groups[id_final][1:]
-                prominences[id_leq][0] = prominences[id_final][1]
-                
-                # Merge
-                groups[id_final][2] += size_leq
-                children[id_final].append(id_leq)
-        aggArr = emptyIntArr
-
-        # Ordered list
-        ordering = np.array(aggregations[id_final], dtype = np.uint32)
-        aggregations[id_final] = emptyIntList
-
-        # Lists to Arrays
-        groups = np.array(groups, dtype = np.uint32)
-        prominences = np.array(prominences, dtype = np.float64)
-
-        # Finalise groups and correct for noise
-        activeGroups = [id_final]
-        while activeGroups:
-            id_leq = activeGroups.pop()
-            childIDs = children[id_leq]
-            if childIDs:
-                startAdjust = groups[id_leq][1]
-                activeGroups.extend(childIDs)
-                noise = 0.0
-                for id_geq, childID in enumerate(childIDs):
-                    groups[childID][0] += startAdjust
-                    groups[childID][1] += startAdjust
-                    if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
-                    noise += prominences[childID, 1]**2
-                prominences[id_leq, 1] -= np.sqrt(noise/(id_geq + 1))
-                children[id_leq] = emptyIntList
-
-        # Clean and reorder arrays
-        groups[:, 2] += groups[:, 1]
-        reorder = groups[:, 1].argsort()[1:]
-        return ordering, groups[reorder], prominences[reorder]
-
-    @staticmethod
-    @njit(fastmath = True, parallel = True)
-    def _order_pairs_njit_float32(logRho, kNN):
-        # Create empty arrays
-        n_samples, k_link = kNN.shape
-        graphShape = n_samples*(k_link - 1)
-        edges = np.empty(graphShape, dtype = np.float32)
-        ordered_pairs = np.empty((graphShape, 2), dtype = np.uint32)
-
-        # For each pair of vertices find the adjoining edge weight
-        for id_i in prange(n_samples):
-            lr_i = logRho[id_i]
-            pos = id_i*(k_link - 1)
-            for id_j in kNN[id_i]:
-                if id_i != id_j:
-                    lr_j = logRho[id_j]
-                    pair_pos = ordered_pairs[pos]
-                    if lr_i >= lr_j:
-                        edges[pos] = lr_j
-                        pair_pos[0] = id_i
-                        pair_pos[1] = id_j
-                    else:
-                        edges[pos] = lr_i
-                        pair_pos[0] = id_j
-                        pair_pos[1] = id_i
-                    pos += 1
-                    
-        # Order points by descending edge weight
-        return ordered_pairs[edges.argsort()[::-1]]
-
-    @staticmethod
-    @njit(fastmath = True)
-    def _aggregate_njit_float32(logRho, ordered_pairs):
+    def _aggregate_njit_float32_uint32(logRho, ordered_pairs):
         # Empty lists and arrays for...
         # ... tracking connected components,
         ids = np.full((logRho.size,), logRho.size, dtype = np.uint32)
@@ -611,8 +494,331 @@ class AstroLink:
                 activeGroups.extend(childIDs)
                 noise = 0.0
                 for id_geq, childID in enumerate(childIDs):
-                    groups[childID][0] += startAdjust
-                    groups[childID][1] += startAdjust
+                    groups[childID][:2] += startAdjust
+                    if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
+                    noise += prominences[childID, 1]**2
+                prominences[id_leq, 0] -= np.sqrt(noise/(id_geq + 1))
+                children[id_leq] = emptyIntList
+
+        # Clean and reorder arrays
+        groups[:, 2] += groups[:, 1]
+        reorder = groups[:, 1].argsort()[1:]
+        return ordering, groups[reorder], prominences[reorder]
+    
+    @staticmethod
+    @njit(fastmath = True)
+    def _aggregate_njit_float64_uint32(logRho, ordered_pairs):
+        # Empty lists and arrays for...
+        # ... tracking connected components,
+        ids = np.full((logRho.size,), logRho.size, dtype = np.uint32)
+        count = 0
+        aggregations = [[np.uint32(0) for i in range(0)] for i in range(0)]
+        # ... tracking groups,
+        groups = [[np.uint32(0) for i in range(0)] for i in range(0)]
+        prominences = [[np.float64(0.0) for i in range(0)] for i in range(0)]
+        children = [[np.uint32(0) for i in range(0)] for i in range(0)]
+        # ... and freeing up memory.
+        emptyIntList = [np.uint32(0) for i in range(0)]
+
+        # Kruskal's minimum spanning tree + hierarchy tracking
+        for pair in ordered_pairs:
+            id_0, id_1 = ids[pair]
+            if id_0 != logRho.size: # pair[0] is already aggregated
+                if id_0 == id_1: pass # Same group
+                elif id_1 == logRho.size: # pair[1] is not yet aggregated
+                    p_1 = pair[1]
+                    ids[p_1] = id_0
+                    aggregations[id_0].append(p_1)
+                    groups[id_0][2] += 1
+                else: # Different groups -> merge the smaller group into the larger group
+                    # Make id_0 correspond to the larger group
+                    if groups[id_0][2] < groups[id_1][2]: id_0, id_1 = id_1, id_0
+                    
+                    # Update the ids of the smaller group
+                    for id_i in aggregations[id_1]: ids[id_i] = id_0
+                    aggregations[id_0].extend(aggregations[id_1])
+                    aggregations[id_1] = emptyIntList
+                    currLogRho = logRho[pair[1]]
+
+                    # Merge groups
+                    groups[id_1][:2] = groups[id_0][1:]
+                    groups[id_0][2] += groups[id_1][2]
+                    prominences[id_1][0] = prominences[id_0][1] - currLogRho
+                    prominences[id_0][1] = max(prominences[id_0][1], prominences[id_1][1])
+                    prominences[id_1][1] -= currLogRho
+                    children[id_0].append(id_1)
+            elif id_1 == logRho.size: # Neither are aggregated
+                ids[pair] = count
+                count += 1
+                aggregations.append([pair[0], pair[1]])
+
+                # Create new group
+                groups.append([np.uint32(0), np.uint32(0), np.uint32(2)])
+                prominences.append([np.float64(0.0), logRho[pair[0]]])
+                children.append([np.uint32(0) for i in range(0)])
+            else: # pair[1] is already aggregated (but not pair[0])
+                p_0 = pair[0]
+                ids[p_0] = id_1
+                aggregations[id_1].append(p_0)
+                groups[id_1][2] += 1
+                prominences[id_1][1] = max(prominences[id_1][1], logRho[p_0])
+
+        # Check if all points were aggregated together
+        aggArr = np.unique(ids)
+        emptyIntArr = np.empty(0, dtype = np.uint32)
+        ids = emptyIntArr
+        if aggArr.size == 1: id_final = aggArr[0]
+        else: # If points were not all aggregated together, merge them in order of decreasing size.
+            sortedAggregations = sorted(zip([groups[id_i][2] for id_i in aggArr], aggArr))
+            _, id_final = sortedAggregations[-1]
+            for size_leq, id_leq in sortedAggregations[-2::-1]:
+                aggregations[id_final].extend(aggregations[id_leq])
+                aggregations[id_leq] = emptyIntList
+
+                # Track complementary group
+                groups[id_leq][:2] = groups[id_final][1:]
+                prominences[id_leq][0] = prominences[id_final][1]
+                
+                # Merge
+                groups[id_final][2] += size_leq
+                children[id_final].append(id_leq)
+        aggArr = emptyIntArr
+
+        # Ordered list
+        ordering = np.array(aggregations[id_final], dtype = np.uint32)
+        aggregations[id_final] = emptyIntList
+
+        # Lists to Arrays
+        groups = np.array(groups, dtype = np.uint32)
+        prominences = np.array(prominences, dtype = np.float64)
+
+        # Finalise groups and correct for noise
+        activeGroups = [id_final]
+        while activeGroups:
+            id_leq = activeGroups.pop()
+            childIDs = children[id_leq]
+            if childIDs:
+                startAdjust = groups[id_leq][1]
+                activeGroups.extend(childIDs)
+                noise = 0.0
+                for id_geq, childID in enumerate(childIDs):
+                    groups[childID][:2] += startAdjust
+                    if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
+                    noise += prominences[childID, 1]**2
+                prominences[id_leq, 1] -= np.sqrt(noise/(id_geq + 1))
+                children[id_leq] = emptyIntList
+
+        # Clean and reorder arrays
+        groups[:, 2] += groups[:, 1]
+        reorder = groups[:, 1].argsort()[1:]
+        return ordering, groups[reorder], prominences[reorder]
+
+    @staticmethod
+    @njit(fastmath = True)
+    def _aggregate_njit_float32_uint64(logRho, ordered_pairs):
+        # Empty lists and arrays for...
+        # ... tracking connected components,
+        ids = np.full((logRho.size,), logRho.size, dtype = np.uint64)
+        count = 0
+        aggregations = [[np.uint64(0) for i in range(0)] for i in range(0)]
+        # ... freeing up memory,
+        emptyIntList = [np.uint64(0) for i in range(0)]
+        # ... and tracking groups.
+        groups = [[np.uint64(0) for i in range(0)] for i in range(0)]
+        prominences = [[np.float32(0.0) for i in range(0)] for i in range(0)]
+        children = [[np.uint64(0) for i in range(0)] for i in range(0)]
+
+        # Kruskal's minimum spanning tree + hierarchy tracking
+        for pair in ordered_pairs:
+            id_0, id_1 = ids[pair]
+            if id_0 != logRho.size: # pair[0] is already aggregated
+                if id_0 == id_1: pass # Same group
+                elif id_1 == logRho.size: # pair[1] is not yet aggregated
+                    p_1 = pair[1]
+                    ids[p_1] = id_0
+                    aggregations[id_0].append(p_1)
+                    groups[id_0][2] += 1
+                else: # Different groups -> merge the smaller group into the larger group
+                    # Make id_0 correspond to the larger group
+                    if groups[id_0][2] < groups[id_1][2]: id_0, id_1 = id_1, id_0
+                    
+                    # Update the ids of the smaller group
+                    for id_i in aggregations[id_1]: ids[id_i] = id_0
+                    aggregations[id_0].extend(aggregations[id_1])
+                    aggregations[id_1] = emptyIntList
+                    currLogRho = logRho[pair[1]]
+
+                    # Merge groups
+                    groups[id_1][:2] = groups[id_0][1:]
+                    groups[id_0][2] += groups[id_1][2]
+                    prominences[id_1][0] = prominences[id_0][1] - currLogRho
+                    prominences[id_0][1] = max(prominences[id_0][1], prominences[id_1][1])
+                    prominences[id_1][1] -= currLogRho
+                    children[id_0].append(id_1)
+            elif id_1 == logRho.size: # Neither are aggregated
+                ids[pair] = count
+                count += 1
+                aggregations.append([pair[0], pair[1]])
+
+                # Create new group
+                groups.append([np.uint64(0), np.uint64(0), np.uint64(2)])
+                prominences.append([np.float32(0.0), logRho[pair[0]]])
+                children.append([np.uint64(0) for i in range(0)])
+            else: # pair[1] is already aggregated (but not pair[0])
+                p_0 = pair[0]
+                ids[p_0] = id_1
+                aggregations[id_1].append(p_0)
+                groups[id_1][2] += 1
+                prominences[id_1][1] = max(prominences[id_1][1], logRho[p_0])
+
+        # Check if all points were aggregated together
+        aggArr = np.unique(ids)
+        emptyIntArr = np.empty(0, dtype = np.uint64)
+        ids = emptyIntArr
+        if aggArr.size == 1: id_final = aggArr[0]
+        else: # If points were not all aggregated together, merge them in order of decreasing size.
+            sortedAggregations = sorted(zip([groups[id_i][2] for id_i in aggArr], aggArr))
+            _, id_final = sortedAggregations[-1]
+            for size_leq, id_leq in sortedAggregations[-2::-1]:
+                aggregations[id_final].extend(aggregations[id_leq])
+                aggregations[id_leq] = emptyIntList
+
+                # Track complementary group
+                groups[id_leq][:2] = groups[id_final][1:]
+                prominences[id_leq][0] = prominences[id_final][1]
+                
+                # Merge
+                groups[id_final][2] += size_leq
+                children[id_final].append(id_leq)
+        aggArr = emptyIntArr
+
+        # Ordered list
+        ordering = np.array(aggregations[id_final], dtype = np.uint64)
+        aggregations[id_final] = emptyIntList
+
+        # Lists to Arrays
+        groups = np.array(groups, dtype = np.uint64)
+        prominences = np.array(prominences, dtype = np.float32)
+
+        # Finalise groups and correct for noise
+        activeGroups = [id_final]
+        while activeGroups:
+            id_leq = activeGroups.pop()
+            childIDs = children[id_leq]
+            if childIDs:
+                startAdjust = groups[id_leq][1]
+                activeGroups.extend(childIDs)
+                noise = 0.0
+                for id_geq, childID in enumerate(childIDs):
+                    groups[childID][:2] += startAdjust
+                    if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
+                    noise += prominences[childID, 1]**2
+                prominences[id_leq, 0] -= np.sqrt(noise/(id_geq + 1))
+                children[id_leq] = emptyIntList
+
+        # Clean and reorder arrays
+        groups[:, 2] += groups[:, 1]
+        reorder = groups[:, 1].argsort()[1:]
+        return ordering, groups[reorder], prominences[reorder]
+
+    @staticmethod
+    @njit(fastmath = True)
+    def _aggregate_njit_float64_uint64(logRho, ordered_pairs):
+        # Empty lists and arrays for...
+        # ... tracking connected components,
+        ids = np.full((logRho.size,), logRho.size, dtype = np.uint64)
+        count = 0
+        aggregations = [[np.uint64(0) for i in range(0)] for i in range(0)]
+        # ... freeing up memory,
+        emptyIntList = [np.uint64(0) for i in range(0)]
+        # ... and tracking groups.
+        groups = [[np.uint64(0) for i in range(0)] for i in range(0)]
+        prominences = [[np.float64(0.0) for i in range(0)] for i in range(0)]
+        children = [[np.uint64(0) for i in range(0)] for i in range(0)]
+
+        # Kruskal's minimum spanning tree + hierarchy tracking
+        for pair in ordered_pairs:
+            id_0, id_1 = ids[pair]
+            if id_0 != logRho.size: # pair[0] is already aggregated
+                if id_0 == id_1: pass # Same group
+                elif id_1 == logRho.size: # pair[1] is not yet aggregated
+                    p_1 = pair[1]
+                    ids[p_1] = id_0
+                    aggregations[id_0].append(p_1)
+                    groups[id_0][2] += 1
+                else: # Different groups -> merge the smaller group into the larger group
+                    # Make id_0 correspond to the larger group
+                    if groups[id_0][2] < groups[id_1][2]: id_0, id_1 = id_1, id_0
+                    
+                    # Update the ids of the smaller group
+                    for id_i in aggregations[id_1]: ids[id_i] = id_0
+                    aggregations[id_0].extend(aggregations[id_1])
+                    aggregations[id_1] = emptyIntList
+                    currLogRho = logRho[pair[1]]
+
+                    # Merge groups
+                    groups[id_1][:2] = groups[id_0][1:]
+                    groups[id_0][2] += groups[id_1][2]
+                    prominences[id_1][0] = prominences[id_0][1] - currLogRho
+                    prominences[id_0][1] = max(prominences[id_0][1], prominences[id_1][1])
+                    prominences[id_1][1] -= currLogRho
+                    children[id_0].append(id_1)
+            elif id_1 == logRho.size: # Neither are aggregated
+                ids[pair] = count
+                count += 1
+                aggregations.append([pair[0], pair[1]])
+
+                # Create new group
+                groups.append([np.uint64(0), np.uint64(0), np.uint64(2)])
+                prominences.append([np.float64(0.0), logRho[pair[0]]])
+                children.append([np.uint64(0) for i in range(0)])
+            else: # pair[1] is already aggregated (but not pair[0])
+                p_0 = pair[0]
+                ids[p_0] = id_1
+                aggregations[id_1].append(p_0)
+                groups[id_1][2] += 1
+                prominences[id_1][1] = max(prominences[id_1][1], logRho[p_0])
+
+        # Check if all points were aggregated together
+        aggArr = np.unique(ids)
+        emptyIntArr = np.empty(0, dtype = np.uint64)
+        ids = emptyIntArr
+        if aggArr.size == 1: id_final = aggArr[0]
+        else: # If points were not all aggregated together, merge them in order of decreasing size.
+            sortedAggregations = sorted(zip([groups[id_i][2] for id_i in aggArr], aggArr))
+            _, id_final = sortedAggregations[-1]
+            for size_leq, id_leq in sortedAggregations[-2::-1]:
+                aggregations[id_final].extend(aggregations[id_leq])
+                aggregations[id_leq] = emptyIntList
+
+                # Track complementary group
+                groups[id_leq][:2] = groups[id_final][1:]
+                prominences[id_leq][0] = prominences[id_final][1]
+                
+                # Merge
+                groups[id_final][2] += size_leq
+                children[id_final].append(id_leq)
+        aggArr = emptyIntArr
+
+        # Ordered list
+        ordering = np.array(aggregations[id_final], dtype = np.uint64)
+        aggregations[id_final] = emptyIntList
+
+        # Lists to Arrays
+        groups = np.array(groups, dtype = np.uint64)
+        prominences = np.array(prominences, dtype = np.float64)
+
+        # Finalise groups and correct for noise
+        activeGroups = [id_final]
+        while activeGroups:
+            id_leq = activeGroups.pop()
+            childIDs = children[id_leq]
+            if childIDs:
+                startAdjust = groups[id_leq][1]
+                activeGroups.extend(childIDs)
+                noise = 0.0
+                for id_geq, childID in enumerate(childIDs):
+                    groups[childID][:2] += startAdjust
                     if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
                     noise += prominences[childID, 1]**2
                 prominences[id_leq, 0] -= np.sqrt(noise/(id_geq + 1))
@@ -646,10 +852,10 @@ class AstroLink:
         start = time.perf_counter()
 
         # Setup for model fitting
-        self._modelParams, modelArgs, modelBounds, tol, self._modelAICc = self._minimize_init(self.prominences[:, 1])
+        self._modelParams, modelArgs, modelBounds, tol, self._modelAICc = self._minimize_init_njit(self.prominences[:, 1])
 
         # Fit models
-        modelNegLLs = [self._negLL_beta, self._negLL_halfnormal, self._negLL_lognormal]
+        modelNegLLs = [self._negLL_beta, self._negLL_truncatednormal, self._negLL_lognormal]
         self._modelSuccess = np.ones(self._modelAICc.size, dtype = np.bool_)
         for i, (negLL, params, args, bounds) in enumerate(zip(modelNegLLs, self._modelParams, modelArgs, modelBounds)):
             sol = minimize(negLL, params, args = tuple(args), jac = '3-point', bounds = tuple(bounds), tol = tol)
@@ -663,12 +869,12 @@ class AstroLink:
         # Choose the best model and calculate statistical significance values
         bestModel = np.argmin(self._modelAICc)
         self.pFit = self._modelParams[bestModel]
-        noiseModels = ['Beta', 'Half-normal', 'Log-normal']
+        noiseModels = ['Beta', 'Truncated-normal', 'Log-normal']
         self._noiseModel = noiseModels[bestModel]
         if self._noiseModel == 'Beta':
             self.groups_sigs = norm.isf(beta.sf(self.prominences, self.pFit[1], self.pFit[2]))
-        elif self._noiseModel == 'Half-normal':
-            self.groups_sigs = norm.isf(halfnorm.sf(self.prominences, 0, self.pFit[1]))
+        elif self._noiseModel == 'Truncated-normal':
+            self.groups_sigs = norm.isf(truncnorm.sf(self.prominences, -self.pFit[1]/self.pFit[2], np.inf, loc = self.pFit[1], scale = self.pFit[2]))
         elif self._noiseModel == 'Log-normal':
             self.groups_sigs = norm.isf(lognorm.sf(self.prominences, self.pFit[2], scale = np.exp(self.pFit[1])))
 
@@ -676,12 +882,12 @@ class AstroLink:
 
     @staticmethod
     @njit(fastmath = True)
-    def _minimize_init(prominences):
+    def _minimize_init_njit(prominences):
         # Precalculated properties of the prominence values
         promOrd = np.sort(prominences)
-        cutOff = promOrd[int(0.99*promOrd.size)]
+        cutOff = promOrd[int(0.6*promOrd.size)]
         mu, var = promOrd.mean(), promOrd.var()
-        tol = 1e-5
+        tol = min(1e-5, 10**(-np.ceil(np.log10(prominences.size)) + 1))
         
         # Precalculated transforms of the prominence values
         promOrdOpenBorder = promOrd[np.logical_and(promOrd > 0, promOrd < 1)]
@@ -689,6 +895,7 @@ class AstroLink:
         lnx_cumsum = lnx.cumsum()
         lnx_sqrd_cumsum = (lnx**2).cumsum()
         ln_1_minus_x_cumsum = np.log(1 - promOrdOpenBorder).cumsum()
+        x_cumsum = promOrd.cumsum()
         x_sqrd_cumsum = (promOrd**2).cumsum()
         
         # For Beta model
@@ -698,10 +905,10 @@ class AstroLink:
         modelArgs = [[promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum]]
         modelBounds = [[(tol, 1 - tol), (1 + tol, np.inf), (1, np.inf)]]
         
-        # For Half-normal model
-        modelParams.append(np.array([cutOff, np.sqrt(np.pi/2)*mu]))
-        modelArgs.append([promOrd, x_sqrd_cumsum])
-        modelBounds.append([(tol, 1 - tol), (tol, np.inf)])
+        # For truncated-normal model
+        modelParams.append(np.array([cutOff, promOrd[int(0.1*promOrd.size)], np.sqrt(np.pi/2)*mu]))
+        modelArgs.append([promOrd, x_cumsum, x_sqrd_cumsum])
+        modelBounds.append([(tol, 1 - tol), (0, np.inf), (tol, np.inf)])
         
         # For log-normal model
         muSqr = mu**2
@@ -717,56 +924,81 @@ class AstroLink:
         return modelParams, modelArgs, modelBounds, tol, modelAICc
 
     def _negLL_beta(self, p, promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum):
+        # Calculate the negative log-likelihood
         return self._negLL_beta_njit(p, promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))
 
     @staticmethod
     @njit()
     def _negLL_beta_njit(p, promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum, norm_constant):
+        # Get parameters
         c, a, b = p
         n = promOrdOpenBorder.size
+
+        # Calculate constant terms
+        uniform_term = (c**(a - 1))*((1 - c)**(b - 1))
+        normalisationFactor = norm_constant + uniform_term*(1 - c)
+
+        # Find the index of the first prominence that is greater than c
         transitionPoint, right = 0, lnx_cumsum.size - 1
         while right - transitionPoint > 1:
             middle = (right - transitionPoint)//2 + transitionPoint
             if promOrdOpenBorder[middle] < c: transitionPoint = middle
             else: right = middle
-        uniform_term = (c**(a - 1))*((1 - c)**(b - 1))
-        normalisationFactor = norm_constant + uniform_term*(1 - c)
+        
+        # Calculate and return the negative log-likelihood
         return n*np.log(normalisationFactor) - (a - 1)*lnx_cumsum[transitionPoint] - (b - 1)*ln_1_minus_x_cumsum[transitionPoint] - (n - transitionPoint - 1)*np.log(uniform_term)
 
-    def _negLL_halfnormal(self, p, promOrd, x_sqrd_cumsum):
-        return self._negLL_halfnormal_njit(p, promOrd, x_sqrd_cumsum, erf(p[0]/(np.sqrt(2)*p[1])))
+    def _negLL_truncatednormal(self, p, promOrd, x_cumsum, x_sqrd_cumsum):
+        # Calculate the negative log-likelihood
+        diffErfTerm = erf(p[1]/(np.sqrt(2)*p[2])) - erf((p[1] - p[0])/(np.sqrt(2)*p[2]))
+        return self._negLL_truncatednormal_njit(p, promOrd, x_cumsum, x_sqrd_cumsum, diffErfTerm)
 
     @staticmethod
     @njit()
-    def _negLL_halfnormal_njit(p, promOrd, x_sqrd_cumsum, erfTerm):
-        c, sigma = p
-        cSqr, twoSigmaSqr = c**2, 2*sigma**2
+    def _negLL_truncatednormal_njit(p, promOrd, x_cumsum, x_sqrd_cumsum, diffErfTerm):
+        # Get parameters
+        c, mu, sigma = p
         n = promOrd.size
+
+        # Calculate constant terms
+        twoSigmaSqr = 2*sigma**2
+        halfZSqr = (c - mu)**2/twoSigmaSqr
+        normalisationFactor = np.sqrt(np.pi/2)*sigma*diffErfTerm + (1 - c)*np.exp(-halfZSqr)
+
         # Find the index of the first prominence that is greater than c
         transitionPoint, right = 0, n - 1
         while right - transitionPoint > 1:
             middle = (right - transitionPoint)//2 + transitionPoint
             if promOrd[middle] < c: transitionPoint = middle
             else: right = middle
-        return n*np.log(np.sqrt(np.pi/2)*sigma*erfTerm + (1 - c)*np.exp(-cSqr/twoSigmaSqr)) + (x_sqrd_cumsum[transitionPoint] + (n - transitionPoint - 1)*cSqr)/twoSigmaSqr
+
+        # Calculate and return the negative log-likelihood
+        return n*np.log(normalisationFactor) + (x_sqrd_cumsum[transitionPoint] - 2*mu*x_cumsum[transitionPoint] + (transitionPoint + 1)*mu**2)/twoSigmaSqr + (n - transitionPoint - 1)*halfZSqr
 
     def _negLL_lognormal(self, p, promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum):
+        # Calculate the negative log-likelihood
         return self._negLL_lognormal_njit(p, promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum, erf((np.log(p[0]) - p[1])/(np.sqrt(2)*p[2])))
 
     @staticmethod
     @njit()
     def _negLL_lognormal_njit(p, promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum, erfTerm):
+        # Get parameters
         c, mu, sigma = p
-        logc, twoSigmaSqr = np.log(c), 2*sigma**2
         n = promOrdOpenBorder.size
+
+        # Calculate constant terms
+        logc, twoSigmaSqr = np.log(c), 2*sigma**2
+        uniformTerm = np.exp(-(logc - mu)**2/twoSigmaSqr)/c
+        normalisationFactor = np.sqrt(np.pi/2)*sigma*(1 + erfTerm) + (1 - c)*uniformTerm
+
         # Find the index of the first prominence that is greater than c
         transitionPoint, right = 0, n - 1
         while right - transitionPoint > 1:
             middle = (right - transitionPoint)//2 + transitionPoint
             if promOrdOpenBorder[middle] < c: transitionPoint = middle
             else: right = middle
-        uniformTerm = np.exp(-(logc - mu)**2/twoSigmaSqr)/c
-        normalisationFactor = np.sqrt(np.pi/2)*sigma*(1 + erfTerm) + (1 - c)*uniformTerm
+        
+        # Calculate and return the negative log-likelihood
         return n*(np.log(normalisationFactor) + mu**2/twoSigmaSqr) + (1 - 2*mu/twoSigmaSqr)*(lnx_cumsum[transitionPoint] + (n - transitionPoint - 1)*logc) + (lnx_sqrd_cumsum[transitionPoint] + (n - transitionPoint - 1)*logc**2)/twoSigmaSqr
 
     def extract_clusters(self):
@@ -796,7 +1028,7 @@ class AstroLink:
         # Classify clusters as groups that are significant outliers
         if self.S == 'auto':
             if self._noiseModel == 'Beta': self.S = norm.isf(beta.sf(self.pFit[0], self.pFit[1], self.pFit[2]))
-            elif self._noiseModel == 'Half-normal': self.S = norm.isf(halfnorm.sf(self.pFit[0], 0, self.pFit[1]))
+            elif self._noiseModel == 'Truncated-normal': self.S = norm.isf(truncnorm.sf(self.pFit[0], -self.pFit[1]/self.pFit[2], np.inf, loc = self.pFit[1], scale = self.pFit[2]))
             elif self._noiseModel == 'Log-normal': self.S = norm.isf(lognorm.sf(self.pFit[0], self.pFit[2], scale = np.exp(self.pFit[1])))
         sl = self.groups_sigs[:, 1] >= self.S
         self.clusters = self.groups[sl, 1:]
@@ -819,7 +1051,7 @@ class AstroLink:
             # Merge the hierarchy and clean arrays
             self.clusters = np.vstack((self.clusters, clusters_geq[sl]))
             self.significances = np.concatenate((self.significances, significances_geq[sl]))
-            reorder = np.array(sorted(np.arange(self.clusters.shape[0]), key = lambda i: [self.clusters[i, 0], self.n_samples - self.clusters[i, 1]]), dtype = np.uint32)
+            reorder = np.lexsort((np.arange(self.clusters.shape[0]), self.n_samples - self.clusters[:, 1], self.clusters[:, 0]))
             self.clusters = self.clusters[reorder]
             self.significances = self.significances[reorder]
 
@@ -832,10 +1064,12 @@ class AstroLink:
         currentParents = [0]
         children = np.zeros(self.clusters.shape[0], dtype = np.uint32)
         for i, clst in enumerate(self.clusters[1:]):
+            # Search through hierarchy to find parent cluster
             while clst[0] >= self.clusters[currentParents[-1]][1]:
                 currentParents.pop(-1)
             parent = currentParents[-1]
             currentParents.append(i + 1)
+
             # Assign cluster id to child cluster of parent
             children[parent] += 1
             self.ids.append(f"{self.ids[parent]}-{children[parent]}")

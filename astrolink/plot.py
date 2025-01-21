@@ -9,7 +9,7 @@ License: MIT
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-from scipy.stats import norm, beta, halfnorm, lognorm
+from scipy.stats import norm, beta, truncnorm, lognorm
 
 def orderedDensity(clusterer, ax = None, plotKwargs = {}, fillKwargs = {}):
     """
@@ -197,7 +197,7 @@ def prominenceModel(clusterer, ax = None, histKwargs = {}, modelKwargs = {}, cut
     # Set default histogram, model, and cutoff kwargs
     histKwargs['density'] = True
     histKwargs['histtype'] = 'stepfilled'
-    if ('color' not in histKwargs) and ('fc' not in histKwargs) and ('facecolor' not in histKwargs): histKwargs['facecolor'] = mcolors.to_rgba('k', alpha = 0.2)
+    if ('color' not in histKwargs) and ('fc' not in histKwargs) and ('facecolor' not in histKwargs): histKwargs['facecolor'] = np.array([mcolors.to_rgba('k', alpha = 0.2)])
     if ('color' not in histKwargs) and ('ec' not in histKwargs) and ('edgecolor' not in histKwargs): histKwargs['edgecolor'] = 'k'
     if ('lw' not in histKwargs) and ('linewidth' not in histKwargs): histKwargs['lw'] = 1
     if ('c' not in modelKwargs) and ('color' not in modelKwargs): modelKwargs['c'] = 'red'
@@ -214,7 +214,7 @@ def prominenceModel(clusterer, ax = None, histKwargs = {}, modelKwargs = {}, cut
     # Plot fitted prominence model
     xs = np.linspace(0, 1, 10**4)
     if clusterer._noiseModel == 'Beta': ys = beta.pdf(xs, clusterer.pFit[1], clusterer.pFit[2])
-    elif clusterer._noiseModel == 'Half-normal': ys = halfnorm.pdf(xs, 0, clusterer.pFit[1])
+    elif clusterer._noiseModel == 'Truncated-normal': ys = truncnorm.pdf(xs, -clusterer.pFit[1]/clusterer.pFit[2], np.inf, loc = clusterer.pFit[1], scale = clusterer.pFit[2])
     elif clusterer._noiseModel == 'Log-normal': ys = lognorm.pdf(xs, clusterer.pFit[2], scale = np.exp(clusterer.pFit[1]))
     line, = ax.plot(xs, ys, **modelKwargs)
 
@@ -273,7 +273,7 @@ def significanceModel(clusterer, ax = None, histKwargs = {}, modelKwargs = {}, c
     histKwargs['density'] = True
     histKwargs['histtype'] = 'stepfilled'
     if 'bins' not in histKwargs: histKwargs['bins'] = 'fd'
-    if ('color' not in histKwargs) and ('fc' not in histKwargs) and ('facecolor' not in histKwargs): histKwargs['facecolor'] = mcolors.to_rgba('k', alpha = 0.2)
+    if ('color' not in histKwargs) and ('fc' not in histKwargs) and ('facecolor' not in histKwargs): histKwargs['facecolor'] = np.array([mcolors.to_rgba('k', alpha = 0.2)])
     if ('color' not in histKwargs) and ('ec' not in histKwargs) and ('edgecolor' not in histKwargs): histKwargs['edgecolor'] = 'k'
     if ('lw' not in histKwargs) and ('linewidth' not in histKwargs): histKwargs['lw'] = 1
     if ('c' not in modelKwargs) and ('color' not in modelKwargs): modelKwargs['c'] = 'red'

@@ -885,9 +885,9 @@ class AstroLink:
     def _minimize_init_njit(prominences):
         # Precalculated properties of the prominence values
         promOrd = np.sort(prominences)
-        cutOff = promOrd[int(0.99*promOrd.size)]
+        cutOff = promOrd[int(0.6*promOrd.size)]
         mu, var = promOrd.mean(), promOrd.var()
-        tol = 1e-5
+        tol = min(1e-5, 10**(-np.ceil(np.log10(prominences.size)) + 1))
         
         # Precalculated transforms of the prominence values
         promOrdOpenBorder = promOrd[np.logical_and(promOrd > 0, promOrd < 1)]
@@ -906,7 +906,7 @@ class AstroLink:
         modelBounds = [[(tol, 1 - tol), (1 + tol, np.inf), (1, np.inf)]]
         
         # For truncated-normal model
-        modelParams.append(np.array([cutOff, 0, np.sqrt(np.pi/2)*mu]))
+        modelParams.append(np.array([cutOff, promOrd[int(0.1*promOrd.size)], np.sqrt(np.pi/2)*mu]))
         modelArgs.append([promOrd, x_cumsum, x_sqrd_cumsum])
         modelBounds.append([(tol, 1 - tol), (0, np.inf), (tol, np.inf)])
         

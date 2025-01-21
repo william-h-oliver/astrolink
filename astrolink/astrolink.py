@@ -1028,7 +1028,7 @@ class AstroLink:
         # Classify clusters as groups that are significant outliers
         if self.S == 'auto':
             if self._noiseModel == 'Beta': self.S = norm.isf(beta.sf(self.pFit[0], self.pFit[1], self.pFit[2]))
-            elif self._noiseModel == 'Half-normal': self.S = norm.isf(truncnorm.sf(self.pFit[0], -self.pFit[1]/self.pFit[2], np.inf, loc = self.pFit[1], scale = self.pFit[2]))
+            elif self._noiseModel == 'Truncated-normal': self.S = norm.isf(truncnorm.sf(self.pFit[0], -self.pFit[1]/self.pFit[2], np.inf, loc = self.pFit[1], scale = self.pFit[2]))
             elif self._noiseModel == 'Log-normal': self.S = norm.isf(lognorm.sf(self.pFit[0], self.pFit[2], scale = np.exp(self.pFit[1])))
         sl = self.groups_sigs[:, 1] >= self.S
         self.clusters = self.groups[sl, 1:]

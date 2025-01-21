@@ -923,56 +923,78 @@ class AstroLink:
         return modelParams, modelArgs, modelBounds, tol, modelAICc
 
     def _negLL_beta(self, p, promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum):
+        # Calculate the negative log-likelihood
         return self._negLL_beta_njit(p, promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))
 
     @staticmethod
     @njit()
     def _negLL_beta_njit(p, promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum, norm_constant):
+        # Get parameters
         c, a, b = p
         n = promOrdOpenBorder.size
+
+        # Calculate constant terms
+        uniform_term = (c**(a - 1))*((1 - c)**(b - 1))
+        normalisationFactor = norm_constant + uniform_term*(1 - c)
+
+        # Find the index of the first prominence that is greater than c
         transitionPoint, right = 0, lnx_cumsum.size - 1
         while right - transitionPoint > 1:
             middle = (right - transitionPoint)//2 + transitionPoint
             if promOrdOpenBorder[middle] < c: transitionPoint = middle
             else: right = middle
-        uniform_term = (c**(a - 1))*((1 - c)**(b - 1))
-        normalisationFactor = norm_constant + uniform_term*(1 - c)
+        
+        # Calculate and return the negative log-likelihood
         return n*np.log(normalisationFactor) - (a - 1)*lnx_cumsum[transitionPoint] - (b - 1)*ln_1_minus_x_cumsum[transitionPoint] - (n - transitionPoint - 1)*np.log(uniform_term)
 
     def _negLL_halfnormal(self, p, promOrd, x_sqrd_cumsum):
+        # Calculate the negative log-likelihood
         return self._negLL_halfnormal_njit(p, promOrd, x_sqrd_cumsum, erf(p[0]/(np.sqrt(2)*p[1])))
 
     @staticmethod
     @njit()
     def _negLL_halfnormal_njit(p, promOrd, x_sqrd_cumsum, erfTerm):
+        # Get parameters
         c, sigma = p
-        cSqr, twoSigmaSqr = c**2, 2*sigma**2
         n = promOrd.size
+
+        # Calculate constant terms
+        cSqr, twoSigmaSqr = c**2, 2*sigma**2
+
         # Find the index of the first prominence that is greater than c
         transitionPoint, right = 0, n - 1
         while right - transitionPoint > 1:
             middle = (right - transitionPoint)//2 + transitionPoint
             if promOrd[middle] < c: transitionPoint = middle
             else: right = middle
+
+        # Calculate and return the negative log-likelihood
         return n*np.log(np.sqrt(np.pi/2)*sigma*erfTerm + (1 - c)*np.exp(-cSqr/twoSigmaSqr)) + (x_sqrd_cumsum[transitionPoint] + (n - transitionPoint - 1)*cSqr)/twoSigmaSqr
 
     def _negLL_lognormal(self, p, promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum):
+        # Calculate the negative log-likelihood
         return self._negLL_lognormal_njit(p, promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum, erf((np.log(p[0]) - p[1])/(np.sqrt(2)*p[2])))
 
     @staticmethod
     @njit()
     def _negLL_lognormal_njit(p, promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum, erfTerm):
+        # Get parameters
         c, mu, sigma = p
-        logc, twoSigmaSqr = np.log(c), 2*sigma**2
         n = promOrdOpenBorder.size
+
+        # Calculate constant terms
+        logc, twoSigmaSqr = np.log(c), 2*sigma**2
+        uniformTerm = np.exp(-(logc - mu)**2/twoSigmaSqr)/c
+        normalisationFactor = np.sqrt(np.pi/2)*sigma*(1 + erfTerm) + (1 - c)*uniformTerm
+
         # Find the index of the first prominence that is greater than c
         transitionPoint, right = 0, n - 1
         while right - transitionPoint > 1:
             middle = (right - transitionPoint)//2 + transitionPoint
             if promOrdOpenBorder[middle] < c: transitionPoint = middle
             else: right = middle
-        uniformTerm = np.exp(-(logc - mu)**2/twoSigmaSqr)/c
-        normalisationFactor = np.sqrt(np.pi/2)*sigma*(1 + erfTerm) + (1 - c)*uniformTerm
+        
+        # Calculate and return the negative log-likelihood
         return n*(np.log(normalisationFactor) + mu**2/twoSigmaSqr) + (1 - 2*mu/twoSigmaSqr)*(lnx_cumsum[transitionPoint] + (n - transitionPoint - 1)*logc) + (lnx_sqrd_cumsum[transitionPoint] + (n - transitionPoint - 1)*logc**2)/twoSigmaSqr
 
     def extract_clusters(self):

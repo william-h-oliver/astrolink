@@ -858,7 +858,7 @@ class AstroLink:
         modelNegLLs = [self._negLL_beta, self._negLL_truncatednormal, self._negLL_lognormal]
         self._modelSuccess = np.ones(self._modelAICc.size, dtype = np.bool_)
         for i, (negLL, params, args, bounds) in enumerate(zip(modelNegLLs, self._modelParams, modelArgs, modelBounds)):
-            sol = minimize(negLL, params, args = tuple(args), jac = '3-point', bounds = tuple(bounds), tol = tol)
+            sol = minimize(negLL, params, args = tuple(args), method = 'TNC', jac = '3-point', bounds = tuple(bounds), tol = tol)
             if sol.success: self._modelParams[i] = sol.x
             else: self._modelSuccess[i] = False
             self._modelAICc[i] += 2*sol.fun
@@ -885,9 +885,9 @@ class AstroLink:
     def _minimize_init_njit(prominences):
         # Precalculated properties of the prominence values
         promOrd = np.sort(prominences)
-        cutOff = promOrd[int(0.6*promOrd.size)]
+        cutOff = promOrd[int(0.99*promOrd.size)]
         mu, var = promOrd.mean(), promOrd.var()
-        tol = min(1e-5, 10**(-np.ceil(np.log10(prominences.size)) + 1))
+        tol = min(1e-5, 10**(-np.ceil(np.log10(prominences.size))))
         
         # Precalculated transforms of the prominence values
         promOrdOpenBorder = promOrd[np.logical_and(promOrd > 0, promOrd < 1)]
@@ -901,12 +901,12 @@ class AstroLink:
         # For Beta model
         term1 = 1 - mu
         term2 = mu*term1/var - 1
-        modelParams = [np.array([cutOff, term2*mu, term2*term1])]
+        modelParams = [np.array([cutOff, term2*mu, term1/mu])]
         modelArgs = [[promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum]]
         modelBounds = [[(tol, 1 - tol), (1 + tol, np.inf), (1, np.inf)]]
         
         # For truncated-normal model
-        modelParams.append(np.array([cutOff, promOrd[int(0.1*promOrd.size)], np.sqrt(np.pi/2)*mu]))
+        modelParams.append(np.array([cutOff, 0, np.sqrt(var/(1 - 2/np.pi))]))
         modelArgs.append([promOrd, x_cumsum, x_sqrd_cumsum])
         modelBounds.append([(tol, 1 - tol), (0, np.inf), (tol, np.inf)])
         
@@ -931,22 +931,23 @@ class AstroLink:
     @njit()
     def _negLL_beta_njit(p, promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum, norm_constant):
         # Get parameters
-        c, a, b = p
+        c, a, m = p
+        b = m*a
         n = promOrdOpenBorder.size
 
         # Calculate constant terms
-        uniform_term = (c**(a - 1))*((1 - c)**(b - 1))
-        normalisationFactor = norm_constant + uniform_term*(1 - c)
+        log_uniform_term = (a - 1)*np.log(c) + (b - 1)*np.log(1 - c)
+        normalisationFactor = norm_constant + (1 - c)*np.exp(log_uniform_term)
 
         # Find the index of the first prominence that is greater than c
-        transitionPoint, right = 0, lnx_cumsum.size - 1
+        transitionPoint, right = 0, n - 1
         while right - transitionPoint > 1:
             middle = (right - transitionPoint)//2 + transitionPoint
             if promOrdOpenBorder[middle] < c: transitionPoint = middle
             else: right = middle
         
         # Calculate and return the negative log-likelihood
-        return n*np.log(normalisationFactor) - (a - 1)*lnx_cumsum[transitionPoint] - (b - 1)*ln_1_minus_x_cumsum[transitionPoint] - (n - transitionPoint - 1)*np.log(uniform_term)
+        return n*np.log(normalisationFactor) - (a - 1)*lnx_cumsum[transitionPoint] - (b - 1)*ln_1_minus_x_cumsum[transitionPoint] - (n - transitionPoint - 1)*log_uniform_term
 
     def _negLL_truncatednormal(self, p, promOrd, x_cumsum, x_sqrd_cumsum):
         # Calculate the negative log-likelihood

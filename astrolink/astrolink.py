@@ -901,7 +901,7 @@ class AstroLink:
         # For Beta model
         term1 = 1 - mu
         term2 = mu*term1/var - 1
-        modelParams = [np.array([cutOff, term2*mu, term1/mu])]
+        modelParams = [np.array([cutOff, max(term2*mu, 1 + tol), term1/mu])]
         modelArgs = [[promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum]]
         modelBounds = [[(tol, 1 - tol), (1 + tol, np.inf), (1, np.inf)]]
         

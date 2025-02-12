@@ -839,8 +839,8 @@ class AstroLink:
         model (with model-fitted parameters) is then used alongside the standard 
         normal distribution to transform prominence values into statistical 
         significance values. The noise model is chosen from among the Beta, 
-        Half-normal, and Log-normal distributions using the second-order Akaike 
-        Information Criterion (AICc).
+        Truncated-normal, and Log-normal distributions using the second-order 
+        Akaike Information Criterion (AICc).
 
         The method requires the `prominences` attribute to have already been 
         created, via the `aggregate` method or otherwise.
@@ -858,13 +858,16 @@ class AstroLink:
         modelNegLLs = [self._negLL_beta, self._negLL_truncatednormal, self._negLL_lognormal]
         self._modelSuccess = np.ones(self._modelAICc.size, dtype = np.bool_)
         for i, (negLL, params, args, bounds) in enumerate(zip(modelNegLLs, self._modelParams, modelArgs, modelBounds)):
-            sol = minimize(negLL, params, args = tuple(args), method = 'TNC', jac = '3-point', bounds = tuple(bounds), tol = tol)
-            if sol.success: self._modelParams[i] = sol.x
-            else: self._modelSuccess[i] = False
-            self._modelAICc[i] += 2*sol.fun
+            sol = minimize(negLL, params, args = tuple(args), jac = '3-point', bounds = tuple(bounds), tol = tol)
+            if sol.success:
+                self._modelParams[i] = sol.x
+                self._modelAICc[i] += 2*sol.fun
+            else:
+                self._modelSuccess[i] = False
+                self._modelAICc[i] = np.inf
         del modelNegLLs, modelArgs, modelBounds, tol
 
-        if not self._modelSuccess.any(): self._printFunction('[Warning] Prominence model may be incorrectly fitted!', returnLine = False, urgent = True)
+        if not self._modelSuccess.any(): self._printFunction('[Warning] Prominence model is incorrectly fitted!', returnLine = False, urgent = True)
 
         # Choose the best model and calculate statistical significance values
         bestModel = np.argmin(self._modelAICc)
@@ -887,7 +890,7 @@ class AstroLink:
         promOrd = np.sort(prominences)
         cutOff = promOrd[int(0.99*promOrd.size)]
         mu, var = promOrd.mean(), promOrd.var()
-        tol = min(1e-5, 10**(-np.ceil(np.log10(prominences.size))))
+        tol = min(1e-5, 10**(-np.ceil(np.log10(prominences.size)) + 1))
         
         # Precalculated transforms of the prominence values
         promOrdOpenBorder = promOrd[np.logical_and(promOrd > 0, promOrd < 1)]
@@ -901,7 +904,11 @@ class AstroLink:
         # For Beta model
         term1 = 1 - mu
         term2 = mu*term1/var - 1
-        modelParams = [np.array([cutOff, max(term2*mu, 1 + tol), term1/mu])]
+        a, b = mu*term2, term1*term2
+        if a < 1:
+            b /= a
+            a = 1 + tol
+        modelParams = [np.array([cutOff, a, b])]
         modelArgs = [[promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum]]
         modelBounds = [[(tol, 1 - tol), (1 + tol, np.inf), (1, np.inf)]]
         
@@ -931,8 +938,7 @@ class AstroLink:
     @njit()
     def _negLL_beta_njit(p, promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum, norm_constant):
         # Get parameters
-        c, a, m = p
-        b = m*a
+        c, a, b = p
         n = promOrdOpenBorder.size
 
         # Calculate constant terms

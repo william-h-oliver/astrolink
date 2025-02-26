@@ -126,23 +126,9 @@ class AstroLink:
         The statistical significance of each group, such that `groups_sigs[i]` 
         contains the statistical significance values of both groups stored in 
         `groups[i]`.
-    pFit : `numpy.ndarray` of shape (2,) or (3,)
-        The model parameters for the model that fits the distribution of 
-        `prominences`. If the best-fitting noise model is 'Beta', then  `pFit` 
-        has the form `[c, a, b]`, where `a` and `b` are the shape parameters for 
-        the Beta distribution. If the best-fitting noise model is 'Half-Normal', 
-        then `pFit` has the form `[c, sigma]`, where `sigma` is the standard 
-        deviation of the Half-Normal distribution. If the best-fitting noise 
-        model is 'Log-Normal', then `pFit` has the form `[c, mu, sigma]`, where 
-        `mu` and `sigma` are the mean and standard deviation of the Log-Normal 
-        distribution. In all cases, `c` is the cutoff between the noise model 
-        and Uniform distribution used to prevent overfitting of the noise model 
-        to sufficiently clustered overdensities. The best-fitting noise model, 
-        the fitted parameters of all models, the success states of the fitting 
-        procedure on each model, and the second-order Akaike Information 
-        Criterion (AICc) values for each model can be found with the 
-        `_noiseModel`, `_modelParams`, `_modelSuccess`, and `_modelAICc` 
-        attibutes respectively.
+    pFit : `numpy.ndarray` of shape (2,)
+        The shape parameters, `[a, b]`, of the Beta distribution model that fits 
+        the `prominences`.
     """
 
     def __init__(self, P, d_intrinsic = None, weights = None, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = 8, verbose = 0):
@@ -501,6 +487,9 @@ class AstroLink:
                 children[id_leq] = emptyIntList
 
         # Clean and reorder arrays
+        keepBool = groups[:, 2] > 2
+        groups = groups[keepBool]
+        prominences = prominences[keepBool]
         groups[:, 2] += groups[:, 1]
         reorder = groups[:, 1].argsort()[1:]
         return ordering, groups[reorder], prominences[reorder]
@@ -609,6 +598,9 @@ class AstroLink:
                 children[id_leq] = emptyIntList
 
         # Clean and reorder arrays
+        keepBool = groups[:, 2] > 2
+        groups = groups[keepBool]
+        prominences = prominences[keepBool]
         groups[:, 2] += groups[:, 1]
         reorder = groups[:, 1].argsort()[1:]
         return ordering, groups[reorder], prominences[reorder]
@@ -717,6 +709,9 @@ class AstroLink:
                 children[id_leq] = emptyIntList
 
         # Clean and reorder arrays
+        keepBool = groups[:, 2] > 2
+        groups = groups[keepBool]
+        prominences = prominences[keepBool]
         groups[:, 2] += groups[:, 1]
         reorder = groups[:, 1].argsort()[1:]
         return ordering, groups[reorder], prominences[reorder]
@@ -825,188 +820,93 @@ class AstroLink:
                 children[id_leq] = emptyIntList
 
         # Clean and reorder arrays
+        keepBool = groups[:, 2] > 2
+        groups = groups[keepBool]
+        prominences = prominences[keepBool]
         groups[:, 2] += groups[:, 1]
         reorder = groups[:, 1].argsort()[1:]
         return ordering, groups[reorder], prominences[reorder]
 
     def compute_significances(self):
         """Computes statistical significances for all groups by fitting a
-        descriptive model to the prominences of groups.
+        descriptive model to their prominences.
 
-        Constructs the subgroup prominence model (a combination of a noise model 
-        and a Uniform distribution) and fits it by minimising the negative
-        log-likelihood of the resulting probability distribution. The noise 
-        model (with model-fitted parameters) is then used alongside the standard 
-        normal distribution to transform prominence values into statistical 
-        significance values. The noise model is chosen from among the Beta, 
-        Truncated-normal, and Log-normal distributions using the second-order 
-        Akaike Information Criterion (AICc).
+        Fits the prominence model (a Beta distribution) by minimising the 
+        Wasserstein-1 distance between the numerical and empirical cdfs. The 
+        noise model (with model-fitted parameters) is then used alongside the 
+        standard normal distribution to transform prominence values into 
+        statistical significance values.
 
         The method requires the `prominences` attribute to have already been 
         created, via the `aggregate` method or otherwise.
 
-        This method generates the `group_sigs` and `pFit` attributes.
+        This method generates the `groups_sigs` and `pFit` attributes.
         """
 
         if self.verbose > 1: self._printFunction('Finding significances...  ')
         start = time.perf_counter()
 
         # Setup for model fitting
-        self._modelParams, modelArgs, modelBounds, tol, self._modelAICc = self._minimize_init_njit(self.prominences[:, 1])
+        self.pFit, modelArgs, modelBounds, tol = self._minimize_init_njit(self.prominences[:, 1])
 
-        # Fit models
-        modelNegLLs = [self._negLL_beta, self._negLL_truncatednormal, self._negLL_lognormal]
-        self._modelSuccess = np.ones(self._modelAICc.size, dtype = np.bool_)
-        for i, (negLL, params, args, bounds) in enumerate(zip(modelNegLLs, self._modelParams, modelArgs, modelBounds)):
-            sol = minimize(negLL, params, args = tuple(args), jac = '3-point', bounds = tuple(bounds), tol = tol)
-            if sol.success:
-                self._modelParams[i] = sol.x
-                self._modelAICc[i] += 2*sol.fun
-            else:
-                self._modelSuccess[i] = False
-                self._modelAICc[i] = np.inf
-        del modelNegLLs, modelArgs, modelBounds, tol
+        # Fit model
+        sol = minimize(self._wasserstein1_beta, self.pFit, args = tuple(modelArgs),
+                       jac = '3-point', bounds = tuple(modelBounds), tol = tol)
+        if sol.success: self.pFit = sol.x
+        else: self._printFunction('[Warning] Prominence model fitting failed to converge!', returnLine = False, urgent = True)
+        del modelArgs, modelBounds, tol
 
-        if not self._modelSuccess.any(): self._printFunction('[Warning] Prominence model is incorrectly fitted!', returnLine = False, urgent = True)
-
-        # Choose the best model and calculate statistical significance values
-        bestModel = np.argmin(self._modelAICc)
-        self.pFit = self._modelParams[bestModel]
-        noiseModels = ['Beta', 'Truncated-normal', 'Log-normal']
-        self._noiseModel = noiseModels[bestModel]
-        if self._noiseModel == 'Beta':
-            self.groups_sigs = norm.isf(beta.sf(self.prominences, self.pFit[1], self.pFit[2]))
-        elif self._noiseModel == 'Truncated-normal':
-            self.groups_sigs = norm.isf(truncnorm.sf(self.prominences, -self.pFit[1]/self.pFit[2], np.inf, loc = self.pFit[1], scale = self.pFit[2]))
-        elif self._noiseModel == 'Log-normal':
-            self.groups_sigs = norm.isf(lognorm.sf(self.prominences, self.pFit[2], scale = np.exp(self.pFit[1])))
+        # Calculate statistical significance values
+        self.groups_sigs = norm.isf(beta.sf(self.prominences, self.pFit[0], self.pFit[1]))
 
         self._regrTime = time.perf_counter() - start
 
     @staticmethod
     @njit(fastmath = True)
     def _minimize_init_njit(prominences):
-        # Precalculated properties of the prominence values
-        promOrd = np.sort(prominences)
-        cutOff = promOrd[int(0.99*promOrd.size)]
-        mu, var = promOrd.mean(), promOrd.var()
-        tol = min(1e-5, 10**(-np.ceil(np.log10(prominences.size)) + 1))
-        
-        # Precalculated transforms of the prominence values
-        promOrdOpenBorder = promOrd[np.logical_and(promOrd > 0, promOrd < 1)]
-        lnx = np.log(promOrdOpenBorder)
-        lnx_cumsum = lnx.cumsum()
-        lnx_sqrd_cumsum = (lnx**2).cumsum()
-        ln_1_minus_x_cumsum = np.log(1 - promOrdOpenBorder).cumsum()
-        x_cumsum = promOrd.cumsum()
-        x_sqrd_cumsum = (promOrd**2).cumsum()
-        
-        # For Beta model
+        # Sort prominences to help with calculations
+        prominence_sorted = np.sort(prominences)
+
+        # Initial guess for Beta model parameters
+        binwidth = 2*(prominence_sorted[3*prominences.size//4] - prominence_sorted[prominences.size//4])*prominences.size**(-1/3) # Freedman-Diaconis rule
+        mode = binwidth*(np.bincount((prominence_sorted//binwidth).astype(np.int64)).argmax() + 0.5)
+        mu, var = prominence_sorted.mean(), prominence_sorted.var()
         term1 = 1 - mu
         term2 = mu*term1/var - 1
-        a, b = mu*term2, term1*term2
-        if a < 1:
-            b /= a
-            a = 1 + tol
-        modelParams = [np.array([cutOff, a, b])]
-        modelArgs = [[promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum]]
-        modelBounds = [[(tol, 1 - tol), (1 + tol, np.inf), (1, np.inf)]]
-        
-        # For truncated-normal model
-        modelParams.append(np.array([cutOff, 0, np.sqrt(var/(1 - 2/np.pi))]))
-        modelArgs.append([promOrd, x_cumsum, x_sqrd_cumsum])
-        modelBounds.append([(tol, 1 - tol), (0, np.inf), (tol, np.inf)])
-        
-        # For log-normal model
-        muSqr = mu**2
-        modelParams.append(np.array([cutOff, np.log(muSqr/np.sqrt(muSqr + var)), np.sqrt(np.log(1 + var/muSqr))]))
-        modelArgs.append([promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum])
-        modelBounds.append([(tol, 1 - tol), (-np.inf, np.inf), (tol, np.inf)])
+        a1, b1 = mu*term2, term1*term2
+        a2 = (2*mode - 1)*mu/(term1*mode - (1 - mode)*mu)
+        b2 = a2*term1/mu
+        modelParams = np.array([0.5*(a1 + a2), 0.5*(b1 + b2)])
 
-        # Second-order correction of the Akaike information criterion
-        modelAICc = np.zeros(len(modelParams))
-        for i, (params, args) in enumerate(zip(modelParams, modelArgs)):
-            modelAICc[i] = 2*params.size + 2*params.size*(params.size + 1)/(args[0].size - params.size - 1)
+        # Precalculate terms for Wasserstein-1 distance with model
+        midPoints = np.concatenate((np.zeros(1), prominence_sorted))
+        widths = midPoints[1:] - midPoints[:-1]
+        midPoints = (midPoints[1:] + midPoints[:-1])/2
+        oneMinusMidPoints = 1 - midPoints
+        halfInterval = 1/(2*prominences.size)
+        quantiles = np.linspace(halfInterval, 1 - halfInterval, prominences.size)
+        modelArgs = [midPoints, oneMinusMidPoints, widths, quantiles]
 
-        return modelParams, modelArgs, modelBounds, tol, modelAICc
+        # Bounds for Beta model parameters
+        modelBounds = [(1, np.inf), (1, np.inf)]
 
-    def _negLL_beta(self, p, promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum):
-        # Calculate the negative log-likelihood
-        return self._negLL_beta_njit(p, promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum, beta_fun(p[1], p[2])*betainc_fun(p[1], p[2], p[0]))
+        # Tolerance for minimisation
+        tol = 10**(-np.ceil(np.log10(prominences.size)) - 3)
+
+        return modelParams, modelArgs, modelBounds, tol
+
+    def _wasserstein1_beta(self, p, midPoints, oneMinusMidPoints, widths, quantiles):
+        return self._wasserstein1_beta_njit(p, midPoints, oneMinusMidPoints, widths, quantiles, beta_fun(p[0], p[1]))
 
     @staticmethod
     @njit()
-    def _negLL_beta_njit(p, promOrdOpenBorder, lnx_cumsum, ln_1_minus_x_cumsum, norm_constant):
-        # Get parameters
-        c, a, b = p
-        n = promOrdOpenBorder.size
+    def _wasserstein1_beta_njit(p, midPoints, oneMinusMidPoints, widths, quantiles, norm_constant):
+        # Calculate numerical cdf
+        pdf = midPoints**(p[0] - 1)*oneMinusMidPoints**(p[1] - 1)/norm_constant
+        cdf = np.cumsum(pdf*widths)
 
-        # Calculate constant terms
-        log_uniform_term = (a - 1)*np.log(c) + (b - 1)*np.log(1 - c)
-        normalisationFactor = norm_constant + (1 - c)*np.exp(log_uniform_term)
-
-        # Find the index of the first prominence that is greater than c
-        transitionPoint, right = 0, n - 1
-        while right - transitionPoint > 1:
-            middle = (right - transitionPoint)//2 + transitionPoint
-            if promOrdOpenBorder[middle] < c: transitionPoint = middle
-            else: right = middle
-        
-        # Calculate and return the negative log-likelihood
-        return n*np.log(normalisationFactor) - (a - 1)*lnx_cumsum[transitionPoint] - (b - 1)*ln_1_minus_x_cumsum[transitionPoint] - (n - transitionPoint - 1)*log_uniform_term
-
-    def _negLL_truncatednormal(self, p, promOrd, x_cumsum, x_sqrd_cumsum):
-        # Calculate the negative log-likelihood
-        diffErfTerm = erf(p[1]/(np.sqrt(2)*p[2])) - erf((p[1] - p[0])/(np.sqrt(2)*p[2]))
-        return self._negLL_truncatednormal_njit(p, promOrd, x_cumsum, x_sqrd_cumsum, diffErfTerm)
-
-    @staticmethod
-    @njit()
-    def _negLL_truncatednormal_njit(p, promOrd, x_cumsum, x_sqrd_cumsum, diffErfTerm):
-        # Get parameters
-        c, mu, sigma = p
-        n = promOrd.size
-
-        # Calculate constant terms
-        twoSigmaSqr = 2*sigma**2
-        halfZSqr = (c - mu)**2/twoSigmaSqr
-        normalisationFactor = np.sqrt(np.pi/2)*sigma*diffErfTerm + (1 - c)*np.exp(-halfZSqr)
-
-        # Find the index of the first prominence that is greater than c
-        transitionPoint, right = 0, n - 1
-        while right - transitionPoint > 1:
-            middle = (right - transitionPoint)//2 + transitionPoint
-            if promOrd[middle] < c: transitionPoint = middle
-            else: right = middle
-
-        # Calculate and return the negative log-likelihood
-        return n*np.log(normalisationFactor) + (x_sqrd_cumsum[transitionPoint] - 2*mu*x_cumsum[transitionPoint] + (transitionPoint + 1)*mu**2)/twoSigmaSqr + (n - transitionPoint - 1)*halfZSqr
-
-    def _negLL_lognormal(self, p, promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum):
-        # Calculate the negative log-likelihood
-        return self._negLL_lognormal_njit(p, promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum, erf((np.log(p[0]) - p[1])/(np.sqrt(2)*p[2])))
-
-    @staticmethod
-    @njit()
-    def _negLL_lognormal_njit(p, promOrdOpenBorder, lnx_cumsum, lnx_sqrd_cumsum, erfTerm):
-        # Get parameters
-        c, mu, sigma = p
-        n = promOrdOpenBorder.size
-
-        # Calculate constant terms
-        logc, twoSigmaSqr = np.log(c), 2*sigma**2
-        uniformTerm = np.exp(-(logc - mu)**2/twoSigmaSqr)/c
-        normalisationFactor = np.sqrt(np.pi/2)*sigma*(1 + erfTerm) + (1 - c)*uniformTerm
-
-        # Find the index of the first prominence that is greater than c
-        transitionPoint, right = 0, n - 1
-        while right - transitionPoint > 1:
-            middle = (right - transitionPoint)//2 + transitionPoint
-            if promOrdOpenBorder[middle] < c: transitionPoint = middle
-            else: right = middle
-        
-        # Calculate and return the negative log-likelihood
-        return n*(np.log(normalisationFactor) + mu**2/twoSigmaSqr) + (1 - 2*mu/twoSigmaSqr)*(lnx_cumsum[transitionPoint] + (n - transitionPoint - 1)*logc) + (lnx_sqrd_cumsum[transitionPoint] + (n - transitionPoint - 1)*logc**2)/twoSigmaSqr
+        # Return Wasserstein-1 distance between the numerical and empirical cdfs
+        return np.sum(np.abs(cdf - quantiles)*widths)
 
     def extract_clusters(self):
         """Classifies groups that have significance of at least `S` as clusters
@@ -1022,8 +922,8 @@ class AstroLink:
 
         This method requires the `groups` attribute to have already been 
         created, via the `aggregate()` method or otherwise. It also requires the 
-        `group_sigs` and `pFit` attributes to have already been created, via the 
-        `compute_significance` method or otherwise.
+        `groups_sigs` and `pFit` attributes to have already been created, via
+        the `compute_significance` method or otherwise.
 
         This method generates the 'clusters', `ids`, and `significances`
         attributes.
@@ -1033,10 +933,7 @@ class AstroLink:
         start = time.perf_counter()
 
         # Classify clusters as groups that are significant outliers
-        if self.S == 'auto':
-            if self._noiseModel == 'Beta': self.S = norm.isf(beta.sf(self.pFit[0], self.pFit[1], self.pFit[2]))
-            elif self._noiseModel == 'Truncated-normal': self.S = norm.isf(truncnorm.sf(self.pFit[0], -self.pFit[1]/self.pFit[2], np.inf, loc = self.pFit[1], scale = self.pFit[2]))
-            elif self._noiseModel == 'Log-normal': self.S = norm.isf(lognorm.sf(self.pFit[0], self.pFit[2], scale = np.exp(self.pFit[1])))
+        if self.S == 'auto': self.S = norm.isf(1 - norm.cdf(3)**(1/self.prominences.shape[0]))
         sl = self.groups_sigs[:, 1] >= self.S
         self.clusters = self.groups[sl, 1:]
         self.significances = self.groups_sigs[sl, 1]
@@ -1081,4 +978,5 @@ class AstroLink:
             children[parent] += 1
             self.ids.append(f"{self.ids[parent]}-{children[parent]}")
         self.ids = np.array(self.ids)
+
         self._rejTime = time.perf_counter() - start

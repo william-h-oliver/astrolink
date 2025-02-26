@@ -16,9 +16,7 @@ import numpy as np
 from pykdtree.kdtree import KDTree
 from scipy.optimize import minimize
 from scipy.special import beta as beta_fun
-from scipy.special import betainc as betainc_fun
-from scipy.special import erf
-from scipy.stats import norm, beta, truncnorm, lognorm
+from scipy.stats import norm, beta
 from sklearn import get_config
 from sklearn.utils import gen_batches
 

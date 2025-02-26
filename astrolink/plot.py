@@ -212,7 +212,7 @@ def prominenceModel(clusterer, ax = None, histKwargs = {}, modelKwargs = {}, cut
     h, bins, patches = ax.hist(clusterer.prominences[:, 1], bins = np.arange(np.ceil(clusterer.prominences[:, 1].max()/bw).astype(np.int64) + 1)*bw, **histKwargs)
 
     # Plot fitted prominence model
-    xs = np.linspace(0, 1, 10**4)
+    xs = np.linspace(0, clusterer.prominences[:, 1].max(), 10**4)
     ys = beta.pdf(xs, clusterer.pFit[0], clusterer.pFit[1])
     line, = ax.plot(xs, ys, **modelKwargs)
 

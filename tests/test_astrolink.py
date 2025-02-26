@@ -57,13 +57,11 @@ def test_astrolink():
     del c, arr1, arr2, arr3
 
     # _minimize_init()
-    modelParams, modelArgs, _, _, _ = clusterer._minimize_init_njit.py_func(clusterer.prominences[:, 0])
+    pFit, modelArgs, _, _ = clusterer._minimize_init_njit.py_func(clusterer.prominences[:, 1])
 
-    # _negLL_**_njit() functions
-    modelNegLLs = [clusterer._negLL_beta_njit.py_func, clusterer._negLL_truncatednormal_njit.py_func, clusterer._negLL_lognormal_njit.py_func]
-    for negLL, params, args in zip(modelNegLLs, modelParams, modelArgs):
-        num = negLL(params, *args, 0.5)
-    del num, modelNegLLs, modelParams, modelArgs
+    # _wasserstein1_beta_njit()
+    num = clusterer._wasserstein1_beta_njit(pFit, *modelArgs, 0.5)
+    del num, pFit, modelArgs
 
 
 
@@ -156,6 +154,6 @@ def test_astrolink():
     # pFit
     arr = clusterer.pFit
     assert isinstance(arr, np.ndarray), "pFit must be a numpy array"
-    assert (arr.shape == (2,)) or (arr.shape == (3,)), "pFit does not have the correct shape"
+    assert arr.shape == (2,), "pFit does not have the correct shape"
     assert arr.dtype in [np.dtype('float32'), np.dtype('float64')], "pFit does not have the correct dtype"
-    assert (arr >= 0.0).all() and arr[0] <= 1.0, "pFit contains invalid values"
+    assert (arr >= 1.0).all(), "pFit contains invalid values"

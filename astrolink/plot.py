@@ -9,7 +9,7 @@ License: MIT
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-from scipy.stats import norm, beta, truncnorm, lognorm
+from scipy.stats import norm, beta
 
 def orderedDensity(clusterer, ax = None, plotKwargs = {}, fillKwargs = {}):
     """
@@ -213,13 +213,12 @@ def prominenceModel(clusterer, ax = None, histKwargs = {}, modelKwargs = {}, cut
 
     # Plot fitted prominence model
     xs = np.linspace(0, 1, 10**4)
-    if clusterer._noiseModel == 'Beta': ys = beta.pdf(xs, clusterer.pFit[1], clusterer.pFit[2])
-    elif clusterer._noiseModel == 'Truncated-normal': ys = truncnorm.pdf(xs, -clusterer.pFit[1]/clusterer.pFit[2], np.inf, loc = clusterer.pFit[1], scale = clusterer.pFit[2])
-    elif clusterer._noiseModel == 'Log-normal': ys = lognorm.pdf(xs, clusterer.pFit[2], scale = np.exp(clusterer.pFit[1]))
+    ys = beta.pdf(xs, clusterer.pFit[0], clusterer.pFit[1])
     line, = ax.plot(xs, ys, **modelKwargs)
 
     # Plot cutoff over prominences histogram
-    lineCollection = ax.vlines(clusterer.pFit[0], 0, h.max(), **cutoffKwargs)
+    cutoff = beta.isf(1 - norm.cdf(3)**(1/clusterer.prominences.shape[0]), clusterer.pFit[0], clusterer.pFit[1])
+    lineCollection = ax.vlines(cutoff, 0, h.max(), **cutoffKwargs)
 
     # Axis limits
     ax.set_xlim(0, min(ax.get_xlim()[1], 1))
@@ -293,7 +292,10 @@ def significanceModel(clusterer, ax = None, histKwargs = {}, modelKwargs = {}, c
     line, = ax.plot(xs, ys, **modelKwargs)
 
     # Plot cutoff over prominences histogram
-    lineCollection = ax.vlines(clusterer.S, 0, h.max(), **cutoffKwargs)
+    if clusterer.S == 'auto':
+        S = norm.isf(1 - norm.cdf(3)**(1/clusterer.prominences.shape[0]))
+        lineCollection = ax.vlines(S, 0, h.max(), **cutoffKwargs)
+    else: lineCollection = ax.vlines(clusterer.S, 0, h.max(), **cutoffKwargs)
 
     # Add labels
     ax.set_xlabel(r'Significances, $S_{g_\leq}$')

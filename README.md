@@ -68,11 +68,11 @@ For low-dimensional input data, like we have in this example, it is then possibl
 
 ```python
 import matplotlib.pyplot as plt
-from astrolink import plot
+from astrolink import visualize
 
 # Plot the data, colour by the clusterer.logRho attribute, and add a colorbar (default)
 fig, ax = plt.subplots()
-plot.logRhoOnX(clusterer, P)
+visualize.logRhoOnX(clusterer, P)
 
 # Tidy up
 ax.set_title('Estimated Density Field')
@@ -93,7 +93,7 @@ Regardless of the dimensionality of the input data, the clustering structure wit
 
 ```python
 # Plot clusterer.logRho[clusterer.ordering] without marking any clusters
-plot.orderedDensity(clusterer, fillKwargs = {'alpha': 0})
+visualize.orderedDensity(clusterer, fillKwargs = {'alpha': 0})
 
 # Tidy up
 plt.title('Ordered-Density Plot')
@@ -115,10 +115,10 @@ fig1, ax1 = plt.subplots()
 fig2, ax2 = plt.subplots()
 
 # Make the ordered-density plot and mark regions with AstroLink clusters
-plot.orderedDensity(clusterer, ax = ax1)
+visualize.orderedDensity(clusterer, skipZeroth = False, ax = ax1)
 
 # Plot the data and colour by the AstroLink cluster ids
-plot.labelsOnX(clusterer, P, ax = ax2, scatterKwargs = {'edgecolor': 'k', 'lw': 0.1})
+visualize.labelsOnX(clusterer, P, skipZeroth = False, ax = ax2, scatterKwargs = {'edgecolor': 'k', 'lw': 0.1})
 
 # Tidy up
 ax1.set_title('Ordered-Density Plot (Coloured by Cluster ID)')

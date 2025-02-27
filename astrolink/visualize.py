@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from scipy.stats import norm, beta
 
-def orderedDensity(clusterer, ax = None, plotKwargs = {}, fillKwargs = {}):
+def orderedDensity(clusterer, skipZeroth = True, ax = None, plotKwargs = {}, fillKwargs = {}):
     """
     Make the AstroLink ordered-density plot.
 
@@ -50,18 +50,23 @@ def orderedDensity(clusterer, ax = None, plotKwargs = {}, fillKwargs = {}):
     if 'color' in fillKwargs: del fillKwargs['color']
     if ('edgecolor' not in fillKwargs) and ('ec' not in fillKwargs): fillKwargs['edgecolor'] = None
     if ('lw' not in fillKwargs) and ('linewidth' not in fillKwargs): fillKwargs['lw'] = 0
+    if 'label' in fillKwargs: del fillKwargs['label']
     if ('zorder' not in fillKwargs): fillKwargs['zorder'] = 1
 
     # Plot the ordered density
     logRhoOrdered = clusterer.logRho[clusterer.ordering]
     line, = ax.plot(logRhoOrdered, **plotKwargs)
 
+    # Set the starting index for cluster labels to plot
+    if skipZeroth: startIndex = 1
+    else: startIndex = 0
+
     # Show clusters
     colours = plt.rcParams['axes.prop_cycle'].by_key()['color']
     polyCollections = []
-    for i, cluster in enumerate(clusterer.clusters):
-        polyCollection = ax.fill_between(range(cluster[0], cluster[1]), logRhoOrdered[cluster[0]:cluster[1]],
-                                         facecolor = colours[i%len(colours)], **fillKwargs)
+    for i, (clst, clstID) in enumerate(zip(clusterer.clusters[startIndex:], clusterer.ids[startIndex:])):
+        polyCollection = ax.fill_between(range(clst[0], clst[1]), logRhoOrdered[clst[0]:clst[1]],
+                                         facecolor = colours[i%len(colours)], label = clstID, **fillKwargs)
         polyCollections.append(polyCollection)
 
     # Axis limits
@@ -339,7 +344,7 @@ def logRhoOnX(clusterer, X, ax = None, colorbar = True, scatterKwargs = {}, colo
     # Add colour bar
     if colorbar: plt.colorbar(densityField, label = r'$\log\hat\rho$', ax = ax, **colorbarKwargs)
 
-def labelsOnX(clusterer, X, ax = None, scatterKwargs = {}):
+def labelsOnX(clusterer, X, skipZeroth = True, ax = None, scatterKwargs = {}):
     """
     Make a plot of the data X coloured by the AstroLink cluster labels.
 
@@ -366,7 +371,11 @@ def labelsOnX(clusterer, X, ax = None, scatterKwargs = {}):
     if 'facecolor' in scatterKwargs: del scatterKwargs['facecolor']
     if 'label' in scatterKwargs: del scatterKwargs['label']
 
+    # Set the starting index for cluster labels to plot
+    if skipZeroth: startIndex = 1
+    else: startIndex = 0
+
     # Plot the cluster labels onto X
-    for i, (clst, clstID) in enumerate(zip(clusterer.clusters, clusterer.ids)):
+    for i, (clst, clstID) in enumerate(zip(clusterer.clusters[startIndex:], clusterer.ids[startIndex:])):
         clusterMembers = clusterer.ordering[clst[0]:clst[1]]
         ax.scatter(*X[clusterMembers].T, facecolor = f"C{i}", label = clstID, **scatterKwargs)

@@ -479,9 +479,9 @@ class AstroLink:
                 noise = 0.0
                 for id_geq, childID in enumerate(childIDs):
                     groups[childID][:2] += startAdjust
-                    if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
-                    noise += prominences[childID, 1]**2
-                prominences[id_leq, 0] -= np.sqrt(noise/(id_geq + 1))
+                    if id_geq > 0: prominences[childID, 0] -= noise/id_geq
+                    noise += prominences[childID, 1]
+                prominences[id_leq, 0] -= noise/(id_geq + 1)
                 children[id_leq] = emptyIntList
 
         # Clean and reorder arrays
@@ -590,9 +590,9 @@ class AstroLink:
                 noise = 0.0
                 for id_geq, childID in enumerate(childIDs):
                     groups[childID][:2] += startAdjust
-                    if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
-                    noise += prominences[childID, 1]**2
-                prominences[id_leq, 1] -= np.sqrt(noise/(id_geq + 1))
+                    if id_geq > 0: prominences[childID, 0] -= noise/id_geq
+                    noise += prominences[childID, 1]
+                prominences[id_leq, 1] -= noise/(id_geq + 1)
                 children[id_leq] = emptyIntList
 
         # Clean and reorder arrays
@@ -701,9 +701,9 @@ class AstroLink:
                 noise = 0.0
                 for id_geq, childID in enumerate(childIDs):
                     groups[childID][:2] += startAdjust
-                    if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
-                    noise += prominences[childID, 1]**2
-                prominences[id_leq, 0] -= np.sqrt(noise/(id_geq + 1))
+                    if id_geq > 0: prominences[childID, 0] -= noise/id_geq
+                    noise += prominences[childID, 1]
+                prominences[id_leq, 0] -= noise/(id_geq + 1)
                 children[id_leq] = emptyIntList
 
         # Clean and reorder arrays
@@ -812,9 +812,9 @@ class AstroLink:
                 noise = 0.0
                 for id_geq, childID in enumerate(childIDs):
                     groups[childID][:2] += startAdjust
-                    if id_geq > 0: prominences[childID, 0] -= np.sqrt(noise/id_geq)
-                    noise += prominences[childID, 1]**2
-                prominences[id_leq, 0] -= np.sqrt(noise/(id_geq + 1))
+                    if id_geq > 0: prominences[childID, 0] -= noise/id_geq
+                    noise += prominences[childID, 1]
+                prominences[id_leq, 0] -= noise/(id_geq + 1)
                 children[id_leq] = emptyIntList
 
         # Clean and reorder arrays

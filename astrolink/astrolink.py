@@ -931,7 +931,7 @@ class AstroLink:
         start = time.perf_counter()
 
         # Classify clusters as groups that are significant outliers
-        if self.S == 'auto': self.S = norm.isf(1 - norm.cdf(3)**(1/self.prominences.shape[0]))
+        if self.S == 'auto': self.S = norm.isf(1 - norm.cdf(0)**(1/self.prominences.shape[0]))
         sl = self.groups_sigs[:, 1] >= self.S
         self.clusters = self.groups[sl, 1:]
         self.significances = self.groups_sigs[sl, 1]

@@ -1,25 +1,79 @@
 # Standard imports
 import os
+from glob import glob
+from concurrent.futures import ProcessPoolExecutor
 
 # Third-party imports
 import numpy as np
+from astropy.table import Table
 
 
-# === Function to reduce raw catalogue to numpy files ===
+# === Reduce raw Gaia catalogue to numpy files grouped by column ===
+# ==================================================================
+def _process_single_file(file_path, output_dir, column_groups):
+    """Process a single GaiaSource CSV file into group-wise .npy files."""
+    # Extract chunk name from filename
+    chunk_name = os.path.basename(file_path).replace('GaiaSource_', '').replace('.csv.gz', '')
+
+    # Build union of required columns
+    all_columns = sorted({col for cols in column_groups.values() for col in cols})
+
+    # Read with astropy
+    table = Table.read(file_path, format='ascii.ecsv', include_names=all_columns)
+
+    # Convert and save each group
+    for group_name, group_cols in column_groups.items():
+        array = table[group_cols].as_array()  # structured array
+        out_path = os.path.join(output_dir, f'gdr3_{group_name}_{chunk_name}.npy')
+        np.save(out_path, array)
+
+    return True
+
 def reduce_catalogue_to_numpy(catalogue_path, reduced_catalogue_path, workers=32):
-    """
-    Reduce raw Gaia GDR3 catalogue files to numpy files for easier processing.
-    
-    Parameters:
-    - catalogue_path: Path to the raw GDR3 catalogue files.
-    - reduced_catalogue_path: Path to save the reduced numpy files.
-    - workers: Number of parallel workers to use.
-    """
-    # Placeholder for actual implementation
-    print(f"Reducing catalogue from {catalogue_path} to {reduced_catalogue_path} using {workers} workers.")
-    # Actual code would go here
+    """Reduce raw Gaia catalogue to .npy arrays grouped by column."""
+    os.makedirs(reduced_catalogue_path, exist_ok=True)
 
-# === Function to create subsample from full catalogue ===
+    column_groups = {
+        'source_ids': ['source_id'],
+        'galactic_coordinates': ['l', 'b'],
+        'equitorial_coordinates': ['ra', 'dec'],
+        'parallaxes': ['parallax'],
+        'proper_motions': ['pmra', 'pmdec'],
+        'astrometric_errors': ['ra_error', 'dec_error', 'parallax_error', 'pmra_error', 'pmdec_error'],
+        'astrometric_matched_transits': ['astrometric_matched_transits'],
+        'photometry': ['phot_g_mean_mag'],#, 'phot_bp_mean_mag', 'phot_rp_mean_mag'],
+    }
+
+    file_paths = sorted(glob(os.path.join(catalogue_path, 'GaiaSource_*.csv.gz')))
+    print(f"Found {len(file_paths)} source files.")
+
+    # Parallel processing
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = [
+            executor.submit(_process_single_file, file_path, reduced_catalogue_path, column_groups)
+            for file_path in file_paths
+        ]
+        for future in futures:
+            future.result()  # Propagate any errors
+
+    # Merge all intermediate .npy files by group
+    for group_name in column_groups.keys():
+        group_files = sorted(glob(os.path.join(reduced_catalogue_path, f'gdr3_{group_name}_*.npy')))
+        arrays = [np.load(f) for f in group_files]
+        combined = np.concatenate(arrays)
+
+        final_path = os.path.join(reduced_catalogue_path, f'gdr3_{group_name}.npy')
+        np.save(final_path, combined)
+        print(f"Saved combined array: {final_path} (shape: {combined.shape})")
+
+        # Delete intermediates
+        for f in group_files:
+            os.remove(f)
+
+
+
+
+# === Create subsample from full catalogue ===
 def create_subsample_from_full_catalogue(reduced_catalogue_path, subsample_path, figures_path):
     """
     Create a subsample from the full catalogue for clustering.

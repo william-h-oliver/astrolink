@@ -9,7 +9,6 @@ from astropy.table import Table
 
 
 # === Reduce raw Gaia catalogue to numpy files grouped by column ===
-# ==================================================================
 def _process_single_file(file_path, output_dir, column_groups):
     """Process a single GaiaSource CSV file into group-wise .npy files."""
     # Extract chunk name from filename

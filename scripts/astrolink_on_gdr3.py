@@ -5,7 +5,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 # Third-party imports
 import numpy as np
-from astropy.table import Table
+from astropy.table import Table # Works using v6.1.3, but v7.1.0 seems to try and convert 'null' values to float before using fill_values
 
 
 # === Reduce raw Gaia catalogue to numpy files grouped by column ===
@@ -14,23 +14,26 @@ def _process_single_file(file_path, output_dir, column_groups):
     # Extract chunk name from filename
     chunk_name = os.path.basename(file_path).replace('GaiaSource_', '').replace('.csv.gz', '')
 
-    # Check if the files already exist
-    check = True
-    for group_name in column_groups.keys():
-        out_path = os.path.join(output_dir, f'gdr3_{group_name}_{chunk_name}.npy')
-        check = check and os.path.exists(out_path)
-    if check:
+    # Skip processing if all output files for this chunk already exist
+    all_exist = all(
+        os.path.exists(os.path.join(output_dir, f'gdr3_{group_name}_{chunk_name}.npy'))
+        for group_name in column_groups
+    )
+    if all_exist:
         return True
 
+    print(f"[PROCESS] {chunk_name} — starting in PID {os.getpid():<15}", end='\r')
+
     # Build union of required columns
-    all_columns = sorted({col for cols in column_groups.values() for col in cols})
+    all_columns = {col for cols in column_groups.values() for col in cols}
 
     # Read with astropy
-    table = Table.read(file_path, format='ascii.ecsv', include_names=all_columns, fill_values=np.nan)
+    table = Table.read(file_path, format='ascii.ecsv', include_names=all_columns, fill_values=[("null", "nan")])
 
     # Convert and save each group
     for group_name, group_cols in column_groups.items():
-        array = table[group_cols].as_array()  # structured array
+        columns_data = [table[col].data for col in group_cols]  # each is 1D array of length n
+        array = np.column_stack(columns_data)
         out_path = os.path.join(output_dir, f'gdr3_{group_name}_{chunk_name}.npy')
         np.save(out_path, array)
 
@@ -132,7 +135,7 @@ if __name__ == "__main__":
     figures_path = "/home/williamoliver_data/gaia_clustering/figures/"  # Path to figures
 
     # Number of parallel workers
-    workers = min(os.cpu_count(), 32)
+    workers = min(os.cpu_count(), 16)
 
     # Reduce raw catalogue to numpy files
     reduce_catalogue_to_numpy(
@@ -149,7 +152,7 @@ if __name__ == "__main__":
     )
 
     # Run AstroLink clustering on subsample
-    run_astrolink_on subsample(
+    run_astrolink_on_subsample(
         subsample_path=subsample_path,
         clustering_output_path=clustering_output_path,
         figures_path=figures_path,

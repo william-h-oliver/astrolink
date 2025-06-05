@@ -17,6 +17,7 @@ from gaiaunlimited.selectionfunctions import m10_to_completeness
 # Plotting imports
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import healpy as hp
 
 # === Reduce raw Gaia catalogue to numpy files grouped by column ===
 def _process_single_file(file_path, output_dir, column_groups):
@@ -156,18 +157,87 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k=32):
 
 
 # === Create subsample from full catalogue ===
-def create_subsample_from_full_catalogue(reduced_catalogue_path, subsample_path, figures_path):
+def create_subsample_from_full_catalogue(
+    reduced_catalogue_path,
+    subsample_path,
+    S_Gaia_cut=0.95
+):
     """
-    Create a subsample from the full catalogue for clustering.
+    Create a boolean subsample mask where the empirical survey selection function S_Gaia > S_Gaia_cut.
+    Also plot the limiting G-band magnitude across the sky using HEALPix.
     
-    Parameters:
-    - reduced_catalogue_path: Path to the reduced numpy files.
-    - subsample_path: Path to save the subsample files.
-    - figures_path: Path to save figures related to the subsample.
+    Parameters
+    ----------
+    reduced_catalogue_path : str
+        Directory containing reduced catalogue .npy files.
+    subsample_path : str
+        Directory to save subsample .npy file.
+    S_Gaia_cut : float
+        Completeness threshold to include stars in the subsample.
     """
-    # Placeholder for actual implementation
-    print(f"Creating subsample from {reduced_catalogue_path} to {subsample_path}.")
-    # Actual code would go here
+    # Ensure paths exist
+    os.makedirs(subsample_path, exist_ok=True)
+    os.makedirs(figures_path, exist_ok=True)
+
+    # Load selection function and galactic coordinates
+    selection_function = np.load(f"{reduced_catalogue_path}/gdr3_empirical_survey_selection_function.npy")
+    galactic_coords = np.load(f"{reduced_catalogue_path}/gdr3_galactic_coordinates.npy")  # (n, 2) in degrees
+
+    # Create boolean mask for S_Gaia > threshold
+    subsample_mask = selection_function > S_Gaia_cut
+
+    # Save mask
+    os.makedirs(subsample_path, exist_ok=True)
+    mask_path = os.path.join(subsample_path, "gdr3_subsample_mask.npy")
+    np.save(mask_path, subsample_mask)
+    print(f"Saved subsample mask to {mask_path} (selected {subsample_mask.sum()} stars)")
+
+
+# === Make plot of the limiting G-band magnitude as a function of sky position ===
+def plot_limiting_g_band_magnitude(figures_path, S_Gaia_cut=0.95, healpix_level=10):
+    """
+    Plot the limiting G-band magnitude across the sky using HEALPix.
+    Parameters
+    ----------
+    figures_path : str
+        Directory to save the mollview plot.
+    S_Gaia_cut : float
+        Completeness threshold to include stars in the subsample.
+    healpix_level : int
+        HEALPix NSIDE level for sky projection.
+    """
+    # Set up HEALPix map for plotting (placeholder values)
+    nside = 2**healpix_level_for_plotting
+    npix = hp.nside2npix(nside)
+
+    # Convert (l, b) -> (theta, phi) in radians
+    l_deg, b_deg = galactic_coords.T
+    theta = np.deg2rad(90 - b_deg)  # colatitude
+    phi = np.deg2rad(l_deg)         # longitude
+
+    # Get healpix indices for each star
+    pix_indices = hp.ang2pix(nside, theta, phi)
+
+    # Placeholder array: fill with np.nan for now
+    limiting_g_mag = np.full(npix, np.nan)
+
+    # TODO: Fill `limiting_g_mag[pix_indices]` with computed limiting G-band magnitudes
+
+    # Plot with healpy
+    os.makedirs(figures_path, exist_ok=True)
+    plt.figure(figsize=(10, 6))
+    hp.mollview(
+        limiting_g_mag,
+        title="Limiting G-band Magnitude (placeholder)",
+        unit="G mag",
+        cmap="viridis",
+        notext=False
+    )
+    fig_path = os.path.join(figures_path, "limiting_g_mag_mollview.png")
+    plt.savefig(fig_path, dpi=200, bbox_inches="tight")
+    plt.close()
+    print(f"Saved mollview plot to {fig_path}")
+
 
 # === Function to run AstroLink clustering on subsample ===
 def run_astrolink_on_subsample(subsample_path, clustering_output_path, figures_path, workers=32):
@@ -212,6 +282,9 @@ if __name__ == "__main__":
     # Number of nearest neighbors for M10 calculation
     kNN_for_m10 = 32
 
+    # Empirical survey selection function cut
+    S_Gaia_cut = 0.95
+
     # Reduce raw catalogue to numpy files
     reduce_catalogue_to_numpy(
         catalogue_path=catalogue_path,
@@ -225,11 +298,18 @@ if __name__ == "__main__":
         k=kNN_for_m10
     )
 
-    # Create subsample from full catalogue
+    # Create subsample from full catalogue using a cut of the empirical survey selection function
     create_subsample_from_full_catalogue(
         reduced_catalogue_path=reduced_catalogue_path,
         subsample_path=subsample_path,
-        figures_path=figures_path
+        S_Gaia_cut=S_Gaia_cut
+    )
+
+    # Plot the limiting G-band magnitude as a function of sky position
+    plot_limiting_g_band_magnitude(
+        figures_path=figures_path,
+        S_Gaia_cut=S_Gaia_cut,
+        healpix_level=10
     )
 
     # Calculate total selection function for subsample

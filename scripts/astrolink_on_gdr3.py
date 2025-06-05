@@ -25,7 +25,7 @@ def _process_single_file(file_path, output_dir, column_groups):
     print(f"[PROCESS] {chunk_name} — starting in PID {os.getpid():<15}", end='\r')
 
     # Build union of required columns
-    all_columns = {col for cols in column_groups.values() for col in cols}
+    all_columns = [col for cols in column_groups.values() for col in cols]
 
     # Read with astropy
     table = Table.read(file_path, format='ascii.ecsv', include_names=all_columns, fill_values=[("null", "nan")])

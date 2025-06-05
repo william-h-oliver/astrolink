@@ -1,12 +1,22 @@
 # Standard imports
 import os
+import gc
 from glob import glob
 from concurrent.futures import ProcessPoolExecutor
 
 # Third-party imports
 import numpy as np
-from astropy.table import Table # Works using v6.1.3, but v7.1.0 seems to try and convert 'null' values to float before using fill_values
+from pykdtree.kdtree import KDTree
+from sklearn import get_config
+from sklearn.utils import gen_batches
 
+# Astro-specific imports
+from astropy.table import Table # Works using v6.1.3, but v7.1.0 seems to try and convert 'null' values to float before using fill_values
+from gaiaunlimited.selectionfunctions import m10_to_completeness
+
+# Plotting imports
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 # === Reduce raw Gaia catalogue to numpy files grouped by column ===
 def _process_single_file(file_path, output_dir, column_groups):
@@ -36,6 +46,9 @@ def _process_single_file(file_path, output_dir, column_groups):
         array = np.column_stack(columns_data)
         out_path = os.path.join(output_dir, f'gdr3_{group_name}_{chunk_name}.npy')
         np.save(out_path, array)
+
+    del table, columns_data, array  # Free memory
+    gc.collect()  # Force garbage collection
 
     return True
 
@@ -81,6 +94,65 @@ def reduce_catalogue_to_numpy(catalogue_path, reduced_catalogue_path, workers=32
             os.remove(f)
 
 
+# === Calculate empirical survey selection function for all sources ===
+def calculate_empirical_survey_selection_function(reduced_catalogue_path, k=32):
+    """
+    Compute the empirical survey selection function using a kNN-based M10 metric
+    and save it as a .npy file aligned with the G-band photometry array.
+    
+    Parameters
+    ----------
+    reduced_catalogue_path : str
+        Directory path to reduced numpy catalogue.
+    k : int
+        Number of nearest neighbors to use in M10 computation.
+    """
+    # Load required arrays
+    galactic_coordinates = np.load(f"{reduced_catalogue_path}/gdr3_galactic_coordinates.npy")  # shape (n, 2)
+    G_band_magnitudes = np.load(f"{reduced_catalogue_path}/gdr3_photometry.npy")[:, 0]           # shape (n,)
+    astrometric_matched_transits = np.load(f"{reduced_catalogue_path}/gdr3_astrometric_matched_transits.npy")[:, 0]  # shape (n,)
+
+    # Identify stars with valid G magnitude
+    valid_gmag = np.isfinite(G_band_magnitudes)
+
+    # Convert (l, b) in degrees to unit 3D Cartesian coordinates
+    l_rad, b_rad = np.deg2rad(galactic_coordinates).T
+    xyz = np.column_stack([
+        np.cos(b_rad) * np.cos(l_rad),
+        np.cos(b_rad) * np.sin(l_rad),
+        np.sin(b_rad)
+    ])
+
+    # Build KDTree with only those stars with valid G-band magnitudes and with less than 11 astrometric matched transits
+    n = valid_gmag.size
+    m10 = np.empty(n)
+    valid_for_kNN = valid_gmag & (astrometric_matched_transits < 11)
+    nbrs = KDTree(xyz[valid_for_kNN])
+
+    # Chunking for memory efficiency
+    working_memory = get_config()["working_memory"]
+    chunk_n_rows = max(min(int(working_memory * (2**20) // 16*k), n), 1)
+
+    # Compute m10 for each star as median G of neighbors with <11 transits
+    for sl in gen_batches(n, chunk_n_rows):
+        # k-nearest neighbours query
+        _, idx = nbrs.query(xyz[sl], k=k, sqr_dists=True)
+
+        # Median G-band magnitude of neighbors
+        m10[sl] = np.median(G_band_magnitudes[idx], axis=1)
+
+    # Compute completeness using m10_to_completeness (only for valid G-band magnitudes)
+    selection_function = np.full_like(G_band_magnitudes, np.nan)
+    selection_function[valid_gmag] = m10_to_completeness(
+        G_band_magnitudes[valid_gmag],
+        m10[valid_gmag]
+    )
+
+    # Save the result
+    out_path = f"{reduced_catalogue_path}/gdr3_empirical_survey_selection_function.npy"
+    np.save(out_path, selection_function)
+    print(f"Saved selection function to {out_path} (valid: {np.isfinite(selection_function).sum()} stars)")
+    print(f"Empirical survey selection function range: {np.nanmin(selection_function):.3f} -- {np.nanmax(selection_function):.3f}")
 
 
 # === Create subsample from full catalogue ===
@@ -135,7 +207,10 @@ if __name__ == "__main__":
     figures_path = "/home/williamoliver_data/gaia_clustering/figures/"  # Path to figures
 
     # Number of parallel workers
-    workers = min(os.cpu_count(), 8)
+    workers = min(os.cpu_count(), 16)
+
+    # Number of nearest neighbors for M10 calculation
+    kNN_for_m10 = 32
 
     # Reduce raw catalogue to numpy files
     reduce_catalogue_to_numpy(
@@ -144,9 +219,21 @@ if __name__ == "__main__":
         workers=workers
     )
 
+    # Calculate the empirical survey selection function for all sources
+    calculate_empirical_survey_selection_function(
+        reduced_catalogue_path=reduced_catalogue_path,
+        k=kNN_for_m10
+    )
+
     # Create subsample from full catalogue
     create_subsample_from_full_catalogue(
         reduced_catalogue_path=reduced_catalogue_path,
+        subsample_path=subsample_path,
+        figures_path=figures_path
+    )
+
+    # Calculate total selection function for subsample
+    calculate_total_selection_function_for_subsample(
         subsample_path=subsample_path,
         figures_path=figures_path
     )

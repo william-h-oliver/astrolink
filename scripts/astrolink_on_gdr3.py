@@ -135,7 +135,7 @@ if __name__ == "__main__":
     figures_path = "/home/williamoliver_data/gaia_clustering/figures/"  # Path to figures
 
     # Number of parallel workers
-    workers = min(os.cpu_count(), 16)
+    workers = min(os.cpu_count(), 8)
 
     # Reduce raw catalogue to numpy files
     reduce_catalogue_to_numpy(

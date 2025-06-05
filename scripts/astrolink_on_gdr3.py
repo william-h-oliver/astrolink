@@ -23,7 +23,7 @@ def _process_single_file(file_path, output_dir, column_groups):
         return True
 
     print(f"[PROCESS] {chunk_name} — starting in PID {os.getpid():<15}", end='\r')
-
+    
     # Build union of required columns
     all_columns = [col for cols in column_groups.values() for col in cols]
 
@@ -31,8 +31,9 @@ def _process_single_file(file_path, output_dir, column_groups):
     table = Table.read(file_path, format='ascii.ecsv', include_names=all_columns, fill_values=[("null", "nan")])
 
     # Convert and save each group
+    print(table.colnames)
     for group_name, group_cols in column_groups.items():
-        columns_data = [table[col].data for col in group_cols]  # each is 1D array of length n
+        columns_data = [np.array(table[col]) for col in group_cols]  # each is 1D array of length n
         array = np.column_stack(columns_data)
         out_path = os.path.join(output_dir, f'gdr3_{group_name}_{chunk_name}.npy')
         np.save(out_path, array)

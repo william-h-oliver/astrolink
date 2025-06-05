@@ -14,11 +14,19 @@ def _process_single_file(file_path, output_dir, column_groups):
     # Extract chunk name from filename
     chunk_name = os.path.basename(file_path).replace('GaiaSource_', '').replace('.csv.gz', '')
 
+    # Check if the files already exist
+    check = True
+    for group_name in column_groups.keys():
+        out_path = os.path.join(output_dir, f'gdr3_{group_name}_{chunk_name}.npy')
+        check = check and os.path.exists(out_path)
+    if check:
+        return True
+
     # Build union of required columns
     all_columns = sorted({col for cols in column_groups.values() for col in cols})
 
     # Read with astropy
-    table = Table.read(file_path, format='ascii.ecsv', include_names=all_columns)
+    table = Table.read(file_path, format='ascii.ecsv', include_names=all_columns, fill_values=np.nan)
 
     # Convert and save each group
     for group_name, group_cols in column_groups.items():
@@ -122,12 +130,6 @@ if __name__ == "__main__":
     subsample_path = "/home/williamoliver_data/gaia_clustering/sample_files/"  # Path to numpy files of subsample from full catalogue
     clustering_output_path = "/home/williamoliver_data/gaia_clustering/clustering_output/"  # Path to AstroLink output files
     figures_path = "/home/williamoliver_data/gaia_clustering/figures/"  # Path to figures
-    
-    # Ensure output directories exist and create them if not
-    os.makedirs(reduced_catalogue_path, exist_ok=True)
-    os.makedirs(subsample_path, exist_ok=True)
-    os.makedirs(clustering_output_path, exist_ok=True)
-    os.makedirs(figures_path, exist_ok=True)
 
     # Number of parallel workers
     workers = min(os.cpu_count(), 32)

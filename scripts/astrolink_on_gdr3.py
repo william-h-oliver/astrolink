@@ -31,7 +31,6 @@ def _process_single_file(file_path, output_dir, column_groups):
     table = Table.read(file_path, format='ascii.ecsv', include_names=all_columns, fill_values=[("null", "nan")])
 
     # Convert and save each group
-    print(table.colnames)
     for group_name, group_cols in column_groups.items():
         columns_data = [np.array(table[col]) for col in group_cols]  # each is 1D array of length n
         array = np.column_stack(columns_data)

@@ -54,7 +54,7 @@ def _process_single_file(file_path, output_dir, column_groups):
 
     return True
 
-def reduce_catalogue_to_numpy(catalogue_path, reduced_catalogue_path, workers=32, overwrite=False):
+def reduce_catalogue_to_numpy(catalogue_path, reduced_catalogue_path, workers, overwrite=False):
     """
     Reduce raw Gaia catalogue CSV files to grouped numpy arrays.
 
@@ -120,7 +120,7 @@ def reduce_catalogue_to_numpy(catalogue_path, reduced_catalogue_path, workers=32
 
 
 # === Calculate empirical survey selection function for all sources ===
-def calculate_empirical_survey_selection_function(reduced_catalogue_path, k=32, overwrite=False):
+def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, healpix_level, workers, overwrite=False):
     """
     Compute the empirical survey selection function using a kNN-based M10 metric
     and save it as a .npy file aligned with the G-band photometry array.
@@ -131,13 +131,18 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k=32, 
         Directory path to reduced numpy catalogue.
     k : int
         Number of nearest neighbors to use in M10 computation.
+    healpix_level : int
+        HEALPix NSIDE level for sky projection.
+    workers : int
+        Number of parallel workers to use for kNN computation.
     overwrite : bool
         If True, overwrite existing selection function file. If False, skip if file exists.
     """
     # Check if selection function already exists
-    out_path = f"{reduced_catalogue_path}/gdr3_empirical_survey_selection_function.npy"
-    if os.path.exists(out_path) and not overwrite:
-        print(f"Selection function already exists at {out_path}. Use overwrite=True to recompute.\n")
+    out_path_sf = f"{reduced_catalogue_path}/gdr3_empirical_survey_selection_function.npy"
+    out_path_m10 = f"{reduced_catalogue_path}/gdr3_m10_healpix.npy"
+    if os.path.exists(out_path_sf) and os.path.exists(out_path_m10) and not overwrite:
+        print(f"Selection function already exists at {out_path_sf} and m10 values at the centre of HEALpix pixels already exists at {out_path_m10}. Use overwrite=True to recompute.\n")
         return
     print("Calculating empirical survey selection function...")
 
@@ -174,7 +179,7 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k=32, 
 
         # Median G-band magnitude of neighbors
         m10[sl] = np.median(G_band_magnitudes[idx], axis=1)
-
+    
     # Compute completeness using m10_to_completeness (only for valid G-band magnitudes)
     selection_function = np.full_like(G_band_magnitudes, np.nan)
     selection_function[valid_gmag] = m10_to_completeness(
@@ -182,15 +187,44 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k=32, 
         m10[valid_gmag]
     )
 
-    # Save the result
+    # Save the selection function
     out_path = f"{reduced_catalogue_path}/gdr3_empirical_survey_selection_function.npy"
     np.save(out_path, selection_function)
     print(f"Saved selection function to {out_path} (valid: {np.isfinite(selection_function).sum()} stars)")
-    print(f"Empirical survey selection function range: {np.nanmin(selection_function):.3f} -- {np.nanmax(selection_function):.3f}\n")
+    print(f"Empirical survey selection function range: {np.nanmin(selection_function):.3f} -- {np.nanmax(selection_function):.3f}")
+
+    # Also calculate m10 values at the centre of each HEALPix pixel for plotting
+    print("Calculating m10 values for HEALPix pixels...")
+    nside = 2**healpix_level
+    npix = hp.nside2npix(nside)
+    l_rad, b_rad = hp.pix2ang(nside, np.arange(npix))
+    xyz = np.column_stack([
+        np.cos(b_rad) * np.cos(l_rad),
+        np.cos(b_rad) * np.sin(l_rad),
+        np.sin(b_rad)
+    ])
+    m10_healpix = np.empty(npix)
+
+    # Update chunking for HEALPix
+    working_memory = get_config()["working_memory"]
+    chunk_n_rows = max(min(int(working_memory * (2**20) // 16*k), npix), 1)
+
+    # Compute m10 for each HEALPix pixel as median G of neighbors with <11 transits
+    for sl in gen_batches(npix, chunk_n_rows):
+        # k-nearest neighbours query
+        _, idx = nbrs.query(xyz[sl], k=k, sqr_dists=True)
+
+        # Median G-band magnitude of neighbors
+        m10_healpix[sl] = np.median(G_band_magnitudes[idx], axis=1)
+
+    # Save m10 values for HEALPix pixels
+    m10_values_path = f"{reduced_catalogue_path}/gdr3_m10_healpix.npy"
+    np.save(m10_values_path, m10_healpix)
+    print(f"Saved m10 values for HEALPix pixels to {m10_values_path} (shape: {m10_healpix.shape})\n")
 
 
 # === Create subsample from full catalogue ===
-def create_subsample_from_full_catalogue(reduced_catalogue_path, subsample_path, S_Gaia_cut=0.95, overwrite=False):
+def create_subsample_from_full_catalogue(reduced_catalogue_path, subsample_path, S_Gaia_cut, overwrite=False):
     """
     Create a boolean subsample mask where the empirical survey selection function S_Gaia > S_Gaia_cut.
     Also plot the limiting G-band magnitude across the sky using HEALPix.
@@ -228,12 +262,14 @@ def create_subsample_from_full_catalogue(reduced_catalogue_path, subsample_path,
 
 
 # === Make plot of the limiting G-band magnitude as a function of sky position ===
-def plot_limiting_g_band_magnitude(figures_path, S_Gaia_cut=0.95, healpix_level=10, overwrite=False):
+def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_cut, healpix_level, overwrite=False):
     """
     Plot the limiting G-band magnitude across the sky using HEALPix.
 
     Parameters
     ----------
+    reduced_catalogue_path : str
+        Directory containing reduced catalogue .npy files.
     figures_path : str
         Directory to save the mollview plot.
     S_Gaia_cut : float
@@ -250,46 +286,70 @@ def plot_limiting_g_band_magnitude(figures_path, S_Gaia_cut=0.95, healpix_level=
         return
     print("Plotting limiting G-band magnitude across the sky...")
 
-    # Set up HEALPix map for plotting (placeholder values)
-    
+    # Load m10 values for HEALPix pixels
+    m10 = np.load(f"{reduced_catalogue_path}/gdr3_m10_healpix.npy")  # (npix,)
 
-    # Convert (l, b) -> (theta, phi) in radians
-    l_deg, b_deg = galactic_coords.T
-    theta = np.deg2rad(90 - b_deg)  # colatitude
-    phi = np.deg2rad(l_deg)         # longitude
-    del galactic_coords, l_deg, b_deg  # Free memory
-
-    # Get healpix indices
-    nside = 2**healpix_level_for_plotting
+    # Create HEALPix map
+    nside = 2**healpix_level
     npix = hp.nside2npix(nside)
-    pix_indices = hp.ang2pix(nside, theta, phi)
 
-    # Calculate limiting G-band magnitude (placeholder logic)
-    limiting_g_mag = np.full(npix, np.nan)
+    # Check that m10 has the correct shape
+    if m10.shape[0] != npix:
+        raise ValueError(f"m10 has shape {m10_healpix.shape}, expected {npix} for nside={nside}. The method 'calculate_empirical_survey_selection_function' was run with a different healpix_level value.")
 
-    # TODO: Fill `limiting_g_mag[pix_indices]` with computed limiting G-band magnitudes
+    # Create a HEALPix map with m10 values
+    l_rad, b_rad = hp.pix2ang(nside, np.arange(npix))
 
-    # Plot with healpy
-    plt.figure(figsize=(10, 6))
-    hp.mollview(
-        limiting_g_mag,
-        title="Limiting G-band Magnitude (placeholder)",
-        unit="G mag",
-        cmap="viridis",
-        notext=False
+    # Taken from the source code of gaiaunlimited.selectionfunctions.m10_to_completeness...
+    # These are the best-fit value of the free parameters we optimised in our model:
+    ax, bx, cx, ay, by, cy, az, bz, cz, lim = dict(
+        ax=0.9848761394197864,
+        bx=0.6473155510230146,
+        cx=0.6929084598209412,
+        ay=-0.003935382139847386,
+        by=0.2230529402297744,
+        cy=-0.09331877468160235,
+        az=0.006144107896473064,
+        bz=0.03681705933744438,
+        cz=0.35140564525722895,
+        lim=20.519369625540833,
+    ).values()
+
+    predictedG0 = ax * m10 + bx
+    predictedG0[m10 > lim] = cx * m10[m10 > lim] + (ax - cx) * lim + bx
+    #
+    predictedInvslope = ay * m10 + by
+    predictedInvslope[m10 > lim] = cy * m10[m10 > lim] + (ay - cy) * lim + by
+    #
+    predictedShape = az * m10 + bz
+    predictedShape[m10 > lim] = cz * m10[m10 > lim] + (az - cz) * lim + bz
+
+    # Calculate the inverse of the selection function given the m10 values
+    limiting_g_band_magnitude = predictedG0 + predictedInvslope * np.arctanh(2 * (1 - S_Gaia_cut) ** (1 / predictedShape) - 1)
+
+    # Create a Mollweide projection plot of the limiting G-band magnitude
+    plt.figure(figsize=(12, 6))
+    projview(
+        limiting_g_band_magnitude,
+        coord=["G"],
+        unit=r"Limiting $G$-band magnitude",
+        cb_orientation="horizontal",
+        min=20,
+        max=21.7,
+        projection_type="mollweide",
     )
-    fig_path = os.path.join(figures_path, "limiting_g_mag_mollview.png")
-    plt.savefig(fig_path, dpi=200, bbox_inches="tight")
-    plt.close()
 
-    # Free memory
-    del limiting_g_mag, pix_indices, theta, phi
-    gc.collect()
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(fig_path, dpi=300)
+    plt.close()
+    gc.collect()  # Free memory
+    
     print(f"Saved mollview plot to {fig_path}\n")
 
 
 # === Function to run AstroLink clustering on subsample ===
-def run_astrolink_on_subsample(subsample_path, clustering_output_path, figures_path, workers=32, overwrite=False):
+def run_astrolink_on_subsample(subsample_path, clustering_output_path, figures_path, workers, overwrite=False):
     """
     Run AstroLink clustering on the subsample.
     
@@ -347,50 +407,46 @@ if __name__ == "__main__":
 
     # Number of parallel workers
     workers = min(os.cpu_count(), 16)
+    os.environ["OMP_NUM_THREADS"] = f"{min(workers, os.cpu_count())}" if workers != -1 else f"{os.cpu_count()}"
 
     # Pipeline constants
-    kNN_for_m10 = 32 # Number of nearest neighbors for M10 calculation
+    kNN_for_m10 = 100 # Number of nearest neighbors for M10 calculation
     S_Gaia_cut = 0.95 # Empirical survey selection function lower limit for subsample stars
-    healpix_level_for_plotting = 10 # HEALPix level for plotting limiting G-band magnitude
+    healpix_level_for_sky_plots = 10 # HEALPix level for plotting limiting G-band magnitude
 
     # Reduce raw catalogue to numpy files
     reduce_catalogue_to_numpy(
         catalogue_path=catalogue_path,
         reduced_catalogue_path=reduced_catalogue_path,
-        workers=workers,
-        overwrite=False  # Set to True to force overwrite existing files
+        workers=workers
     )
 
     # Calculate the empirical survey selection function for all sources
     calculate_empirical_survey_selection_function(
         reduced_catalogue_path=reduced_catalogue_path,
         k=kNN_for_m10,
-        workers=workers,
-        overwrite=False  # Set to True to force overwrite existing selection function
+        workers=workers
     )
 
     # Create subsample from full catalogue using a cut of the empirical survey selection function
     create_subsample_from_full_catalogue(
         reduced_catalogue_path=reduced_catalogue_path,
         subsample_path=subsample_path,
-        S_Gaia_cut=S_Gaia_cut,
-        overwrite=False  # Set to True to force overwrite existing subsample mask
+        S_Gaia_cut=S_Gaia_cut
     )
 
     # Plot the limiting G-band magnitude as a function of sky position
     plot_limiting_g_band_magnitude(
         figures_path=figures_path,
         S_Gaia_cut=S_Gaia_cut,
-        healpix_level=10,
-        overwrite=False  # Set to True to force overwrite existing plot
+        healpix_level=healpix_level_for_sky_plots
     )
 
     # Calculate total selection function for subsample
     calculate_total_selection_function_for_subsample(
         subsample_path=subsample_path,
         figures_path=figures_path,
-        workers=workers,
-        overwrite=False  # Set to True to force overwrite existing selection function
+        workers=workers
     )
 
     # Run AstroLink clustering on subsample
@@ -398,13 +454,11 @@ if __name__ == "__main__":
         subsample_path=subsample_path,
         clustering_output_path=clustering_output_path,
         figures_path=figures_path,
-        workers=workers,
-        overwrite=False  # Set to True to force re-run clustering
+        workers=workers
     )
 
     # Compare clustering output to ground truth
     compare_clustering_output_to_ground_truth(
         clustering_output_path=clustering_output_path,
-        figures_path=figures_path,
-        overwrite=False  # Set to True to force re-run comparison
+        figures_path=figures_path
     )

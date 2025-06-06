@@ -120,7 +120,7 @@ def reduce_catalogue_to_numpy(catalogue_path, reduced_catalogue_path, workers, o
 
 
 # === Calculate empirical survey selection function for all sources ===
-def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, healpix_level, workers, overwrite=False):
+def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, healpix_level, overwrite=False):
     """
     Compute the empirical survey selection function using a kNN-based M10 metric
     and save it as a .npy file aligned with the G-band photometry array.
@@ -133,8 +133,6 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
         Number of nearest neighbors to use in M10 computation.
     healpix_level : int
         HEALPix NSIDE level for sky projection.
-    workers : int
-        Number of parallel workers to use for kNN computation.
     overwrite : bool
         If True, overwrite existing selection function file. If False, skip if file exists.
     """
@@ -425,7 +423,7 @@ if __name__ == "__main__":
     calculate_empirical_survey_selection_function(
         reduced_catalogue_path=reduced_catalogue_path,
         k=kNN_for_m10,
-        workers=workers
+        healpix_level=healpix_level_for_sky_plots,
     )
 
     # Create subsample from full catalogue using a cut of the empirical survey selection function
@@ -437,6 +435,7 @@ if __name__ == "__main__":
 
     # Plot the limiting G-band magnitude as a function of sky position
     plot_limiting_g_band_magnitude(
+        reduced_catalogue_path=reduced_catalogue_path,
         figures_path=figures_path,
         S_Gaia_cut=S_Gaia_cut,
         healpix_level=healpix_level_for_sky_plots

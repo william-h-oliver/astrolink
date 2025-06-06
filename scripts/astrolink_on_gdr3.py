@@ -151,6 +151,9 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
 
     # Identify stars with valid G magnitude
     valid_gmag = np.isfinite(G_band_magnitudes)
+    valid_for_kNN = valid_gmag & (astrometric_matched_transits < 11)
+    del astrometric_matched_transits  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Convert (l, b) in degrees to unit 3D Cartesian coordinates
     l_rad, b_rad = np.deg2rad(galactic_coordinates).T
@@ -160,11 +163,15 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
         np.sin(b_rad)
     ])
 
+    del galactic_coordinates, l_rad, b_rad  # Free memory
+    gc.collect()  # Force garbage collection
+
     # Build KDTree with only those stars with valid G-band magnitudes and with less than 11 astrometric matched transits
     n = valid_gmag.size
     m10 = np.empty(n)
-    valid_for_kNN = valid_gmag & (astrometric_matched_transits < 11)
     nbrs = KDTree(xyz[valid_for_kNN])
+    del valid_for_kNN  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Chunking for memory efficiency
     working_memory = get_config()["working_memory"]
@@ -173,10 +180,14 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
     # Compute m10 for each star as median G of neighbors with <11 transits
     for sl in gen_batches(n, chunk_n_rows):
         # k-nearest neighbours query
-        _, idx = nbrs.query(xyz[sl], k=k, sqr_dists=True)
+        sqr_dists, idx = nbrs.query(xyz[sl], k=k, sqr_dists=True)
 
         # Median G-band magnitude of neighbors
         m10[sl] = np.median(G_band_magnitudes[idx], axis=1)
+
+        # Delete temporary variables to free memory
+        del sqr_dists, idx
+        gc.collect()
     
     # Compute completeness using m10_to_completeness (only for valid G-band magnitudes)
     selection_function = np.full_like(G_band_magnitudes, np.nan)
@@ -185,11 +196,16 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
         m10[valid_gmag]
     )
 
+    del valid_gmag, m10, xyz  # Free memory
+    gc.collect()  # Force garbage collection
+
     # Save the selection function
     out_path = f"{reduced_catalogue_path}/gdr3_empirical_survey_selection_function.npy"
     np.save(out_path, selection_function)
     print(f"Saved selection function to {out_path} (valid: {np.isfinite(selection_function).sum()} stars)")
     print(f"Empirical survey selection function range: {np.nanmin(selection_function):.3f} -- {np.nanmax(selection_function):.3f}")
+    del selection_function  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Also calculate m10 values at the centre of each HEALPix pixel for plotting
     print("Calculating m10 values for HEALPix pixels...")
@@ -202,6 +218,8 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
         np.sin(b_rad)
     ])
     m10_healpix = np.empty(npix)
+    del l_rad, b_rad  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Update chunking for HEALPix
     working_memory = get_config()["working_memory"]
@@ -210,15 +228,24 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
     # Compute m10 for each HEALPix pixel as median G of neighbors with <11 transits
     for sl in gen_batches(npix, chunk_n_rows):
         # k-nearest neighbours query
-        _, idx = nbrs.query(xyz[sl], k=k, sqr_dists=True)
+        sqr_dists, idx = nbrs.query(xyz[sl], k=k, sqr_dists=True)
 
         # Median G-band magnitude of neighbors
         m10_healpix[sl] = np.median(G_band_magnitudes[idx], axis=1)
+
+        # Delete temporary variables to free memory
+        del sqr_dists, idx
+        gc.collect()
+    
+    del nbrs, xyz  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Save m10 values for HEALPix pixels
     m10_values_path = f"{reduced_catalogue_path}/gdr3_m10_healpix.npy"
     np.save(m10_values_path, m10_healpix)
     print(f"Saved m10 values for HEALPix pixels to {m10_values_path} (shape: {m10_healpix.shape})\n")
+    del m10_healpix  # Free memory
+    gc.collect()  # Force garbage collection
 
 
 # === Create subsample from full catalogue ===

@@ -120,7 +120,7 @@ def reduce_catalogue_to_numpy(catalogue_path, reduced_catalogue_path, workers, o
 
 
 # === Calculate empirical survey selection function for all sources ===
-def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, healpix_level, overwrite=False):
+def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, healpix_level, overwrite=True):
     """
     Compute the empirical survey selection function using a kNN-based M10 metric
     and save it as a .npy file aligned with the G-band photometry array.
@@ -228,7 +228,7 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
 
     # Convert (l, b) in degrees to unit 3D Cartesian coordinates
     print("... converting HEALpix pixel centres to unit 3D Cartesian coordinates")
-    l_rad, b_rad = hp.pix2ang(nside, np.arange(npix))
+    l_rad, b_rad = hp.pix2ang(nside, np.arange(npix), nest=True)
     cos_l = np.cos(l_rad)
     sin_l = np.sin(l_rad)
     cos_b = np.cos(b_rad)
@@ -314,7 +314,7 @@ def create_subsample_from_full_catalogue(reduced_catalogue_path, subsample_path,
 
 
 # === Make plot of the limiting G-band magnitude as a function of sky position ===
-def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_cut, healpix_level, overwrite=False):
+def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_cut, healpix_level, overwrite=True):
     """
     Plot the limiting G-band magnitude across the sky using HEALPix.
 
@@ -340,17 +340,6 @@ def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_
 
     # Load m10 values for HEALPix pixels
     m10 = np.load(f"{reduced_catalogue_path}/gdr3_m10_healpix.npy")  # (npix,)
-
-    # Create HEALPix map
-    nside = 2**healpix_level
-    npix = hp.nside2npix(nside)
-
-    # Check that m10 has the correct shape
-    if m10.shape[0] != npix:
-        raise ValueError(f"m10 has shape {m10_healpix.shape}, expected {npix} for nside={nside}. The method 'calculate_empirical_survey_selection_function' was run with a different healpix_level value.")
-
-    # Create a HEALPix map with m10 values
-    l_rad, b_rad = hp.pix2ang(nside, np.arange(npix))
 
     # Taken from the source code of gaiaunlimited.selectionfunctions.m10_to_completeness...
     # These are the best-fit value of the free parameters we optimised in our model:
@@ -386,8 +375,8 @@ def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_
         coord=["G"],
         unit=r"Limiting $G$-band magnitude",
         cb_orientation="horizontal",
-        min=20,
-        max=21.7,
+        #min=20,
+        #max=21.7,
         projection_type="mollweide",
     )
 
@@ -400,8 +389,109 @@ def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_
     print(f"... saved mollview plot to {fig_path}\n")
 
 
+# === Calculate total selection function for subsample ===
+def calculate_total_selection_function_for_subsample(subsample_path, workers, overwrite=False):
+    """
+    Calculate the total selection function for the subsample and plot it.
+    
+    Parameters
+    ----------
+    subsample_path : str
+        Path to the subsample numpy files.
+    figures_path : str
+        Path to save figures related to the selection function.
+    workers : int
+        Number of parallel workers to use for processing.
+    overwrite : bool
+        If True, overwrite existing selection function. If False, skip if already exists.
+    """
+    # Placeholder for actual implementation
+    print(f"Calculating total selection function for subsample at {subsample_path} using {workers} workers.")
+    # Actual code would go here
+
+
+# === Make plot of total selection function for subsample ===
+def plot_total_selection_function_for_subsample(subsample_path, figures_path, overwrite=False):
+    """
+    Plot the total selection function for the subsample.
+    
+    Parameters
+    ----------
+    subsample_path : str
+        Path to the subsample numpy files.
+    figures_path : str
+        Path to save figures related to the selection function.
+    overwrite : bool
+        If True, overwrite existing plot. If False, skip if plot already exists.
+    """
+    # Placeholder for actual implementation
+    print(f"Plotting total selection function for subsample at {subsample_path}.")
+    # Actual code would go here
+
+
+# === Calculate distance contraction for subsample ===
+def calculate_distance_contraction_for_subsample(subsample_path, workers, overwrite=False):
+    """
+    Calculate the distance contraction for the subsample.
+    
+    Parameters
+    ----------
+    subsample_path : str
+        Path to the subsample numpy files.
+    figures_path : str
+        Path to save figures related to distance contraction.
+    workers : int
+        Number of parallel workers to use for processing.
+    overwrite : bool
+        If True, overwrite existing distance contraction results. If False, skip if results already exist.
+    """
+    # Placeholder for actual implementation
+    print(f"Calculating distance contraction for subsample at {subsample_path} using {workers} workers.")
+    # Actual code would go here
+
+
+# === Make plot of distance contraction for subsample ===
+def plot_distance_contraction_for_subsample(subsample_path, figures_path, overwrite=False):
+    """
+    Plot the distance contraction for the subsample.
+    
+    Parameters
+    ----------
+    subsample_path : str
+        Path to the subsample numpy files.
+    figures_path : str
+        Path to save figures related to distance contraction.
+    overwrite : bool
+        If True, overwrite existing plot. If False, skip if plot already exists.
+    """
+    # Placeholder for actual implementation
+    print(f"Plotting distance contraction for subsample at {subsample_path}.")
+    # Actual code would go here
+
+
+# === Calculate Cartesin-like coordinates for subsample ===
+def calculate_cartesian_coordinates_for_subsample(subsample_path, workers, overwrite=False):
+    """
+    Calculate Cartesian-like coordinates for the subsample.
+    
+    Parameters
+    ----------
+    subsample_path : str
+        Path to the subsample numpy files.
+    figures_path : str
+        Path to save figures related to Cartesian coordinates.
+    workers : int
+        Number of parallel workers to use for processing.
+    overwrite : bool
+        If True, overwrite existing Cartesian coordinates. If False, skip if already exists.
+    """
+    # Placeholder for actual implementation
+    print(f"Calculating Cartesian-like coordinates for subsample at {subsample_path} using {workers} workers.")
+    # Actual code would go here
+
+
 # === Function to run AstroLink clustering on subsample ===
-def run_astrolink_on_subsample(subsample_path, clustering_output_path, figures_path, workers, overwrite=False):
+def run_astrolink_on_subsample(subsample_path, clustering_output_path, workers, overwrite=False):
     """
     Run AstroLink clustering on the subsample.
     
@@ -424,8 +514,27 @@ def run_astrolink_on_subsample(subsample_path, clustering_output_path, figures_p
     # Actual code would go here
 
 
+# === Make plots of clustering output ===
+def plot_clustering_output(clustering_output_path, figures_path, overwrite=False):
+    """
+    Plot the clustering output from AstroLink.
+    
+    Parameters
+    ----------
+    clustering_output_path : str
+        Path to the AstroLink output files.
+    figures_path : str
+        Path to save figures related to clustering output.
+    overwrite : bool
+        If True, overwrite existing plots. If False, skip if plots already exist.
+    """
+    # Placeholder for actual implementation
+    print(f"Plotting clustering output from {clustering_output_path}.")
+    # Actual code would go here
+
+
 # === Function to compare clustering output to ground truth ===
-def compare_clustering_output_to_ground_truth(clustering_output_path, figures_path, overwrite=False):
+def compare_clustering_output_to_ground_truth(clustering_output_path, overwrite=False):
     """
     Compare the clustering output to the ground truth.
     
@@ -441,6 +550,26 @@ def compare_clustering_output_to_ground_truth(clustering_output_path, figures_pa
     # Placeholder for actual implementation
     print(f"Comparing clustering output from {clustering_output_path} to ground truth.")
     # Actual code would go here
+
+
+# === Make plots of comparison results ===
+def plot_comparison_results(clustering_output_path, figures_path, overwrite=False):
+    """
+    Plot the results of the comparison between clustering output and ground truth.
+    
+    Parameters
+    ----------
+    clustering_output_path : str
+        Path to the AstroLink output files.
+    figures_path : str
+        Path to save figures related to the comparison results.
+    overwrite : bool
+        If True, overwrite existing plots. If False, skip if plots already exist.
+    """
+    # Placeholder for actual implementation
+    print(f"Plotting comparison results from {clustering_output_path}.")
+    # Actual code would go here
+
 
 # === Run script ===
 if __name__ == "__main__":
@@ -498,7 +627,30 @@ if __name__ == "__main__":
     # Calculate total selection function for subsample
     calculate_total_selection_function_for_subsample(
         subsample_path=subsample_path,
-        figures_path=figures_path,
+        workers=workers
+    )
+
+    # Plot the total selection function for subsample
+    plot_total_selection_function_for_subsample(
+        subsample_path=subsample_path,
+        figures_path=figures_path
+    )
+
+    # Calculate distance contraction for subsample
+    calculate_distance_contraction_for_subsample(
+        subsample_path=subsample_path,
+        workers=workers
+    )
+
+    # Plot distance contraction for subsample
+    plot_distance_contraction_for_subsample(
+        subsample_path=subsample_path,
+        figures_path=figures_path
+    )
+
+    # Calculate Cartesian-like coordinates for subsample
+    calculate_cartesian_coordinates_for_subsample(
+        subsample_path=subsample_path,
         workers=workers
     )
 
@@ -506,12 +658,21 @@ if __name__ == "__main__":
     run_astrolink_on_subsample(
         subsample_path=subsample_path,
         clustering_output_path=clustering_output_path,
-        figures_path=figures_path,
         workers=workers
+    )
+
+    # Plot clustering output
+    plot_clustering_output(
+        clustering_output_path=clustering_output_path,
     )
 
     # Compare clustering output to ground truth
     compare_clustering_output_to_ground_truth(
+        clustering_output_path=clustering_output_path
+    )
+
+    # Plot comparison results
+    plot_comparison_results(
         clustering_output_path=clustering_output_path,
         figures_path=figures_path
     )

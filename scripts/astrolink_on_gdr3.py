@@ -87,7 +87,8 @@ def reduce_catalogue_to_numpy(catalogue_path, reduced_catalogue_path, workers, o
         for group_name in column_groups
     )
     if all_exist and not overwrite:
-        print("All output files already exist. Skipping reduction. Use overwrite=True to force reprocessing.\n")
+        print("All catalogue reduction numpy files already exist. Skipping reduction.")
+        print("Use overwrite=True to force reprocessing.\n")
         return
     print("Reducing raw Gaia catalogue to numpy files...")
 
@@ -140,7 +141,8 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
     out_path_sf = f"{reduced_catalogue_path}/gdr3_empirical_survey_selection_function.npy"
     out_path_m10 = f"{reduced_catalogue_path}/gdr3_m10_healpix.npy"
     if os.path.exists(out_path_sf) and os.path.exists(out_path_m10) and not overwrite:
-        print(f"Selection function already exists at {out_path_sf} and m10 values at the centre of HEALpix pixels already exists at {out_path_m10}. Use overwrite=True to recompute.\n")
+        print(f"Selection function already exists at {out_path_sf} and m10 values at the centre of HEALpix pixels already exists at {out_path_m10}")
+        print("Use overwrite=True to recompute.\n")
         return
     print("Calculating empirical survey selection function...")
 
@@ -177,7 +179,7 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
 
     # Build KDTree with only those stars with valid G-band magnitudes and with less than 11 astrometric matched transits
     print("... building kNN tree for valid stars")
-    n = valid_gmag.size
+    n = xyz.shape[0]
     m10 = np.empty(n)
     nbrs = KDTree(xyz[valid_for_kNN])
     del valid_for_kNN  # Free memory
@@ -229,14 +231,15 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
     # Convert (theta, phi) in degrees to unit 3D Cartesian coordinates
     print("... converting HEALpix pixel centres to unit 3D Cartesian coordinates")
     phi_rad, theta_rad = hp.pix2ang(nside, np.arange(npix), nest=True) # pix2ang returns in different order
+    phi_rad = np.pi / 2 - phi  # Convert phi from [0, pi] to [-pi/2, pi/2]
     cos_theta = np.cos(theta_rad)
     sin_theta = np.sin(theta_rad)
     cos_phi = np.cos(phi_rad)
     sin_phi = np.sin(phi_rad)
     xyz = np.column_stack([
-        cos_theta * sin_phi,  # x
-        sin_theta * sin_phi,  # y
-        cos_phi           # z
+        cos_l * cos_b,  # x
+        sin_l * cos_b,  # y
+        sin_b           # z
     ])
     del theta_rad, phi_rad  # Free memory
     gc.collect()  # Force garbage collection

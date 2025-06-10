@@ -168,8 +168,8 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
     cos_b = np.cos(b_rad)
     sin_b = np.sin(b_rad)
     xyz = np.column_stack([
-        cos_b * cos_l,  # x
-        cos_b * sin_l,  # y
+        cos_l * cos_b,  # x
+        sin_l * cos_b,  # y
         sin_b           # z
     ])
     del l_rad, b_rad  # Free memory
@@ -226,19 +226,19 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
     nside = 2**healpix_level
     npix = hp.nside2npix(nside)
 
-    # Convert (l, b) in degrees to unit 3D Cartesian coordinates
+    # Convert (theta, phi) in degrees to unit 3D Cartesian coordinates
     print("... converting HEALpix pixel centres to unit 3D Cartesian coordinates")
-    l_rad, b_rad = hp.pix2ang(nside, np.arange(npix), nest=True)
-    cos_l = np.cos(l_rad)
-    sin_l = np.sin(l_rad)
-    cos_b = np.cos(b_rad)
-    sin_b = np.sin(b_rad)
+    phi_rad, theta_rad = hp.pix2ang(nside, np.arange(npix), nest=True) # pix2ang returns in different order
+    cos_theta = np.cos(theta_rad)
+    sin_theta = np.sin(theta_rad)
+    cos_phi = np.cos(phi_rad)
+    sin_phi = np.sin(phi_rad)
     xyz = np.column_stack([
-        cos_b * cos_l,  # x
-        cos_b * sin_l,  # y
-        sin_b           # z
+        cos_theta * sin_phi,  # x
+        sin_theta * sin_phi,  # y
+        cos_phi           # z
     ])
-    del l_rad, b_rad  # Free memory
+    del theta_rad, phi_rad  # Free memory
     gc.collect()  # Force garbage collection
 
     # Update chunking for HEALPix
@@ -373,6 +373,7 @@ def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_
     projview(
         limiting_g_band_magnitude,
         coord=["G"],
+        nest=True,
         unit=r"Limiting $G$-band magnitude",
         cb_orientation="horizontal",
         #min=20,
@@ -591,7 +592,7 @@ if __name__ == "__main__":
     os.environ["OMP_NUM_THREADS"] = f"{min(workers, os.cpu_count())}" if workers != -1 else f"{os.cpu_count()}"
 
     # Pipeline constants
-    kNN_for_m10 = 10 # Number of nearest neighbors for M10 calculation
+    kNN_for_m10 = 20 # Number of nearest neighbors for M10 calculation
     S_Gaia_cut = 0.95 # Empirical survey selection function lower limit for subsample stars
     healpix_level_for_sky_plots = 10 # HEALPix level for plotting limiting G-band magnitude
 
@@ -664,6 +665,7 @@ if __name__ == "__main__":
     # Plot clustering output
     plot_clustering_output(
         clustering_output_path=clustering_output_path,
+        figures_path=figures_path
     )
 
     # Compare clustering output to ground truth

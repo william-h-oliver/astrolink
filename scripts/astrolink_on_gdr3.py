@@ -281,44 +281,6 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
     gc.collect()  # Force garbage collection
 
 
-# === Create subsample from full catalogue ===
-def create_subsample_from_full_catalogue(reduced_catalogue_path, subsample_path, S_Gaia_cut, overwrite=False):
-    """
-    Create a boolean subsample mask where the empirical survey selection function S_Gaia > S_Gaia_cut.
-    Also plot the limiting G-band magnitude across the sky using HEALPix.
-    
-    Parameters
-    ----------
-    reduced_catalogue_path : str
-        Directory containing reduced catalogue .npy files.
-    subsample_path : str
-        Directory to save subsample .npy file.
-    S_Gaia_cut : float
-        Completeness threshold to include stars in the subsample.
-    overwrite : bool
-        If True, overwrite existing subsample mask. If False, skip if mask already exists.
-    """
-    # Check if subsample mask already exists
-    mask_path = os.path.join(subsample_path, "gdr3_subsample_mask.npy")
-    if os.path.exists(mask_path) and not overwrite:
-        print(f"Subsample mask already exists at {mask_path}. Use overwrite=True to recompute.\n")
-        return
-    print("Creating subsample from full catalogue...")
-
-    # Load selection function and galactic coordinates
-    selection_function = np.load(f"{reduced_catalogue_path}/gdr3_empirical_survey_selection_function.npy")
-    galactic_coords = np.load(f"{reduced_catalogue_path}/gdr3_galactic_coordinates.npy")  # (n, 2) in degrees
-
-    # Create boolean mask for S_Gaia > threshold
-    subsample_mask = selection_function > S_Gaia_cut
-
-    # Save mask
-    os.makedirs(subsample_path, exist_ok=True)
-    mask_path = os.path.join(subsample_path, "gdr3_subsample_mask.npy")
-    np.save(mask_path, subsample_mask)
-    print(f"... saved subsample mask to {mask_path} (selected {subsample_mask.sum()} stars)\n")
-
-
 # === Make plot of the limiting G-band magnitude as a function of sky position ===
 def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_cut, overwrite=False):
     """
@@ -395,8 +357,51 @@ def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_
     print(f"... saved mollview plot to {fig_path}\n")
 
 
+# === Create subsample from full catalogue ===
+def create_subsample_from_full_catalogue(reduced_catalogue_path, subsample_path, S_Gaia_cut, overwrite=True):
+    """
+    Create a boolean subsample mask where the empirical survey selection function S_Gaia > S_Gaia_cut.
+    Also plot the limiting G-band magnitude across the sky using HEALPix.
+    
+    Parameters
+    ----------
+    reduced_catalogue_path : str
+        Directory containing reduced catalogue .npy files.
+    subsample_path : str
+        Directory to save subsample .npy file.
+    S_Gaia_cut : float
+        Completeness threshold to include stars in the subsample.
+    overwrite : bool
+        If True, overwrite existing subsample mask. If False, skip if mask already exists.
+    """
+    # Check if subsample mask already exists
+    mask_path = os.path.join(subsample_path, "gdr3_subsample_mask.npy")
+    if os.path.exists(mask_path) and not overwrite:
+        print(f"Subsample mask already exists at {mask_path}. Use overwrite=True to recompute.\n")
+        return
+    print("Creating subsample from full catalogue...")
+
+    # Load selection function and galactic coordinates
+    selection_function = np.load(f"{reduced_catalogue_path}/gdr3_empirical_survey_selection_function.npy")
+    galactic_coords = np.load(f"{reduced_catalogue_path}/gdr3_galactic_coordinates.npy")  # (n, 2) in degrees
+    parallax = np.load(f"{reduced_catalogue_path}/gdr3_parallaxes.npy")[:, 0]  # (n,)
+    proper_motions = np.load(f"{reduced_catalogue_path}/gdr3_proper_motions.npy")  # (n, 2) in mas/yr
+
+    # Create boolean mask for S_Gaia > threshold and valid astrometric data
+    subsample_mask = np.logical_and(
+        selection_function > S_Gaia_cut,
+        np.isfinite(parallax),
+        np.isfinite(proper_motions).all(axis=1)
+    )
+
+    # Save mask
+    mask_path = os.path.join(subsample_path, "gdr3_subsample_mask.npy")
+    np.save(mask_path, subsample_mask)
+    print(f"... saved subsample mask to {mask_path} (selected {subsample_mask.sum()} stars)\n")
+
+
 # === Calculate total selection function for subsample ===
-def calculate_total_selection_function_for_subsample(reduced_catalogue_path, subsample_path, k, healpix_level, overwrite=False):
+def calculate_total_selection_function_for_subsample(reduced_catalogue_path, subsample_path, k, healpix_level, overwrite=True):
     """
     Calculate the total selection function for the subsample.
     
@@ -553,7 +558,7 @@ def calculate_total_selection_function_for_subsample(reduced_catalogue_path, sub
 
 
 # === Make plot of total selection function for subsample ===
-def plot_total_selection_function_for_subsample(subsample_path, figures_path, overwrite=False):
+def plot_total_selection_function_for_subsample(subsample_path, figures_path, overwrite=True):
     """
     Plot the limiting G-band magnitude across the sky using HEALPix.
 
@@ -779,17 +784,17 @@ if __name__ == "__main__":
         healpix_level=healpix_level_for_sky_plots,
     )
 
-    # Create subsample from full catalogue using a cut of the empirical survey selection function
-    create_subsample_from_full_catalogue(
-        reduced_catalogue_path=reduced_catalogue_path,
-        subsample_path=subsample_path,
-        S_Gaia_cut=S_Gaia_cut
-    )
-
     # Plot the limiting G-band magnitude as a function of sky position
     plot_limiting_g_band_magnitude(
         reduced_catalogue_path=reduced_catalogue_path,
         figures_path=figures_path,
+        S_Gaia_cut=S_Gaia_cut
+    )
+
+    # Create subsample from full catalogue using a cut of the empirical survey selection function
+    create_subsample_from_full_catalogue(
+        reduced_catalogue_path=reduced_catalogue_path,
+        subsample_path=subsample_path,
         S_Gaia_cut=S_Gaia_cut
     )
 

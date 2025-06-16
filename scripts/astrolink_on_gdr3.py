@@ -121,7 +121,7 @@ def reduce_catalogue_to_numpy(catalogue_path, reduced_catalogue_path, workers, o
 
 
 # === Calculate empirical survey selection function for all sources ===
-def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, healpix_level, overwrite=False):
+def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, healpix_level, overwrite=True):
     """
     Compute the empirical survey selection function using a kNN-based M10 metric
     and save each as a .npy files aligned with the G-band photometry array.
@@ -187,7 +187,7 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
     tree = KDTree(xyz_stars[valid_for_kNN])
 
     # Batching for memory efficiency
-    working_memory = get_config()["working_memory"]
+    working_memory = get_config()["working_memory"] / 2  # Use half of the working memory for this operation
     chunk_n_rows = max(min(int(working_memory * (2**20) // 16*k), n), 1)
     batches = list(gen_batches(n, chunk_n_rows))
     num_batches = len(batches)
@@ -249,7 +249,7 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
 
     # Update chunking for HEALPix
     print("... updating chunk size for HEALPix pixels")
-    working_memory = get_config()["working_memory"]
+    working_memory = get_config()["working_memory"] / 2  # Use half of the working memory for this operation
     chunk_n_rows = max(min(int(working_memory * (2**20) // 16*k), npix), 1)
     batches = list(gen_batches(npix, chunk_n_rows))
     num_batches = len(batches)
@@ -282,7 +282,7 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
 
 
 # === Make plot of the limiting G-band magnitude as a function of sky position ===
-def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_cut, overwrite=False):
+def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_cut, overwrite=True):
     """
     Plot the limiting G-band magnitude across the sky using HEALPix.
 
@@ -358,7 +358,7 @@ def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_
 
 
 # === Create subsample from full catalogue ===
-def create_subsample_from_full_catalogue(reduced_catalogue_path, subsample_path, S_Gaia_cut, overwrite=True):
+def create_subsample_from_full_catalogue(reduced_catalogue_path, subsample_path, S_Gaia_cut, overwrite=False):
     """
     Create a boolean subsample mask where the empirical survey selection function S_Gaia > S_Gaia_cut.
     Also plot the limiting G-band magnitude across the sky using HEALPix.
@@ -445,7 +445,7 @@ def calculate_total_selection_function_for_subsample(reduced_catalogue_path, sub
     subsample_indices = np.where(subsample_mask)[0]  # Indices of stars in the subsample (relative to valid G-band magnitudes)
 
     # Calculate the inverse of the empirical survey selection function for the subsample
-    inverse_survey_sf = 1 / np.maximum(survey_sf[valid_gmag], 1 / k)  # Avoids diverging values and stops the total selection function from being unreasonably small
+    inverse_survey_sf = 1 / np.sqrt(survey_sf[valid_gmag]**2 + 1 / k**2)  # Avoids diverging values and stops the total selection function from being unreasonably small
     del survey_sf  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -475,7 +475,7 @@ def calculate_total_selection_function_for_subsample(reduced_catalogue_path, sub
     tree = KDTree(xyz_stars) # Build KDTree with all stars with valid G-band magnitudes
 
     # Batching for memory efficiency
-    working_memory = get_config()["working_memory"]
+    working_memory = get_config()["working_memory"] / 2  # Use half of the working memory for this operation
     chunk_n_rows = max(min(int(working_memory * (2**20) // 16*k), n), 1)
     batches = list(gen_batches(n, chunk_n_rows))
     num_batches = len(batches)
@@ -527,7 +527,7 @@ def calculate_total_selection_function_for_subsample(reduced_catalogue_path, sub
 
     # Update chunking for HEALPix
     print("... updating chunk size for HEALPix pixels")
-    working_memory = get_config()["working_memory"]
+    working_memory = get_config()["working_memory"] / 2  # Use half of the working memory for this operation
     chunk_n_rows = max(min(int(working_memory * (2**20) // 16*k), npix), 1)
     batches = list(gen_batches(npix, chunk_n_rows))
     num_batches = len(batches)
@@ -762,11 +762,11 @@ if __name__ == "__main__":
     os.makedirs(figures_path, exist_ok=True)
 
     # Number of parallel workers
-    workers = min(os.cpu_count(), 32)  # Use up to 32 workers or all available CPUs, whichever is smaller
-    os.environ["OMP_NUM_THREADS"] = f"{min(workers, os.cpu_count())}" if workers != -1 else f"{os.cpu_count()}"
+    workers = min(os.cpu_count(), 64)  # Use up to 32 workers or all available CPUs, whichever is smaller
+    os.environ["OMP_NUM_THREADS"] = f"{min(workers, os.cpu_count())}" if workers != -1 else f"{os.cpu_count()}" # Note this requires the environment variable to exist before running this script
 
     # Pipeline constants
-    kNN_for_selection_function = 20 # Number of nearest neighbors for M10 and selection function calculations
+    kNN_for_selection_function = 32 # Number of nearest neighbors for M10 and selection function calculations
     S_Gaia_cut = 0.99 # Empirical survey selection function lower limit for subsample stars
     healpix_level_for_sky_plots = 12 # HEALPix level for plotting limiting G-band magnitude
 

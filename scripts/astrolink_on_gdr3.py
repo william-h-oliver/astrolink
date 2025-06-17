@@ -39,7 +39,8 @@ PARALLEL_WORKERS = min(os.cpu_count(), 64)  # Use up to 64 workers or all availa
 kNN_FOR_SELECTION_FUNCTION = 32 # Number of nearest neighbors for selection function calculations
 SURVEY_SF_LOWER_LIMIT = 0.99 # Empirical survey selection function lower limit for subsample stars
 HEALPIX_LEVEL = 12 # HEALPix level for on-sky plotting
-kNN_FOR_ASTROLINK = 10 # Number of nearest neighbors for AstroLink clustering
+kNN_FOR_ASTROLINK = 10 # Number of nearest neighbors for AstroLink
+SIGMA_FOR_ASTROLINK = 4 # Sigma level for AstroLink
 
 
 
@@ -741,58 +742,144 @@ def compute_contracted_astrometric_representation(overwrite=False):
     """
     Computes f(r), x^, mu, and v^ for a set of stars using 5D astrometric data.
     """
+    # Check if the contracted astrometric representation already exists
+    file_path_f_r = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance.npy")
+    file_path_x_hat = os.path.join(SUBSAMPLE_PATH, "gdr3_unit_position_vector.npy")
+    file_path_mu = os.path.join(SUBSAMPLE_PATH, "gdr3_proper_motion_magnitude.npy")
+    file_path_v_hat = os.path.join(SUBSAMPLE_PATH, "gdr3_unit_tangential_velocity_vector.npy")
+    if os.path.exists(file_path_f_r) and os.path.exists(file_path_x_hat) and os.path.exists(file_path_mu) and os.path.exists(file_path_v_hat) and not overwrite:
+        print(f"Contracted astrometric representation already exists at:")
+        print(f"\t{file_path_f_r},")
+        print(f"\t{file_path_x_hat},")
+        print(f"\t{file_path_mu}, and")
+        print(f"\t{file_path_v_hat}.")
+        print("Use overwrite=True to recompute.\n")
+        return
+    print("Computing contracted astrometric representation for subsample...")
 
-    # === PLACEHOLDER: Replace these with real data loading ===
-    ra = np.load("ra.npy")                  # shape (N,), in degrees
-    dec = np.load("dec.npy")                # shape (N,), in degrees
-    parallax = np.load("parallax.npy")      # shape (N,), in mas
-    mu_alpha_star = np.load("mu_ra.npy")    # shape (N,), in mas/yr (includes cos(dec) factor)
-    mu_delta = np.load("mu_dec.npy")        # shape (N,), in mas/yr
-    # =========================================================
+    # Load required arrays
+    print("... loading required arrays")
+    equitorial_coordinates = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_equitorial_coordinates.npy")
+    parallax = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_parallaxes.npy")[:, 0]  # (n,)
+    proper_motions = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_proper_motions.npy")  # (n, 2) in mas/yr
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (n,)
 
-    # Convert angles to radians
-    ra_rad = np.deg2rad(ra)
-    dec_rad = np.deg2rad(dec)
-
-    # Step 1: Convert parallax (mas) to distance (kpc)
+    # Convert parallax (mas) to distance (kpc)
+    print("... converting parallaxes to distances")
+    parallax = parallax[subsample_mask]
     r = np.full_like(parallax, np.inf)  # Initialize with infinity
-    r[parallax > 0] = 1/parallax  # avoid divide-by-zero for nonpositive parallaxes
+    r[parallax > 0] = 1/parallax[parallax > 0]  # Set zero or negative parallaxes to infinity
+    del parallax  # Free memory
+    gc.collect()  # Force garbage collection
 
-    # Step 2: Contracted distance
+    # Contracted distance
+    print("... calculating contracted distance f(r)")
     r_half_kpc = 0.5
     f_r = r_half_kpc * np.arctan(r / r_half_kpc)  # shape (N,)
+    del r # Free memory
+    gc.collect()  # Force garbage collection
 
-    # Step 3: Unit position vector x̂
+    # Save contracted distance
+    print(f"... saving contracted distance to {file_path_f_r} (shape: {f_r.shape})\n")
+    np.save(file_path_f_r, f_r)
+    del f_r  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Convert angles to radians
+    print("... converting equitorial coordinates to radians")
+    ra_rad, dec_rad = np.deg2rad(equitorial_coordinates[subsample_mask]).T  # shape (n, 2) in radians
+    del equitorial_coordinates  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Unit position vector x̂
+    print("... calculating unit position vector")
+    sin_ra = np.sin(ra_rad)
+    cos_ra = np.cos(ra_rad)
+    sin_dec = np.sin(dec_rad)
     cos_dec = np.cos(dec_rad)
-    x_hat = np.stack([
-        cos_dec * np.cos(ra_rad),
-        cos_dec * np.sin(ra_rad),
-        np.sin(dec_rad)
-    ], axis=1)  # shape (N, 3)
+    x_hat = np.column_stack([
+        cos_ra * cos_dec,   # x
+        sin_ra * cos_dec,   # y
+        sin_dec             # z
+    ])  # shape (N, 3)
+    del ra_rad, dec_rad  # Free memory
+    gc.collect()  # Force garbage collection
 
-    # Step 4: Proper motion magnitude μ
+    # Save unit position vector
+    print(f"... saving unit position vector to {file_path_x_hat} (shape: {x_hat.shape})\n")
+    np.save(file_path_x_hat, x_hat)
+    del x_hat  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Proper motion magnitude mu
+    print("... calculating proper motion magnitude")
+    mu_alpha, mu_delta = proper_motions[subsample_mask].T  # shape (N, 2) in mas/yr
+    mu_alpha_star = mu_alpha * cos_dec
     mu = np.sqrt(mu_alpha_star**2 + mu_delta**2)  # shape (N,)
+    del proper_motions, mu_alpha  # Free memory
+    gc.collect()  # Force garbage collection
 
-    # Step 5: Tangential basis vectors
-    e_alpha = np.stack([
-        -np.sin(ra_rad),
-         np.cos(ra_rad),
-         np.zeros_like(ra_rad)
-    ], axis=1)  # shape (N, 3)
+    # Save proper motion magnitude
+    print(f"... saving proper motion magnitude to {file_path_mu} (shape: {mu.shape})\n")
+    np.save(file_path_mu, mu)
 
-    e_delta = np.stack([
-        -np.cos(ra_rad) * np.sin(dec_rad),
-        -np.sin(ra_rad) * np.sin(dec_rad),
-         np.cos(dec_rad)
-    ], axis=1)  # shape (N, 3)
+    # Tangential basis vectors
+    print("... calculating tangential basis vectors")
+    e_alpha = np.column_stack([
+        -sin_ra,
+         cos_ra,
+         np.zeros_like(cos_ra)
+    ])  # shape (N, 3)
+    e_delta = np.column_stack([
+        -cos_ra * sin_dec,
+        -sin_ra * sin_dec,
+        cos_dec
+    ])  # shape (N, 3)
+    del sin_ra, cos_ra, sin_dec, cos_dec  # Free memory
+    gc.collect()  # Force garbage collection
 
-    # Step 6: Unit tangential velocity vector v̂
+    # Unit tangential velocity vector v̂
+    print("... calculating unit tangential velocity vector")
     v_vec = mu_alpha_star[:, None] * e_alpha + mu_delta[:, None] * e_delta  # shape (N, 3)
     v_hat = np.zeros_like(v_vec)
     valid = mu > 0
-    v_hat[valid] = v_vec[valid] / mu[valid][:, None]  # normalize only where μ > 0
+    v_hat[valid] = v_vec[valid] / mu[valid, None]  # normalize only where mu > 0
 
-    return f_r, x_hat, mu, v_hat
+    # Save unit tangential velocity vector
+    print(f"... saving unit tangential velocity vector to {file_path_v_hat} (shape: {v_hat.shape})\n")
+    np.save(file_path_v_hat, v_hat)
+    del mu_alpha_star, mu_delta, mu, e_alpha, e_delta, v_vec, v_hat  # Free memory
+    gc.collect()  # Force garbage collection
+
+def calculate_cartesian_coordinates_for_subsample(overwrite=False):
+    """
+    Calculate the Cartesian coordinates for the subsample.
+    """
+    # Check if Cartesian coordinates already exist
+    file_cartesian_coordinates = os.path.join(SUBSAMPLE_PATH, "gdr3_cartesian_coordinates.npy")
+    if os.path.exists(file_cartesian_coordinates) and not overwrite:
+        print(f"Cartesian coordinates already exist at {file_cartesian_coordinates}. Use overwrite=True to recompute.\n")
+        return
+    print("Calculating Cartesian coordinates for subsample...")
+
+    # Load required arrays
+    print("... loading required arrays")
+    f_r = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance.npy"))  # (N,)
+    x_hat = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_unit_position_vector.npy"))  # (N, 3)
+    mu = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_proper_motion_magnitude.npy"))  # (N,)
+    v_hat = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_unit_tangential_velocity_vector.npy"))  # (N, 3)
+
+    # Calculate Cartesian coordinates
+    print("... calculating Cartesian coordinates")
+    x = f_r[:, None] * x_hat  # shape (N, 3)
+    v = f_r[:, None] * (mu[:, None] * v_hat)  # shape (N, 3)
+    cartesian_coordinates = np.concatenate([x, v], axis=1)  # shape (N, 6)
+    del f_r, x_hat, mu, v_hat  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save Cartesian coordinates
+    print(f"... saving Cartesian coordinates to {file_cartesian_coordinates} (shape: {cartesian_coordinates.shape})\n")
+    np.save(file_cartesian_coordinates, cartesian_coordinates)
 
 
 # === Apply AstroLink to subsample ===
@@ -800,9 +887,24 @@ def apply_astrolink_to_subsample(overwrite=False):
     """
     Run AstroLink clustering on the subsample.
     """
-    # Placeholder for actual implementation
-    print(f"Running AstroLink on subsample from {SUBSAMPLE_PATH} to {CLUSTERING_PATH} using {PARALLEL_WORKERS} workers.")
-    # Actual code would go here
+    # Check if AstroLink clustering output already exists
+
+    # Load the required arrays
+    print("... loading required arrays for AstroLink clustering")
+    cartesian_coordinates = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_cartesian_coordinates.npy"))  # (N, 6)
+    total_sf_mean = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_total_selection_function_mean_stars.npy"))  # (N,)
+
+    # Initialize AstroLink
+    print("... initializing AstroLink clustering")
+    clusterer = AstroLink(
+        P=cartesian_coordinates,
+        d_intrinsic=5,
+        weights=total_sf_mean,
+        k_den=kNN_FOR_ASTROLINK,
+        S=SIGMA_FOR_ASTROLINK,
+        workers=PARALLEL_WORKERS
+    )
+    
 
 def plot_clustering_output(overwrite=False):
     """
@@ -859,6 +961,7 @@ if __name__ == "__main__":
     # Construct input data to be passed to AstroLink
     calculate_distance_contraction_for_subsample()
     plot_distance_contraction_for_subsample()
+    compute_contracted_astrometric_representation()
     calculate_cartesian_coordinates_for_subsample()
 
     # Run AstroLink clustering on subsample

@@ -570,10 +570,6 @@ def calculate_total_selection_function_for_subsample(reduced_catalogue_path, sub
     del G_band_magnitudes  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Change mask to array of indices
-    #subsample_mask = subsample_mask[valid_gmag]  # Make mask relative to valid G-band magnitudes
-    #subsample_indices = np.where(subsample_mask)[0]  # Indices of stars in the subsample (relative to valid G-band magnitudes)
-
     # Calculate the inverse of the empirical survey selection function for the subsample
     #inverse_survey_sf = 1 / np.sqrt(survey_sf[valid_gmag]**2 + 1 / k**2)  # Avoids diverging values and stops the total selection function from being unreasonably small
     inverse_survey_sf = 1 / survey_sf[valid_gmag]

@@ -504,7 +504,7 @@ def calculate_subsample_selection_function(reduced_catalogue_path, subsample_pat
 
     # Compute subsample selection function for each star as fraction of neighbourhood in subsample
     for i, sl in enumerate(batches):
-        print(f"... computing m10 values for each star -- batch {i + 1} of {num_batches}")
+        print(f"... computing subsample selection function for each star -- batch {i + 1} of {num_batches}")
         # k-nearest neighbours query
         _, idx = tree.query(comp_stars[sl], k=k, sqr_dists=True)
 

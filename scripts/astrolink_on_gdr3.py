@@ -120,8 +120,8 @@ def reduce_catalogue_to_numpy(catalogue_path, reduced_catalogue_path, workers, o
     print("... reduction complete. All column groups saved as .npy files.\n")
 
 
-# === Calculate empirical survey selection function for all sources ===
-def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, healpix_level, overwrite=True):
+# === Create subsample and total selection function ===
+def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, healpix_level, overwrite=False):
     """
     Compute the empirical survey selection function using a kNN-based M10 metric
     and save each as a .npy files aligned with the G-band photometry array.
@@ -280,9 +280,7 @@ def calculate_empirical_survey_selection_function(reduced_catalogue_path, k, hea
     del m10_healpix  # Free memory
     gc.collect()  # Force garbage collection
 
-
-# === Make plot of the limiting G-band magnitude as a function of sky position ===
-def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_cut, overwrite=True):
+def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_cut, overwrite=False):
     """
     Plot the limiting G-band magnitude across the sky using HEALPix.
 
@@ -298,15 +296,41 @@ def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_
         If True, overwrite existing plot. If False, skip if plot already exists.
     """
     # Check if plot already exists
-    fig_path = os.path.join(figures_path, "limiting_g_mag_mollview.png")
-    if os.path.exists(fig_path) and not overwrite:
-        print(f"Plot already exists at {fig_path}. Use overwrite=True to recompute.\n")
+    out_m10_path = os.path.join(figures_path, "limiting_g_mag_m10.png")
+    out_limiting_g_mag_path = os.path.join(figures_path, "limiting_g_mag_mollview.png")
+    if os.path.exists(out_limiting_g_mag_path) and not overwrite:
+        print(f"Plots already exists at {out_m10_path} and {out_limiting_g_mag_path}.")
+        print("Use overwrite=True to recompute.\n")
         return
-    print("Plotting limiting G-band magnitude across the sky...")
+    print("Plotting M10 map across the sky...")
 
     # Load m10 values for HEALPix pixels
     m10 = np.load(f"{reduced_catalogue_path}/gdr3_m10_healpix.npy")  # (npix,)
 
+    # Create a Mollweide projection plot of the limiting G-band magnitude
+    plt.figure(figsize=(12, 6))
+    projview(
+        m10,
+        coord=["G"],
+        nest=True,
+        unit=r"$M_{10}$",
+        cb_orientation="horizontal",
+        min=20,
+        max=np.ceil(10**2 * m10.max()) / 10**2,
+        cmap="magma_r",
+        projection_type="mollweide",
+    )
+
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(out_m10_path, dpi=300)
+    plt.close()
+    gc.collect()  # Free memory
+    
+    print(f"... saved mollview plot to {out_m10_path}\n")
+
+
+    print("Plotting limiting G-band magnitude across the sky...")
     # Taken from the source code of gaiaunlimited.selectionfunctions.m10_to_completeness...
     # These are the best-fit value of the free parameters we optimised in our model:
     ax, bx, cx, ay, by, cy, az, bz, cz, lim = dict(
@@ -343,25 +367,22 @@ def plot_limiting_g_band_magnitude(reduced_catalogue_path, figures_path, S_Gaia_
         unit=r"Limiting $G$-band magnitude",
         cb_orientation="horizontal",
         min=20,
-        max=21.76,
+        max=np.ceil(10**2 * limiting_g_band_magnitude.max()) / 10**2,
         cmap="magma_r",
         projection_type="mollweide",
     )
 
     # Save the figure
     plt.tight_layout()
-    plt.savefig(fig_path, dpi=300)
+    plt.savefig(out_limiting_g_mag_path, dpi=300)
     plt.close()
     gc.collect()  # Free memory
     
-    print(f"... saved mollview plot to {fig_path}\n")
+    print(f"... saved mollview plot to {out_limiting_g_mag_path}\n")
 
-
-# === Create subsample from full catalogue ===
 def create_subsample_from_full_catalogue(reduced_catalogue_path, subsample_path, S_Gaia_cut, overwrite=False):
     """
     Create a boolean subsample mask where the empirical survey selection function S_Gaia > S_Gaia_cut.
-    Also plot the limiting G-band magnitude across the sky using HEALPix.
     
     Parameters
     ----------
@@ -399,8 +420,108 @@ def create_subsample_from_full_catalogue(reduced_catalogue_path, subsample_path,
     np.save(mask_path, subsample_mask)
     print(f"... saved subsample mask to {mask_path} (selected {subsample_mask.sum()} stars)\n")
 
+def calculate_subsample_selection_function(reduced_catalogue_path, subsample_path, k, overwrite=True):
+    """
+    Calculate the subsample selection function using kNN-based metric.
+    
+    Parameters
+    ----------
+    reduced_catalogue_path : str
+        Directory containing reduced catalogue .npy files.
+    subsample_path : str
+        Path to the subsample numpy files.
+    k : int
+        Number of nearest neighbors to use in total selection function computation.
+    healpix_level : int
+        HEALPix level for on-sky projection.
+    overwrite : bool
+        If True, overwrite existing selection function. If False, skip if already exists.
+    """
+    # Check if total selection function already exists
+    out_subsample_sf_stars = os.path.join(subsample_path, "gdr3_subsample_selection_function.npy")
+    if os.path.exists(out_subsample_sf_stars) and not overwrite:
+        print(f"Subsample selection function already exists at {out_subsample_sf_stars}.")
+        print("Use overwrite=True to recompute.\n")
+        return
+    print("Calculating subsample selection function...")
 
-# === Calculate total selection function for subsample ===
+    # Load required arrays
+    print("... loading required arrays")
+    galactic_coordinates = np.load(f"{reduced_catalogue_path}/gdr3_galactic_coordinates.npy")  # shape (n, 2)
+    G_band_magnitudes = np.load(f"{reduced_catalogue_path}/gdr3_photometry.npy")[:, 0]           # shape (n,)
+    subsample_mask = np.load(os.path.join(subsample_path, "gdr3_subsample_mask.npy"))  # shape (n,)
+
+    # Identify stars with valid G magnitude
+    print("... identifying valid G-band magnitudes")
+    valid_gmag = np.where(np.isfinite(G_band_magnitudes))[0]
+
+    # Convert (l, b) in degrees to radians
+    print("... converting galactic coordinates to radians")
+    l_rad, b_rad = np.deg2rad(galactic_coordinates[valid_gmag]).T
+    del galactic_coordinates  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Convert (l, b) in radians to unit 3D Cartesian coordinates
+    print("... converting galactic coordinates to unit 3D Cartesian coordinates")
+    cos_l = np.cos(l_rad)
+    sin_l = np.sin(l_rad)
+    cos_b = np.cos(b_rad)
+    sin_b = np.sin(b_rad)
+    xyz_stars = np.column_stack([
+        cos_l * cos_b,  # x
+        sin_l * cos_b,  # y
+        sin_b           # z
+    ]) # Positions on the sky (in 3D Cartesian) of all stars
+    del l_rad, b_rad, cos_l, sin_l, cos_b, sin_b  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Construct weighted composite space for kNN (balances HEALPix level 5 area with 0.2 mags)
+    print("... constructing weighted composite space for kNN")
+    nside = 2**5
+    npix = hp.nside2npix(nside)
+    x_scale = 4*np.pi/npix # Scale factor for Cartesian coordinates
+    G_scale = 0.2  # Scale factor for G-band magnitude
+    comp_stars = np.concatenate([
+        xyz_stars,  # 3D Cartesian coordinates
+        G_band_magnitudes[valid_gmag, np.newaxis] * x_scale / G_scale  # Rescaled G-band magnitude as a 4th dimension
+    ], axis=1)  # shape (n_valid, 4)
+    del xyz_stars  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Build KDTree with only those stars with valid G-band magnitudes
+    print("... building kNN tree from the 4D composite coordinates of valid stars")
+    n = comp_stars.shape[0]
+    subsample_sf = np.full_like(G_band_magnitudes, np.nan)  # Initialize m10 values for stars
+    tree = KDTree(comp_stars)
+    del G_band_magnitudes  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Batching for memory efficiency
+    working_memory = get_config()["working_memory"] / 2  # Use half of the working memory for this operation
+    chunk_n_rows = max(min(int(working_memory * (2**20) // 16*k), n), 1)
+    batches = list(gen_batches(n, chunk_n_rows))
+    num_batches = len(batches)
+
+    # Compute subsample selection function for each star as fraction of neighbourhood in subsample
+    for i, sl in enumerate(batches):
+        print(f"... computing m10 values for each star -- batch {i + 1} of {num_batches}")
+        # k-nearest neighbours query
+        _, idx = tree.query(comp_stars[sl], k=k, sqr_dists=True)
+
+        # Fraction of neighbours in subsample
+        subsample_sf[valid_gmag[sl]] = subsample_mask[valid_gmag[idx]].sum(axis=1) / k
+
+        # Delete temporary variables to free memory
+        del _, idx
+        gc.collect()
+    print(f"... subsample selection function range: {np.nanmin(subsample_sf):.3f} -- {np.nanmax(subsample_sf):.3f}")
+
+    # Save subsample selection function for stars
+    print(f"... saving subsample selection function for stars to {out_subsample_sf_stars} (shape: {subsample_sf.shape})\n")
+    np.save(out_subsample_sf_stars, subsample_sf)
+    del subsample_sf, comp_stars, tree  # Free memory
+    gc.collect()  # Force garbage collection
+
 def calculate_total_selection_function_for_subsample(reduced_catalogue_path, subsample_path, k, healpix_level, overwrite=True):
     """
     Calculate the total selection function for the subsample.
@@ -418,13 +539,22 @@ def calculate_total_selection_function_for_subsample(reduced_catalogue_path, sub
     overwrite : bool
         If True, overwrite existing selection function. If False, skip if already exists.
     """
-    # Check if subsample mask already exists
-    out_total_sf_stars = os.path.join(subsample_path, "gdr3_total_selection_function.npy")
-    out_total_sf_healpix = os.path.join(subsample_path, "gdr3_total_selection_function_healpix.npy")
-    if os.path.exists(out_total_sf_healpix) and os.path.exists(out_total_sf_stars) and not overwrite:
-        print(f"Total selection function for the subsample already exists at {out_total_sf_stars}.")
+    # Check if arrays already exists
+    out_nsub_stars = os.path.join(subsample_path, "gdr3_nsub_stars.npy")
+    out_nmw_stars = os.path.join(subsample_path, "gdr3_nmw_stars.npy")
+    out_total_sf_mean_stars = os.path.join(subsample_path, "gdr3_total_selection_function_mean_stars.npy")
+    out_total_sf_var_stars = os.path.join(subsample_path, "gdr3_total_selection_function_var_stars.npy")
+    out_total_sf_mean_healpix = os.path.join(subsample_path, "gdr3_total_selection_function_mean_healpix.npy")
+    out_total_sf_var_healpix = os.path.join(subsample_path, "gdr3_total_selection_function_var_healpix.npy")
+    if os.path.exists(out_nsub_stars) and os.path.exists(out_nmw_stars) and os.path.exists(out_total_sf_mean_stars) and os.path.exists(out_total_sf_var_stars) and os.path.exists(out_total_sf_mean_healpix) and os.path.exists(out_total_sf_var_healpix) and not overwrite:
+        print(f"Total selection function arrays already exist at:")
+        print(f"\t{out_total_sf_mean_stars},")
+        print(f"\t{out_total_sf_var_stars},")
+        print(f"\t{out_nsub_stars},")
+        print(f"\t{out_nmw_stars},")
+        print(f"\t{out_total_sf_mean_healpix}, and")
+        print(f"\t{out_total_sf_var_healpix}.")
         print("Use overwrite=True to recompute.\n")
-        return
     print("Calculating total selection function for the subsample...")
 
     # Load the required arrays
@@ -432,7 +562,7 @@ def calculate_total_selection_function_for_subsample(reduced_catalogue_path, sub
     galactic_coordinates = np.load(f"{reduced_catalogue_path}/gdr3_galactic_coordinates.npy")
     G_band_magnitudes = np.load(f"{reduced_catalogue_path}/gdr3_photometry.npy")[:, 0]
     survey_sf = np.load(os.path.join(reduced_catalogue_path, "gdr3_empirical_survey_selection_function.npy"))
-    subsample_mask = np.load(os.path.join(subsample_path, "gdr3_subsample_mask.npy"))
+    subsample_sf = np.load(os.path.join(subsample_path, "gdr3_subsample_selection_function.npy"))
 
     # Identify stars with valid G magnitude
     print("... identifying valid G-band magnitudes")
@@ -441,13 +571,17 @@ def calculate_total_selection_function_for_subsample(reduced_catalogue_path, sub
     gc.collect()  # Force garbage collection
 
     # Change mask to array of indices
-    subsample_mask = subsample_mask[valid_gmag]  # Make mask relative to valid G-band magnitudes
-    subsample_indices = np.where(subsample_mask)[0]  # Indices of stars in the subsample (relative to valid G-band magnitudes)
+    #subsample_mask = subsample_mask[valid_gmag]  # Make mask relative to valid G-band magnitudes
+    #subsample_indices = np.where(subsample_mask)[0]  # Indices of stars in the subsample (relative to valid G-band magnitudes)
 
     # Calculate the inverse of the empirical survey selection function for the subsample
-    inverse_survey_sf = 1 / np.sqrt(survey_sf[valid_gmag]**2 + 1 / k**2)  # Avoids diverging values and stops the total selection function from being unreasonably small
+    #inverse_survey_sf = 1 / np.sqrt(survey_sf[valid_gmag]**2 + 1 / k**2)  # Avoids diverging values and stops the total selection function from being unreasonably small
+    inverse_survey_sf = 1 / survey_sf[valid_gmag]
     del survey_sf  # Free memory
     gc.collect()  # Force garbage collection
+
+    # Make subsample selection function relative to valid G-band magnitudes
+    subsample_sf = subsample_sf[valid_gmag]
 
     # Convert (l, b) in degrees to radians
     print("... converting galactic coordinates to radians")
@@ -471,7 +605,7 @@ def calculate_total_selection_function_for_subsample(reduced_catalogue_path, sub
 
     # Build KDTree with only those stars with valid G-band magnitudes
     print("... building kNN tree from the unit 3D Cartesian coordinates of valid stars")
-    n = subsample_indices.size # Number of stars in the subsample
+    n = subsample_sf.size # Number of stars in the subsample
     tree = KDTree(xyz_stars) # Build KDTree with all stars with valid G-band magnitudes
 
     # Batching for memory efficiency
@@ -481,27 +615,46 @@ def calculate_total_selection_function_for_subsample(reduced_catalogue_path, sub
     num_batches = len(batches)
 
     # Initialize total selection function array for stars in the subsample
-    total_sf_stars = np.empty(n)
+    print("... initializing total selection function arrays for stars in the subsample")
+    nsub_stars = np.empty(n)
+    nmw_stars = np.empty(n)
+    total_sf_mean_stars = np.empty(n)
+    total_sf_var_stars = np.empty(n)
 
     # Compute total selection function for each star in the subsample
     for i, sl in enumerate(batches):
         print(f"... computing total selection function for each star in subsample -- batch {i + 1} of {num_batches}")
         # k-nearest neighbours query
-        _, idx = tree.query(xyz_stars[subsample_indices[sl]], k=k, sqr_dists=True)
+        _, idx = tree.query(xyz_stars[sl], k=k, sqr_dists=True)
 
-        # Total selection function is the number of neighbours in subsample divided by the sum of the inverse survey selection function of those neighbours
-        total_sf_stars[sl] = subsample_mask[idx].sum(axis=1) / inverse_survey_sf[idx].sum(axis=1)
+        # Total selection function is the posterior distribution Beta(n_sub + 1, n_mw - n_sub + 1)
+        nsub_stars_batch = subsample_sf[idx].sum(axis=1)
+        nmw_stars_batch = inverse_survey_sf[idx].sum(axis=1)
+        nsub_stars[sl] = nsub_stars_batch
+        nmw_stars[sl] = nmw_stars_batch
+        total_sf_mean_stars[sl] = (nsub_stars_batch + 1) / (nmw_stars_batch + 2)  # Mean of selection function for stars in subsample
+        total_sf_var_stars[sl] = (nsub_stars_batch + 1) * (nmw_stars_batch - nsub_stars_batch + 1) / ((nmw_stars_batch + 2)**2 * (nmw_stars_batch + 3))  # Variance of selection function for stars in subsample
 
         # Delete temporary variables to free memory
-        del _, idx
+        del _, idx, nsub_stars_batch, nmw_stars_batch
         gc.collect()
-    print(f"... total selection function range: {np.min(total_sf_stars):.3f} -- {np.max(total_sf_stars):.3f}")
+    print(f"... range of expected number of neighbours in subsample: {nsub_stars.min():.3f} -- {nsub_stars.max():.3f}")
+    print(f"... range of expected number of neighbours in Milky Way: {nmw_stars.min():.3f} -- {nmw_stars.max():.3f}")
+    print(f"... range of total selection function mean: {total_sf_mean_stars.min():.3f} -- {total_sf_mean_stars.max():.3f}")
+    print(f"... range of total selection function variance: {total_sf_var_stars.min():.3f} -- {total_sf_var_stars.max():.3f}")
 
-    # Save m10 values for stars
-    print(f"... saving total selection function for subsample stars to {out_total_sf_stars} (shape: {total_sf_stars.shape})\n")
-    np.save(out_total_sf_stars, total_sf_stars)
+    # Save total selection function arrays for stars
+    print(f"... saving total selection function arrays for stars to:")
+    print(f"\t{out_nsub_stars},")
+    print(f"\t{out_nmw_stars},")
+    print(f"\t{out_total_sf_mean_stars}, and")
+    print(f"\t{out_total_sf_var_stars}\n")
+    np.save(out_nsub_stars, nsub_stars)
+    np.save(out_nmw_stars, nmw_stars)
+    np.save(out_total_sf_mean_stars, total_sf_mean_stars)
+    np.save(out_total_sf_var_stars, total_sf_var_stars)
 
-    del total_sf_stars, xyz_stars  # Free memory
+    del nsub_stars, nmw_stars, total_sf_mean_stars, total_sf_var_stars, xyz_stars  # Free memory
     gc.collect()  # Force garbage collection
 
     # Also calculate the total selection function values at the centre of each HEALPix pixel for plotting
@@ -532,9 +685,10 @@ def calculate_total_selection_function_for_subsample(reduced_catalogue_path, sub
     batches = list(gen_batches(npix, chunk_n_rows))
     num_batches = len(batches)
 
-    # Initialize m10 array for HEALPix pixels
-    print("... initializing total selection function array for HEALPix pixels")
-    total_sf_healpix = np.empty(npix)
+    # Initialize arrays for HEALPix pixels
+    print("... initializing total selection function arrays for HEALPix pixels")
+    total_sf_mean_healpix = np.empty(npix)
+    total_sf_var_healpix = np.empty(npix)
 
     # Compute m10 for each HEALPix pixel as median G of neighbors with <11 transits
     for i, sl in enumerate(batches):
@@ -542,52 +696,61 @@ def calculate_total_selection_function_for_subsample(reduced_catalogue_path, sub
         # k-nearest neighbours query
         _, idx = tree.query(xyz_healpix[sl], k=k, sqr_dists=True)
 
-        # Median G-band magnitude of neighbors
-        total_sf_healpix[sl] = subsample_mask[idx].sum(axis=1) / inverse_survey_sf[idx].sum(axis=1)
+        # Total selection function is the posterior distribution Beta(n_sub + 1, n_mw - n_sub + 1)
+        nsub_healpix_batch = subsample_sf[idx].sum(axis=1)
+        nmw_healpix_batch = inverse_survey_sf[idx].sum(axis=1)
+        total_sf_mean_healpix[sl] = (nsub_healpix_batch + 1) / (nmw_healpix_batch + 2)  # Mean of selection function for HEALPix pixels
+        total_sf_var_healpix[sl] = (nsub_healpix_batch + 1) * (nmw_healpix_batch - nsub_healpix_batch + 1) / ((nmw_healpix_batch + 2)**2 * (nmw_healpix_batch + 3))  # Variance of selection function for HEALPix pixels
 
         # Delete temporary variables to free memory
-        del _, idx
+        del _, idx, nsub_healpix_batch, nmw_healpix_batch
         gc.collect()
     
-    del tree, xyz_healpix, subsample_mask, inverse_survey_sf  # Free memory
+    del tree, xyz_healpix, valid_gmag, subsample_sf, inverse_survey_sf  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Save m10 values for healpix pixels
-    print(f"... saving total selection function for HEALPix pixels to {out_total_sf_healpix} (shape: {total_sf_healpix.shape})\n")
-    np.save(out_total_sf_healpix, total_sf_healpix)
+    # Save total selection function arrays for healpix pixels
+    print(f"... saving total selection function arrays for HEALPix pixels to:")
+    print(f"\t{out_total_sf_mean_healpix}, and")
+    print(f"\t{out_total_sf_var_healpix}\n")
+    np.save(out_total_sf_mean_healpix, total_sf_mean_healpix)
+    np.save(out_total_sf_var_healpix, total_sf_var_healpix)
+    del total_sf_mean_healpix, total_sf_var_healpix  # Free memory
+    gc.collect()  # Force garbage collection
 
-
-# === Make plot of total selection function for subsample ===
 def plot_total_selection_function_for_subsample(subsample_path, figures_path, overwrite=True):
     """
     Plot the limiting G-band magnitude across the sky using HEALPix.
 
     Parameters
     ----------
-    reduced_catalogue_path : str
-        Directory containing reduced catalogue .npy files.
+    subsample_path : str
+        Path to the subsample numpy files.
     figures_path : str
         Directory to save the mollview plot.
     overwrite : bool
         If True, overwrite existing plot. If False, skip if plot already exists.
     """
-    # Check if plot already exists
-    fig_path = os.path.join(figures_path, "total_selection_function.png")
-    if os.path.exists(fig_path) and not overwrite:
-        print(f"Plot already exists at {fig_path}. Use overwrite=True to recompute.\n")
+    # Check if plots already exists
+    out_total_sf_mean_path = os.path.join(figures_path, "total_selection_function_mean.png")
+    out_total_sf_var_path = os.path.join(figures_path, "total_selection_function_var.png")
+    if os.path.exists(out_total_sf_mean_path) and os.path.exists(out_total_sf_var_path) and not overwrite:
+        print(f"Plots already exist at {out_total_sf_mean_path} and {out_total_sf_var_path}.")
+        print("Use overwrite=True to recompute.\n")
         return
     print("Plotting total selection function on the sky...")
 
     # Load total selection function for HEALPix pixels
-    total_sf = np.load(os.path.join(subsample_path, "gdr3_total_selection_function_healpix.npy"))  # (n,)
+    total_sf_mean = np.load(os.path.join(subsample_path, "gdr3_total_selection_function_mean_healpix.npy"))  # (npix,)
+    total_sf_var = np.load(os.path.join(subsample_path, "gdr3_total_selection_function_var_healpix.npy"))  # (npix,)
 
-    # Create a Mollweide projection plot of the total selection function
+    # Create a Mollweide projection plot of the total selection function mean
     plt.figure(figsize=(12, 6))
     projview(
-        total_sf,
+        total_sf_mean,
         coord=["G"],
         nest=True,
-        unit=r"Total selection function, $S_{\mathrm{total}}$",
+        unit=r"Total selection function mean, $\mathbb{E}[S_{\mathrm{total}}]$",
         cb_orientation="horizontal",
         min=0,
         max=1,
@@ -597,14 +760,36 @@ def plot_total_selection_function_for_subsample(subsample_path, figures_path, ov
 
     # Save the figure
     plt.tight_layout()
-    plt.savefig(fig_path, dpi=300)
+    plt.savefig(out_total_sf_mean_path, dpi=300)
     plt.close()
     gc.collect()  # Free memory
     
-    print(f"... saved mollview plot to {fig_path}\n")
+    print(f"... saved mollview plot to {out_total_sf_mean_path}\n")
+
+    # Create a Mollweide projection plot of the total selection function variance
+    plt.figure(figsize=(12, 6))
+    projview(
+        total_sf_var,
+        coord=["G"],
+        nest=True,
+        unit=r"Total selection function variance, $Var[S_{\mathrm{total}}]$",
+        cb_orientation="horizontal",
+        #min=0,
+        #max=1,
+        cmap="magma",
+        projection_type="mollweide",
+    )
+
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(out_total_sf_var_path, dpi=300)
+    plt.close()
+    gc.collect()  # Free memory
+    
+    print(f"... saved mollview plot to {out_total_sf_var_path}\n")
 
 
-# === Calculate distance contraction for subsample ===
+# === Construct input data to be passed to AstroLink ===
 def calculate_distance_contraction_for_subsample(subsample_path, workers, overwrite=False):
     """
     Calculate the distance contraction for the subsample.
@@ -624,8 +809,6 @@ def calculate_distance_contraction_for_subsample(subsample_path, workers, overwr
     print(f"Calculating distance contraction for subsample at {subsample_path} using {workers} workers.")
     # Actual code would go here
 
-
-# === Make plot of distance contraction for subsample ===
 def plot_distance_contraction_for_subsample(subsample_path, figures_path, overwrite=False):
     """
     Plot the distance contraction for the subsample.
@@ -643,8 +826,6 @@ def plot_distance_contraction_for_subsample(subsample_path, figures_path, overwr
     print(f"Plotting distance contraction for subsample at {subsample_path}.")
     # Actual code would go here
 
-
-# === Calculate Cartesian-like coordinates for subsample ===
 def calculate_cartesian_coordinates_for_subsample(subsample_path, workers, overwrite=False):
     """
     Calculate Cartesian-like coordinates for the subsample.
@@ -665,7 +846,7 @@ def calculate_cartesian_coordinates_for_subsample(subsample_path, workers, overw
     # Actual code would go here
 
 
-# === Function to run AstroLink clustering on subsample ===
+# === Run AstroLink on subsample and have a first look at the clustering ===
 def run_astrolink_on_subsample(subsample_path, clustering_output_path, workers, overwrite=False):
     """
     Run AstroLink clustering on the subsample.
@@ -688,8 +869,6 @@ def run_astrolink_on_subsample(subsample_path, clustering_output_path, workers, 
     print(f"Running AstroLink on subsample from {subsample_path} to {clustering_output_path} using {workers} workers.")
     # Actual code would go here
 
-
-# === Make plots of clustering output ===
 def plot_clustering_output(clustering_output_path, figures_path, overwrite=False):
     """
     Plot the clustering output from AstroLink.
@@ -708,7 +887,7 @@ def plot_clustering_output(clustering_output_path, figures_path, overwrite=False
     # Actual code would go here
 
 
-# === Function to compare clustering output to ground truth ===
+# === Analyze clustering output with respect to ground truth ===
 def compare_clustering_output_to_ground_truth(clustering_output_path, overwrite=False):
     """
     Compare the clustering output to the ground truth.
@@ -726,8 +905,6 @@ def compare_clustering_output_to_ground_truth(clustering_output_path, overwrite=
     print(f"Comparing clustering output from {clustering_output_path} to ground truth.")
     # Actual code would go here
 
-
-# === Make plots of comparison results ===
 def plot_comparison_results(clustering_output_path, figures_path, overwrite=False):
     """
     Plot the results of the comparison between clustering output and ground truth.
@@ -796,6 +973,13 @@ if __name__ == "__main__":
         reduced_catalogue_path=reduced_catalogue_path,
         subsample_path=subsample_path,
         S_Gaia_cut=S_Gaia_cut
+    )
+
+    # Calculate the subsample selection function using kNN-based metric
+    calculate_subsample_selection_function(
+        reduced_catalogue_path=reduced_catalogue_path,
+        subsample_path=subsample_path,
+        k=kNN_for_selection_function
     )
 
     # Calculate total selection function for subsample

@@ -42,7 +42,7 @@ from astrolink import io
 # Define paths
 RAW_CATALOGUE_PATH = "/home/_data/Gaia/cdn.gea.esac.esa.int/Gaia/gdr3/gaia_source/"  # Path to raw gdr3 catalogue files
 REDUCED_CATALOGUE_PATH = "/home/williamoliver_data/gaia_clustering/catalogue_files/"  # Path to numpy files of reduced catalogue
-SUBSAMPLE_PATH = "/home/williamoliver_data/gaia_clustering/sample_files/"  # Path to numpy files of subsample from full catalogue
+SUBSAMPLE_PATH = "/home/williamoliver_data/gaia_clustering/subsample_files/"  # Path to numpy files of subsample from full catalogue
 CLUSTERING_PATH = "/home/williamoliver_data/gaia_clustering/clustering_output/"  # Path to AstroLink output files
 FIGURES_PATH = "/home/williamoliver_data/gaia_clustering/figures/"  # Path to figures
 
@@ -903,7 +903,7 @@ def calculate_cartesian_coordinates_for_subsample(overwrite=False):
     np.save(file_cartesian_coordinates, cartesian_coordinates)
 
 
-# === Apply AstroLink to subsample ===
+# === Apply AstroLink to subsample and visualize ===
 def apply_astrolink_to_subsample(overwrite=False):
     """
     Run AstroLink clustering on the subsample.
@@ -984,7 +984,7 @@ def apply_astrolink_to_subsample(overwrite=False):
     print(f"... saving AstroLink clustering output to {file_astrolink_object}\n")
     io.saveAstroLinkObject(clusterer, file_astrolink_object)
 
-def plot_clustering_output(overwrite=True):
+def plot_clusters_on_sky(overwrite=True):
     """
     Plot the clustering output from AstroLink.
     """
@@ -994,7 +994,7 @@ def plot_clustering_output(overwrite=True):
         print(f"Clusters on sky plot already exists at {file_clusters_on_sky_path}.")
         print("Use overwrite=True to recompute.\n")
         return
-    print("Plotting clustering output from AstroLink...")
+    print("Plotting AstroLink clusters on the sky...")
 
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
@@ -1089,9 +1089,9 @@ if __name__ == "__main__":
     compute_contracted_astrometric_representation()
     calculate_cartesian_coordinates_for_subsample()
 
-    # Run AstroLink clustering on subsample
+    # Run AstroLink clustering on subsample and visualize
     apply_astrolink_to_subsample()
-    plot_clustering_output()
+    plot_clusters_on_sky()
 
     # Analyze clustering output with respect to ground truth
     compare_clustering_output_to_ground_truth()

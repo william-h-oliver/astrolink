@@ -999,8 +999,9 @@ def plot_clustering_output(overwrite=True):
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
     clusterer = io.loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
-    clusterer.S = 5
+    clusterer.S = 4
     clusterer.extract_clusters()
+    print(f"... found {len(clusterer.clusters) - 1} clusters in the clustering output")
 
     # Load the required arrays
     print("... loading required arrays for plotting")
@@ -1026,7 +1027,7 @@ def plot_clustering_output(overwrite=True):
 
     # Cycle through the clusters and plot them
     for i, clst in enumerate(clusterer.clusters[1:]):
-        clusterMembers = clusterer.ordering[clst[0]:clst[1]][::-1]
+        clusterMembers = clusterer.ordering[clst[0]:clst[1]]
         ax.scatter(
             *galactic_coordinates[clusterMembers].T,
             facecolor=f"C{i}", edgecolor='k',

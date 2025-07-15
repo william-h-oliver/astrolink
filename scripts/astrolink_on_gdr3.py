@@ -40,7 +40,8 @@ from astrolink import io
 
 # === Define script configuration ===
 # Define paths
-RAW_CATALOGUE_PATH = "/home/_data/Gaia/cdn.gea.esac.esa.int/Gaia/gdr3/gaia_source/"  # Path to raw gdr3 catalogue files
+RAW_GDR3_CATALOGUE_PATH = "/home/_data/Gaia/cdn.gea.esac.esa.int/Gaia/gdr3/gaia_source/"  # Path to raw gdr3 catalogue files
+BAILERJONES_GEDR3_DISTANCES_FILE = "/home/williamoliver_data/gaia_clustering/bailerjones_gedr3_distances/gedr3dist.dump.gz"  # Path to Bailer-Jones GEDR3 distances
 REDUCED_CATALOGUE_PATH = "/home/williamoliver_data/gaia_clustering/catalogue_files/"  # Path to numpy files of reduced catalogue
 SUBSAMPLE_PATH = "/home/williamoliver_data/gaia_clustering/subsample_files/"  # Path to numpy files of subsample from full catalogue
 CLUSTERING_PATH = "/home/williamoliver_data/gaia_clustering/clustering_output/"  # Path to AstroLink output files
@@ -59,6 +60,64 @@ SIGMA_FOR_ASTROLINK = 4 # Sigma level for AstroLink
 
 
 # === Reduce raw Gaia catalogue to numpy files ===
+def reduce_raw_catalogue_to_numpy_files(overwrite=False):
+    """
+    Reduce raw Gaia catalogue CSV files to grouped numpy arrays.
+    """
+    # Define column groups for reduction
+    column_groups = {
+        'source_ids': ['source_id'],
+        'galactic_coordinates': ['l', 'b'],
+        'equitorial_coordinates': ['ra', 'dec'],
+        'parallaxes': ['parallax'],
+        'proper_motions': ['pmra', 'pmdec'],
+        'astrometric_errors': ['ra_error', 'dec_error', 'parallax_error', 'pmra_error', 'pmdec_error'],
+        'astrometric_matched_transits': ['astrometric_matched_transits'],
+        'photometry': ['phot_g_mean_mag'],#, 'phot_bp_mean_mag', 'phot_rp_mean_mag'],
+    }
+
+    # Skip processing if all merged output files already exist
+    all_exist = all(
+        os.path.exists(os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy'))
+        for group_name in column_groups
+    )
+    if all_exist and not overwrite:
+        print("All GDR3 catalogue reduction numpy files already exist. Skipping reduction.")
+        print("Use overwrite=True to force reprocessing.\n")
+        return
+    print("Reducing raw Gaia catalogue to numpy files...")
+
+    file_paths = sorted(globTrue(os.path.join(RAW_GDR3_CATALOGUE_PATH, 'GaiaSource_*.csv.gz')))
+    print(f"... found {len(file_paths)} source files.")
+
+    # Parallel processing
+    with ProcessPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
+        futures = [
+            executor.submit(_process_single_file, file_path, column_groups)
+            for file_path in file_paths
+        ]
+        for future in futures:
+            future.result()  # Propagate any errors
+
+    # Merge all intermediate .npy files by group
+    print("... merging temporary numpy files into final arrays and saving them")
+    for group_name in column_groups.keys():
+        group_files = sorted(glob(os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}_*.npy')))
+        arrays = [np.load(f) for f in group_files]
+        combined = np.concatenate(arrays)
+
+        final_path = os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy')
+        np.save(final_path, combined)
+        print(f"... saved combined array: {final_path} (shape: {combined.shape})")
+
+        del combined, arrays  # Free memory
+        gc.collect() # Force garbage collection
+
+        # Delete intermediates
+        for f in group_files:
+            os.remove(f)
+    print("... reduction complete. All column groups saved as .npy files.\n")
+
 def _process_single_file(file_path, column_groups):
     """Process a single GaiaSource CSV file into group-wise .npy files."""
     # Extract chunk name from filename
@@ -92,52 +151,56 @@ def _process_single_file(file_path, column_groups):
 
     return True
 
-def reduce_raw_catalogue_to_numpy_files(overwrite=False):
+
+# === Reduce Bailer-Jones GEDR3 distances to numpy files ===
+def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
     """
-    Reduce raw Gaia catalogue CSV files to grouped numpy arrays.
+    Reads the Bailer-Jones et al. 2021 GEDR3 distances dump file, converts 
+    columns to numpy arrays, and saves them.
     """
     # Define column groups for reduction
     column_groups = {
-        'source_ids': ['source_id'],
-        'galactic_coordinates': ['l', 'b'],
-        'equitorial_coordinates': ['ra', 'dec'],
-        'parallaxes': ['parallax'],
-        'proper_motions': ['pmra', 'pmdec'],
-        'astrometric_errors': ['ra_error', 'dec_error', 'parallax_error', 'pmra_error', 'pmdec_error'],
-        'astrometric_matched_transits': ['astrometric_matched_transits'],
-        'photometry': ['phot_g_mean_mag'],#, 'phot_bp_mean_mag', 'phot_rp_mean_mag'],
+        'source_id': ['source_id'],
+        'r_med_geo': ['r_med_geo'],
+        'r_lo_high_geo': ['r_lo_geo', 'r_hi_geo'],
+        'r_med_photogeo': ['r_med_photogeo'],
+        'r_lo_high_photogeo': ['r_lo_photogeo', 'r_hi_photogeo'],
+        'flag': ['flag']
     }
 
     # Skip processing if all merged output files already exist
     all_exist = all(
-        os.path.exists(os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy'))
+        os.path.exists(os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}.npy'))
         for group_name in column_groups
     )
     if all_exist and not overwrite:
-        print("All catalogue reduction numpy files already exist. Skipping reduction.")
+        print("All reduced Bailer-Jones distance numpy files already exist. Skipping reduction.")
         print("Use overwrite=True to force reprocessing.\n")
         return
-    print("Reducing raw Gaia catalogue to numpy files...")
+    print("Reducing the Bailer-Jones GEDR3 distance dump file to numpy arrays...")
+    
+    chunksize = 10**6  # Adjust based on your memory
+    print(f"... chunking dump file into {1467744818//chunksize + 1} chunks of {chunksize} rows each")
 
-    file_paths = sorted(globTrue(os.path.join(RAW_CATALOGUE_PATH, 'GaiaSource_*.csv.gz')))
-    print(f"... found {len(file_paths)} source files.")
-
-    # Parallel processing
     with ProcessPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
-        futures = [
-            executor.submit(_process_single_file, file_path, column_groups)
-            for file_path in file_paths
-        ]
-        for future in futures:
-            future.result()  # Propagate any errors
+        futures = []
+
+        # Submit chunks whilst iterating
+        for chunk in pd.read_csv(BAILERJONES_GEDR3_DISTANCES_FILE, compression="gzip", chunksize=chunksize):
+            futures.append(executor.submit(_process_single_chunk, chunk, column_groups))
+
+        # Collect results as they complete
+        for future in as_completed(futures):
+            result = future.result()   # Propagate any errors
 
     # Merge all intermediate .npy files by group
+    print("... merging temporary numpy files into final arrays and saving them")
     for group_name in column_groups.keys():
-        group_files = sorted(glob(os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}_*.npy')))
+        group_files = sorted(glob(os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}_*.npy')))
         arrays = [np.load(f) for f in group_files]
         combined = np.concatenate(arrays)
 
-        final_path = os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy')
+        final_path = os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}.npy')
         np.save(final_path, combined)
         print(f"... saved combined array: {final_path} (shape: {combined.shape})")
 
@@ -149,8 +212,35 @@ def reduce_raw_catalogue_to_numpy_files(overwrite=False):
             os.remove(f)
     print("... reduction complete. All column groups saved as .npy files.\n")
 
+def _process_single_chunk(chunk, column_groups):
+    """Process a single chunk of Bailer-Jones GEDR3 distances."""
+    # Extract chunk name from index
+    chunk_name = chunk.index[0]  # Use the first index as the chunk name
 
-# === Create subsample and total selection function ===
+    # Skip processing if all output files for this chunk already exist
+    all_exist = all(
+        os.path.exists(os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}_{chunk_name}.npy'))
+        for group_name in column_groups
+    )
+    if all_exist:
+        return True
+
+    print(f"... [PROCESS] {chunk.index[0]} — processed chunk in PID {os.getpid():<15}", end='\r')
+
+    # Convert chunk to numpy arrays and save each group
+    for group_name, group_cols in column_groups.items():
+        columns_data = [np.array(chunk[col]) for col in group_cols]  # each is 1D array of length n
+        array = np.column_stack(columns_data).squeeze()
+        file_path = os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}_{chunk_name}.npy')
+        np.save(file_path, array)
+    
+    del chunk, columns_data, array, file_path  # Free memory
+    gc.collect()  # Force garbage collection
+
+    return True
+
+
+# === Calculate empirical selection function ===
 def calculate_empirical_survey_selection_function(overwrite=False):
     """
     Compute the empirical survey selection function using a kNN-based M10 metric
@@ -380,6 +470,8 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
     
     print(f"... saved mollview plot to {file_limiting_g_mag_path}\n")
 
+
+# === Construct subsample and subsample selection function ===
 def create_subsample_from_full_catalogue(overwrite=False):
     """
     Create a boolean subsample mask where the empirical survey selection function S_Gaia > SURVEY_SF_LOWER_LIMIT.
@@ -497,6 +589,8 @@ def calculate_subsample_selection_function(overwrite=False):
     del subsample_sf, comp_stars, tree  # Free memory
     gc.collect()  # Force garbage collection
 
+
+# === Calculate total selection function for subsample ===
 def calculate_total_selection_function_for_subsample(overwrite=False):
     """
     Calculate the total selection function for the subsample.
@@ -903,7 +997,7 @@ def calculate_cartesian_coordinates_for_subsample(overwrite=False):
     np.save(file_cartesian_coordinates, cartesian_coordinates)
 
 
-# === Apply AstroLink to subsample and visualize ===
+# === Apply AstroLink to subsample ===
 def apply_astrolink_to_subsample(overwrite=False):
     """
     Run AstroLink clustering on the subsample.
@@ -1075,11 +1169,18 @@ if __name__ == "__main__":
     # Reduce raw Gaia catalogue to numpy files
     reduce_raw_catalogue_to_numpy_files()
 
-    # Create subsample and total selection function
+    # Reduce Bailer-Jones distances to numpy files
+    reduce_bailer_jones_distances_to_numpy_files()
+
+    # Calculate empirical selection function
     calculate_empirical_survey_selection_function()
     plot_limiting_g_band_magnitude_on_sky()
+
+    # Construct subsample and subsample selection function
     create_subsample_from_full_catalogue()
     calculate_subsample_selection_function()
+
+    # Calculate total selection function for subsample
     calculate_total_selection_function_for_subsample()
     plot_total_selection_function_for_subsample()
     
@@ -1089,7 +1190,7 @@ if __name__ == "__main__":
     compute_contracted_astrometric_representation()
     calculate_cartesian_coordinates_for_subsample()
 
-    # Run AstroLink clustering on subsample and visualize
+    # Run AstroLink clustering on subsample
     apply_astrolink_to_subsample()
     plot_clusters_on_sky()
 

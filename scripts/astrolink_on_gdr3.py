@@ -19,6 +19,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 # Third-party imports
 import numpy as np
+import pandas as pd
 from pykdtree.kdtree import KDTree
 from sklearn import get_config
 from sklearn.utils import gen_batches
@@ -59,8 +60,8 @@ SIGMA_FOR_ASTROLINK = 4 # Sigma level for AstroLink
 
 
 
-# === Reduce raw Gaia catalogue to numpy files ===
-def reduce_raw_catalogue_to_numpy_files(overwrite=False):
+# === Reduce GDR3 and Bailer-Jones GEDR3 catalogues to numpy files ===
+def reduce_gdr3_catalogue_to_numpy_files(overwrite=False):
     """
     Reduce raw Gaia catalogue CSV files to grouped numpy arrays.
     """
@@ -151,8 +152,6 @@ def _process_single_file(file_path, column_groups):
 
     return True
 
-
-# === Reduce Bailer-Jones GEDR3 distances to numpy files ===
 def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
     """
     Reads the Bailer-Jones et al. 2021 GEDR3 distances dump file, converts 
@@ -180,18 +179,26 @@ def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
     print("Reducing the Bailer-Jones GEDR3 distance dump file to numpy arrays...")
     
     chunksize = 10**6  # Adjust based on your memory
-    print(f"... chunking dump file into {1467744818//chunksize + 1} chunks of {chunksize} rows each")
 
-    with ProcessPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
-        futures = []
-
-        # Submit chunks whilst iterating
-        for chunk in pd.read_csv(BAILERJONES_GEDR3_DISTANCES_FILE, compression="gzip", chunksize=chunksize):
-            futures.append(executor.submit(_process_single_chunk, chunk, column_groups))
-
-        # Collect results as they complete
-        for future in as_completed(futures):
-            result = future.result()   # Propagate any errors
+    for i, chunk in enumerate(pd.read_csv(BAILERJONES_GEDR3_DISTANCES_FILE, compression="gzip", chunksize=chunksize)):
+        print(f"... processing data in chunks, {i+1} of {1467744818//chunksize + 1}", end='\r')
+        # Skip processing if all output files for this chunk already exist
+        all_exist = all(
+            os.path.exists(os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}_{i}.npy'))
+            for group_name in column_groups
+        )
+        if all_exist:
+            continue
+        
+        # Convert and save each group
+        for group_name, group_cols in column_groups.items():
+            columns_data = [np.array(chunk[col]) for col in group_cols]  # each is 1D array of length n
+            array = np.column_stack(columns_data).squeeze()
+            file_path = os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}_{i}.npy')
+            np.save(file_path, array)
+        
+        del chunk, columns_data, array, file_path  # Free memory
+        gc.collect()
 
     # Merge all intermediate .npy files by group
     print("... merging temporary numpy files into final arrays and saving them")
@@ -211,33 +218,6 @@ def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
         for f in group_files:
             os.remove(f)
     print("... reduction complete. All column groups saved as .npy files.\n")
-
-def _process_single_chunk(chunk, column_groups):
-    """Process a single chunk of Bailer-Jones GEDR3 distances."""
-    # Extract chunk name from index
-    chunk_name = chunk.index[0]  # Use the first index as the chunk name
-
-    # Skip processing if all output files for this chunk already exist
-    all_exist = all(
-        os.path.exists(os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}_{chunk_name}.npy'))
-        for group_name in column_groups
-    )
-    if all_exist:
-        return True
-
-    print(f"... [PROCESS] {chunk.index[0]} — processed chunk in PID {os.getpid():<15}", end='\r')
-
-    # Convert chunk to numpy arrays and save each group
-    for group_name, group_cols in column_groups.items():
-        columns_data = [np.array(chunk[col]) for col in group_cols]  # each is 1D array of length n
-        array = np.column_stack(columns_data).squeeze()
-        file_path = os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}_{chunk_name}.npy')
-        np.save(file_path, array)
-    
-    del chunk, columns_data, array, file_path  # Free memory
-    gc.collect()  # Force garbage collection
-
-    return True
 
 
 # === Calculate empirical selection function ===
@@ -472,7 +452,7 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
 
 
 # === Construct subsample and subsample selection function ===
-def create_subsample_from_full_catalogue(overwrite=False):
+def construct_subsample_from_full_catalogue(overwrite=False):
     """
     Create a boolean subsample mask where the empirical survey selection function S_Gaia > SURVEY_SF_LOWER_LIMIT.
     """
@@ -960,7 +940,7 @@ def compute_contracted_astrometric_representation(overwrite=False):
     del mu_alpha_star, mu_delta, mu, e_alpha, e_delta, v_vec, v_hat  # Free memory
     gc.collect()  # Force garbage collection
 
-def calculate_cartesian_coordinates_for_subsample(overwrite=False):
+def construct_cartesian_coordinates_for_subsample(overwrite=False):
     """
     Calculate the Cartesian-like coordinates for the subsample.
     """
@@ -1167,17 +1147,15 @@ if __name__ == "__main__":
     os.makedirs(FIGURES_PATH, exist_ok=True)
 
     # Reduce raw Gaia catalogue to numpy files
-    reduce_raw_catalogue_to_numpy_files()
-
-    # Reduce Bailer-Jones distances to numpy files
-    reduce_bailer_jones_distances_to_numpy_files()
+    reduce_gdr3_catalogue_to_numpy_files()
+    reduce_bailerjones_gedr3_distances_to_numpy_files()
 
     # Calculate empirical selection function
     calculate_empirical_survey_selection_function()
     plot_limiting_g_band_magnitude_on_sky()
 
     # Construct subsample and subsample selection function
-    create_subsample_from_full_catalogue()
+    construct_subsample_from_full_catalogue()
     calculate_subsample_selection_function()
 
     # Calculate total selection function for subsample
@@ -1188,7 +1166,7 @@ if __name__ == "__main__":
     calculate_distance_contraction_for_subsample()
     plot_distance_contraction_for_subsample()
     compute_contracted_astrometric_representation()
-    calculate_cartesian_coordinates_for_subsample()
+    construct_cartesian_coordinates_for_subsample()
 
     # Run AstroLink clustering on subsample
     apply_astrolink_to_subsample()

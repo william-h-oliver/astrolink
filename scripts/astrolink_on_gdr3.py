@@ -894,7 +894,7 @@ def compute_contracted_astrometric_representation(overwrite=True):
     # Contracted distance
     print("... calculating contracted distance f(r)")
     r_half_kpc = 0.5
-    f_r = r#r_half_kpc * np.arctan(r[subsample_mask] / r_half_kpc)  # shape (N,)
+    f_r = r[subsample_mask]#r_half_kpc * np.arctan(r[subsample_mask] / r_half_kpc)  # shape (N,)
     del r # Free memory
     gc.collect()  # Force garbage collection
 

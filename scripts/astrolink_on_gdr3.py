@@ -155,21 +155,21 @@ def _process_single_file(file_path, column_groups):
 def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
     """
     Reads the Bailer-Jones et al. 2021 GEDR3 distances dump file, converts 
-    columns to numpy arrays, and saves them.
+    columns to numpy arrays. Then re-index Bailer-Jones arrays to match 
+    GDR3 source IDs.
     """
     # Define column groups for reduction
     column_groups = {
-        'source_id': ['source_id'],
+        'source_ids': ['source_id'],
         'r_med_geo': ['r_med_geo'],
         'r_lo_high_geo': ['r_lo_geo', 'r_hi_geo'],
         'r_med_photogeo': ['r_med_photogeo'],
-        'r_lo_high_photogeo': ['r_lo_photogeo', 'r_hi_photogeo'],
-        'flag': ['flag']
+        'r_lo_high_photogeo': ['r_lo_photogeo', 'r_hi_photogeo']
     }
 
     # Skip processing if all merged output files already exist
     all_exist = all(
-        os.path.exists(os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}.npy'))
+        os.path.exists(os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy'))
         for group_name in column_groups
     )
     if all_exist and not overwrite:
@@ -179,8 +179,8 @@ def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
     print("Reducing the Bailer-Jones GEDR3 distance dump file to numpy arrays...")
     
     chunksize = 10**6  # Adjust based on your memory
-
-    for i, chunk in enumerate(pd.read_csv(BAILERJONES_GEDR3_DISTANCES_FILE, compression="gzip", chunksize=chunksize)):
+    all_columns = [col for cols in column_groups.values() for col in cols]
+    for i, chunk in enumerate(pd.read_csv(BAILERJONES_GEDR3_DISTANCES_FILE, compression="gzip", chunksize=chunksize, usecols=all_columns)):
         print(f"... processing data in chunks, {i+1} of {1467744818//chunksize + 1}", end='\r')
         # Skip processing if all output files for this chunk already exist
         all_exist = all(
@@ -201,15 +201,39 @@ def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
         gc.collect()
 
     # Merge all intermediate .npy files by group
-    print("... merging temporary numpy files into final arrays and saving them")
-    for group_name in column_groups.keys():
+    print("... merging temporary numpy files into final arrays (indexed with respect to the gdr3 catalogue)")
+    for i, group_name in enumerate(column_groups.keys()):
         group_files = sorted(glob(os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}_*.npy')))
         arrays = [np.load(f) for f in group_files]
         combined = np.concatenate(arrays)
 
-        final_path = os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}.npy')
-        np.save(final_path, combined)
-        print(f"... saved combined array: {final_path} (shape: {combined.shape})")
+        if i == 0:  # source_id is the first group, so we can use it to re-index
+            # Load GDR3 source IDs and Bailer-Jones source IDs
+            print("... loading GDR3 and Bailer-Jones source IDs")
+            gdr3_source_ids = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_source_ids.npy")[:, 0]  # (n,)
+            n = gdr3_source_ids.size
+
+            # Compute index lookup for Bailer-Jones source IDs in GDR3
+            print("... computing index lookup for Bailer-Jones source IDs in GDR3")
+            indices = np.searchsorted(gdr3_source_ids, combined) # Assumes gdr3_source_ids is sorted
+
+            del gdr3_source_ids  # Free memory
+            gc.collect()  # Force garbage collection
+        else:
+            # Re-index the combined array to match GDR3 source IDs
+            if combined.ndim > 1:
+                combined_reindexed = np.full((n, combined.shape[1]), np.nan)  # Initialize with NaNs
+            else:
+                combined_reindexed = np.full(n, np.nan)
+            combined_reindexed[indices] = combined
+
+            # Save the re-indexed array
+            final_path = os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy')
+            np.save(final_path, combined_reindexed)
+            print(f"... saved re-indexed combined array: {final_path} (shape: {combined_reindexed.shape})")
+
+            del combined_reindexed  # Free memory
+            gc.collect()  # Force garbage collection
 
         del combined, arrays  # Free memory
         gc.collect() # Force garbage collection
@@ -218,7 +242,7 @@ def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
         for f in group_files:
             os.remove(f)
     print("... reduction complete. All column groups saved as .npy files.\n")
-
+    
 
 # === Calculate empirical selection function ===
 def calculate_empirical_survey_selection_function(overwrite=False):
@@ -231,7 +255,9 @@ def calculate_empirical_survey_selection_function(overwrite=False):
     file_path_sf = f"{REDUCED_CATALOGUE_PATH}/gdr3_empirical_survey_selection_function.npy"
     file_path_m10_healpix = f"{REDUCED_CATALOGUE_PATH}/gdr3_m10_healpix.npy"
     if os.path.exists(file_path_m10_stars) and os.path.exists(file_path_sf) and os.path.exists(file_path_m10_healpix) and not overwrite:
-        print(f"Selection function already exists at {file_path_sf} and m10 values at the centre of HEALpix pixels already exists at {file_path_m10_healpix}")
+        print(f"Empirical selection function and m10 values for the centre of HEALpix pixels already exist at:")
+        print(f"\t{file_path_sf} and")
+        print(f"\t{file_path_m10_healpix}")
         print("Use overwrite=True to recompute.\n")
         return
     print("Calculating empirical survey selection function...")
@@ -369,7 +395,9 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
     file_m10_path = os.path.join(FIGURES_PATH, "limiting_g_mag_m10.png")
     file_limiting_g_mag_path = os.path.join(FIGURES_PATH, "limiting_g_mag_mollview.png")
     if os.path.exists(file_limiting_g_mag_path) and not overwrite:
-        print(f"Plots already exists at {file_m10_path} and {file_limiting_g_mag_path}.")
+        print(f"Plots already exists at:")
+        print(f"\t{file_m10_path} and")
+        print(f"\t{file_limiting_g_mag_path}.")
         print("Use overwrite=True to recompute.\n")
         return
     print("Plotting M10 map across the sky...")
@@ -459,10 +487,10 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     # Check if subsample mask already exists
     mask_path = os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy")
     if os.path.exists(mask_path) and not overwrite:
-        print(f"Subsample mask already exists at {mask_path}.")
+        print(f"Subsample mask already exists at:\n\t{mask_path}.")
         print("Use overwrite=True to recompute.\n")
         return
-    print("Creating subsample from full catalogue...")
+    print("Constructing subsample from full catalogue...")
 
     # Load selection function and galactic coordinates
     selection_function = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_empirical_survey_selection_function.npy")
@@ -488,7 +516,7 @@ def calculate_subsample_selection_function(overwrite=False):
     # Check if total selection function already exists
     file_subsample_sf_stars = os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_selection_function.npy")
     if os.path.exists(file_subsample_sf_stars) and not overwrite:
-        print(f"Subsample selection function already exists at {file_subsample_sf_stars}.")
+        print(f"Subsample selection function already exists at:\n\t{file_subsample_sf_stars}.")
         print("Use overwrite=True to recompute.\n")
         return
     print("Calculating subsample selection function...")
@@ -564,7 +592,7 @@ def calculate_subsample_selection_function(overwrite=False):
     print(f"... subsample selection function range: {np.nanmin(subsample_sf):.3f} -- {np.nanmax(subsample_sf):.3f}")
 
     # Save subsample selection function for stars
-    print(f"... saving subsample selection function for stars to {file_subsample_sf_stars} (shape: {subsample_sf.shape})\n")
+    print(f"... saving subsample selection function for stars to {file_subsample_sf_stars} (shape: {subsample_sf.shape}).\n")
     np.save(file_subsample_sf_stars, subsample_sf)
     del subsample_sf, comp_stars, tree  # Free memory
     gc.collect()  # Force garbage collection
@@ -742,7 +770,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     # Save total selection function arrays for healpix pixels
     print(f"... saving total selection function arrays for HEALPix pixels to:")
     print(f"\t{file_total_sf_mean_healpix}, and")
-    print(f"\t{file_total_sf_var_healpix}\n")
+    print(f"\t{file_total_sf_var_healpix}.\n")
     np.save(file_total_sf_mean_healpix, total_sf_mean_healpix)
     np.save(file_total_sf_var_healpix, total_sf_var_healpix)
     del total_sf_mean_healpix, total_sf_var_healpix  # Free memory
@@ -756,7 +784,9 @@ def plot_total_selection_function_for_subsample(overwrite=False):
     file_total_sf_mean_path = os.path.join(FIGURES_PATH, "total_selection_function_mean.png")
     file_total_sf_var_path = os.path.join(FIGURES_PATH, "total_selection_function_var.png")
     if os.path.exists(file_total_sf_mean_path) and os.path.exists(file_total_sf_var_path) and not overwrite:
-        print(f"Plots already exist at {file_total_sf_mean_path} and {file_total_sf_var_path}.")
+        print(f"Plots already exist at:")
+        print(f"\t{file_total_sf_mean_path} and")
+        print(f"\t{file_total_sf_var_path}.")
         print("Use overwrite=True to recompute.\n")
         return
     print("Plotting total selection function on the sky...")
@@ -807,7 +837,7 @@ def plot_total_selection_function_for_subsample(overwrite=False):
     plt.close()
     gc.collect()  # Free memory
     
-    print(f"... saved mollview plot to {file_total_sf_var_path}\n")
+    print(f"... saved mollview plot to {file_total_sf_var_path}.\n")
 
 
 # === Construct input data to be passed to AstroLink ===
@@ -816,7 +846,7 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     Calculate the distance contraction for the subsample.
     """
     # Placeholder for actual implementation
-    print(f"Calculating distance contraction for subsample at {SUBSAMPLE_PATH} using {PARALLEL_WORKERS} workers.")
+    print(f"Calculating distance contraction for subsample at {SUBSAMPLE_PATH} using {PARALLEL_WORKERS} workers.\n")
     # Actual code would go here
 
 def plot_distance_contraction_for_subsample(overwrite=False):
@@ -824,10 +854,10 @@ def plot_distance_contraction_for_subsample(overwrite=False):
     Plot the distance contraction for the subsample.
     """
     # Placeholder for actual implementation
-    print(f"Plotting distance contraction for subsample at {SUBSAMPLE_PATH}.")
+    print(f"Plotting distance contraction for subsample at {SUBSAMPLE_PATH}.\n")
     # Actual code would go here
 
-def compute_contracted_astrometric_representation(overwrite=False):
+def compute_contracted_astrometric_representation(overwrite=True):
     """
     Computes f(r), x^, mu, and v^ for a set of stars using 5D astrometric data.
     """
@@ -849,27 +879,27 @@ def compute_contracted_astrometric_representation(overwrite=False):
     # Load required arrays
     print("... loading required arrays")
     equitorial_coordinates = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_equitorial_coordinates.npy")
-    parallax = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_parallaxes.npy")[:, 0]  # (n,)
+    r = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_r_med_geo.npy") / 1000  # (n,) in kpc
     proper_motions = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_proper_motions.npy")  # (n, 2) in mas/yr
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (n,)
 
     # Convert parallax (mas) to distance (kpc)
-    print("... converting parallaxes to distances")
-    parallax = parallax[subsample_mask]
-    r = np.full_like(parallax, np.inf)  # Initialize with infinity
-    r[parallax > 0] = 1/parallax[parallax > 0]  # Set zero or negative parallaxes to infinity
-    del parallax  # Free memory
-    gc.collect()  # Force garbage collection
+    #print("... converting parallaxes to distances")
+    #parallax = parallax[subsample_mask]
+    #r = np.full_like(parallax, np.inf)  # Initialize with infinity
+    #r[parallax > 0] = 1/parallax[parallax > 0]  # Set zero or negative parallaxes to infinity
+    #del parallax  # Free memory
+    #gc.collect()  # Force garbage collection
 
     # Contracted distance
     print("... calculating contracted distance f(r)")
     r_half_kpc = 0.5
-    f_r = r_half_kpc * np.arctan(r / r_half_kpc)  # shape (N,)
+    f_r = r#r_half_kpc * np.arctan(r[subsample_mask] / r_half_kpc)  # shape (N,)
     del r # Free memory
     gc.collect()  # Force garbage collection
 
     # Save contracted distance
-    print(f"... saving contracted distance to {file_path_f_r} (shape: {f_r.shape})\n")
+    print(f"... saving contracted distance to {file_path_f_r} (shape: {f_r.shape})")
     np.save(file_path_f_r, f_r)
     del f_r  # Free memory
     gc.collect()  # Force garbage collection
@@ -895,7 +925,7 @@ def compute_contracted_astrometric_representation(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Save unit position vector
-    print(f"... saving unit position vector to {file_path_x_hat} (shape: {x_hat.shape})\n")
+    print(f"... saving unit position vector to {file_path_x_hat} (shape: {x_hat.shape})")
     np.save(file_path_x_hat, x_hat)
     del x_hat  # Free memory
     gc.collect()  # Force garbage collection
@@ -909,7 +939,7 @@ def compute_contracted_astrometric_representation(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Save proper motion magnitude
-    print(f"... saving proper motion magnitude to {file_path_mu} (shape: {mu.shape})\n")
+    print(f"... saving proper motion magnitude to {file_path_mu} (shape: {mu.shape})")
     np.save(file_path_mu, mu)
 
     # Tangential basis vectors
@@ -935,19 +965,19 @@ def compute_contracted_astrometric_representation(overwrite=False):
     v_hat[valid] = v_vec[valid] / mu[valid, None]  # normalize only where mu > 0
 
     # Save unit tangential velocity vector
-    print(f"... saving unit tangential velocity vector to {file_path_v_hat} (shape: {v_hat.shape})\n")
+    print(f"... saving unit tangential velocity vector to {file_path_v_hat} (shape: {v_hat.shape}).\n")
     np.save(file_path_v_hat, v_hat)
     del mu_alpha_star, mu_delta, mu, e_alpha, e_delta, v_vec, v_hat  # Free memory
     gc.collect()  # Force garbage collection
 
-def construct_cartesian_coordinates_for_subsample(overwrite=False):
+def construct_cartesian_coordinates_for_subsample(overwrite=True):
     """
     Calculate the Cartesian-like coordinates for the subsample.
     """
     # Check if Cartesian coordinates already exist
     file_cartesian_coordinates = os.path.join(SUBSAMPLE_PATH, "gdr3_cartesian_coordinates.npy")
     if os.path.exists(file_cartesian_coordinates) and not overwrite:
-        print(f"Cartesian coordinates already exist at {file_cartesian_coordinates}.")
+        print(f"Cartesian coordinates already exist at:\n\t{file_cartesian_coordinates}.")
         print("Use overwrite=True to recompute.\n")
         return
     print("Calculating Cartesian coordinates for subsample...")
@@ -973,19 +1003,19 @@ def construct_cartesian_coordinates_for_subsample(overwrite=False):
     cartesian_coordinates = np.concatenate([x, v], axis=1)  # shape (N, 6)
 
     # Save Cartesian coordinates
-    print(f"... saving Cartesian coordinates to {file_cartesian_coordinates} (shape: {cartesian_coordinates.shape})\n")
+    print(f"... saving Cartesian coordinates to {file_cartesian_coordinates} (shape: {cartesian_coordinates.shape}).\n")
     np.save(file_cartesian_coordinates, cartesian_coordinates)
 
 
 # === Apply AstroLink to subsample ===
-def apply_astrolink_to_subsample(overwrite=False):
+def apply_astrolink_to_subsample(overwrite=True):
     """
     Run AstroLink clustering on the subsample.
     """
     # Check if AstroLink clustering output already exists
     file_astrolink_object = os.path.join(CLUSTERING_PATH, "astrolink_object.npz")
     if os.path.exists(file_astrolink_object) and not overwrite:
-        print(f"AstroLink clustering output already exists at {file_astrolink_object}.")
+        print(f"AstroLink clustering output already exists at:\n\t{file_astrolink_object}.")
         print("Use overwrite=True to recompute.\n")
         return
     print("Running AstroLink clustering on the subsample...")
@@ -1020,7 +1050,7 @@ def apply_astrolink_to_subsample(overwrite=False):
 
     # The following is a reworked version of the astrolink.run() method
     # It is more memory efficient and has print statements that better align with the rest of the script
-    print(f"... AstroLink -- started             | {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"... [AstroLink] Started             | {time.strftime('%Y-%m-%d %H:%M:%S')}")
     begin = time.perf_counter()
 
     # Transform the data (this doesn't do anything in this case, but is required to create the P_transform attribute)
@@ -1029,33 +1059,33 @@ def apply_astrolink_to_subsample(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Compute densities and nearest neighbours
-    print(f"... AstroLink -- computing densities and nearest neighbours")
+    print(f"... [AstroLink] Computing densities and nearest neighbours\r")
     clusterer.estimate_density_and_kNN()
     del clusterer.weights  # Free memory
     gc.collect()  # Force garbage collection
 
     # Order points, find groups, compute prominences
-    print(f"... AstroLink -- aggregating points, finding groups, and computing prominences")
+    print(f"... [AstroLink] Aggregating points, finding groups, and computing prominences\r")
     clusterer.aggregate()
 
     # Fit model to subgroup prominences and find group significance
-    print(f"... AstroLink -- fitting model to subgroup prominences and finding group significances")
+    print(f"... [AstroLink] Fitting model to subgroup prominences and finding group significances\r")
     clusterer.compute_significances()
 
     # Find clusters and hierarchy
-    print(f"... AstroLink -- finding clusters and their hierarchy")
+    print(f"... [AstroLink] Finding clusters and their hierarchy                                  \r")
     clusterer.extract_clusters()
 
     clusterer._totalTime = time.perf_counter() - begin
-    print(f"... AstroLink -- kNN query time      | {100*clusterer._logRhoTime/clusterer._totalTime:.2f}%       ")
-    print(f"... AstroLink -- aggregation time    | {100*clusterer._aggregateTime/clusterer._totalTime:.2f}%    ")
-    print(f"... AstroLink -- regression time     | {100*clusterer._regrTime/clusterer._totalTime:.2f}%         ")
-    print(f"... AstroLink -- rejection time      | {100*clusterer._rejTime/clusterer._totalTime:.2f}%          ")
-    print(f"... AstroLink -- completed           | {time.strftime('%Y-%m-%d %H:%M:%S')}       ")
-    print(f"... AstroLink -- total time          | {clusterer._totalTime:.2f} seconds!")
+    print(f"... [AstroLink] Completed           | {time.strftime('%Y-%m-%d %H:%M:%S')}       ")
+    print(f"... [AstroLink] kNN query time      | {100*clusterer._logRhoTime/clusterer._totalTime:.2f}%       ")
+    print(f"... [AstroLink] Aggregation time    | {100*clusterer._aggregateTime/clusterer._totalTime:.2f}%    ")
+    print(f"... [AstroLink] Regression time     | {100*clusterer._regrTime/clusterer._totalTime:.2f}%         ")
+    print(f"... [AstroLink] Rejection time      | {100*clusterer._rejTime/clusterer._totalTime:.2f}%          ")
+    print(f"... [AstroLink] Total time          | {clusterer._totalTime:.2f} seconds!")
 
     # Save the clustering output
-    print(f"... saving AstroLink clustering output to {file_astrolink_object}\n")
+    print(f"... saving AstroLink clustering output to {file_astrolink_object}.\n")
     io.saveAstroLinkObject(clusterer, file_astrolink_object)
 
 def plot_clusters_on_sky(overwrite=True):
@@ -1065,7 +1095,7 @@ def plot_clusters_on_sky(overwrite=True):
     # Check if plots already exist
     file_clusters_on_sky_path = os.path.join(FIGURES_PATH, "clusters_on_sky.png")
     if os.path.exists(file_clusters_on_sky_path) and not overwrite:
-        print(f"Clusters on sky plot already exists at {file_clusters_on_sky_path}.")
+        print(f"Clusters on sky plot already exists at:\n\t{file_clusters_on_sky_path}.")
         print("Use overwrite=True to recompute.\n")
         return
     print("Plotting AstroLink clusters on the sky...")
@@ -1118,6 +1148,7 @@ def plot_clusters_on_sky(overwrite=True):
     plt.savefig(file_clusters_on_sky_path, dpi=500)
     plt.close()
     gc.collect()  # Free memory
+    print(f"... saved clusters on sky plot to {file_clusters_on_sky_path}.\n")
 
 
 # === Analyze clustering output with respect to ground truth ===
@@ -1126,7 +1157,7 @@ def compare_clustering_output_to_ground_truth(overwrite=False):
     Compare the clustering output to the ground truth.
     """
     # Placeholder for actual implementation
-    print(f"Comparing clustering output from {CLUSTERING_PATH} to ground truth.")
+    print(f"Comparing clustering output from {CLUSTERING_PATH} to ground truth.\n")
     # Actual code would go here
 
 def plot_comparison_results(overwrite=False):
@@ -1134,7 +1165,7 @@ def plot_comparison_results(overwrite=False):
     Plot the results of the comparison between clustering output and ground truth.
     """
     # Placeholder for actual implementation
-    print(f"Plotting comparison results from {CLUSTERING_PATH}.")
+    print(f"Plotting comparison results from {CLUSTERING_PATH}.\n")
     # Actual code would go here
 
 

@@ -1,15 +1,17 @@
 # Standard imports
 import os
+import sys
 
-# Set number of parallel workers (note this requires the environment variable to exist before running this script)
-from numba import set_num_threads
-PARALLEL_WORKERS = min(os.cpu_count(), 64)  # Use up to 64 workers or all available CPUs, whichever is smaller
-if PARALLEL_WORKERS != -1:
+# Restarts the script with a fresh interpreter state and forces the number of threads to be used.
+# (this shouldn't actually be necessary, but is included for full control in case of a misbehaving environment)
+PARALLEL_WORKERS = min(os.cpu_count(), 48)  # Use up to 48 workers or all available CPUs, whichever is smaller
+if "ASTROLINK_OMP_INIT" not in os.environ:
     os.environ["OMP_NUM_THREADS"] = f"{PARALLEL_WORKERS}"
-    set_num_threads(PARALLEL_WORKERS)
-else:
-    os.environ["OMP_NUM_THREADS"] = f"{os.cpu_count()}"
-    set_num_threads(os.cpu_count())
+    os.environ["ASTROLINK_OMP_INIT"] = "1"
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+from numba import njit, set_num_threads
+set_num_threads(PARALLEL_WORKERS)
 
 # Remaining standard imports
 import gc
@@ -20,6 +22,7 @@ from concurrent.futures import ProcessPoolExecutor
 # Third-party imports
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize
 from pykdtree.kdtree import KDTree
 from sklearn import get_config
 from sklearn.utils import gen_batches
@@ -845,9 +848,125 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     """
     Calculate the distance contraction for the subsample.
     """
-    # Placeholder for actual implementation
-    print(f"Calculating distance contraction for subsample at {SUBSAMPLE_PATH} using {PARALLEL_WORKERS} workers.\n")
-    # Actual code would go here
+    # Check if the distance contraction already exists
+    file_path_r_half_kpc = os.path.join(SUBSAMPLE_PATH, "gdr3_r_half_kpc.npy")
+    file_path_fr = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance.npy")
+    file_path_delta_fr = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance_error.npy")
+    file_path_dx = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_spatial_error.npy")
+    if os.path.exists(file_path_fr) and os.path.exists(file_path_delta_fr) and not overwrite:
+        print(f"Distance contraction and its error already exists at:")
+        print(f"\t{file_path_r_half_kpc},")
+        print(f"\t{file_path_fr},")
+        print(f"\t{file_path_delta_fr}, and")
+        print(f"\t{file_path_dx}.")
+        print("Use overwrite=True to recompute.\n")
+        return
+    print("Calculating distance contraction and its error for subsample...")
+
+    # Load required arrays
+    print("... loading required arrays")
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (n,)
+    r = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_r_med_geo.npy")[subsample_mask] / 1000  # (n,) in kpc
+    lo, high = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_r_lo_high_geo.npy")[subsample_mask].T  # each (n,) in pc
+    log_dr = np.log((high - lo) / 2000) # (n,) in log(kpc)
+    del lo, high  # Free memory
+    gc.collect()  # Force garbage collection
+
+    ra, dec = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_equitorial_coordinates.npy")[subsample_mask].T  # each (n,) in degrees
+    dra, ddec = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_astrometric_errors.npy")[subsample_mask, :2].T  # each (n,) in degrees
+    log_dOmega = np.log((np.cos(np.deg2rad(dec)) * np.deg2rad(dra))**2 + np.deg2rad(ddec)**2)  # (n,) in log(rad^2)
+    del subsample_mask, ra, dec, dra, ddec  # Free memory
+    gc.collect()  # Force garbage collection
+
+    guess = np.array([1.0])  # Initial guess for r_{1/2} in kpc
+    tol = 1e-6  # Tolerance for optimization
+
+    # Fit model
+    print("... fitting r_{1/2} to get globally isotropic spatial uncertainties")
+    sol = minimize(_isotropic_spatial_uncertainties_loss, guess, bounds=((0, np.inf),), args=(r, log_dr, log_dOmega), jac=True, tol=tol)
+    print(f"... best fit r_half_kpc = {sol.x[0]:.3f} kpc, with loss = {sol.fun:.3f}")
+    r_half_kpc = sol.x  # Best fit characteristic scale r_{1/2} in kpc
+
+    # Save the best fit r_{1/2}
+    file_path_r_half_kpc = os.path.join(SUBSAMPLE_PATH, "gdr3_r_half_kpc.npy")
+    print(f"... saving best fit r_half_kpc to {file_path_r_half_kpc} (shape: {r_half_kpc.shape})")
+    np.save(file_path_r_half_kpc, r_half_kpc)
+
+    fr = r_half_kpc * np.arctan(r / r_half_kpc)  # shape (N,)
+    dfr = r_half_kpc ** 2 / (r_half_kpc ** 2 + r ** 2)  # Derivative of f(r) with respect to r, shape (N,)
+    dx = np.sqrt(dfr**2 * np.exp(2 * log_dr) + np.exp(2 * log_dOmega))  # shape (N,)
+    del r, log_dr, log_dOmega  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save contracted distance
+    print(f"... saving contracted distance to {file_path_fr} (shape: {fr.shape})")
+    np.save(file_path_fr, fr)
+    del fr  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save contracted distance uncertainties
+    print(f"... saving contracted distance uncertainties to {file_path_delta_fr} (shape: {dfr.shape})")
+    np.save(file_path_delta_fr, dfr)
+    del dfr  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save contracted spatial uncertainties
+    print(f"... saving contracted spatial uncertainties to {file_path_dx} (shape: {dx.shape})")
+    np.save(file_path_dx, dx)
+    del dx  # Free memory
+    gc.collect()  # Force garbage collection
+
+@njit()
+def _isotropic_spatial_uncertainties_loss(r_half_kpc, r, log_dr, log_dOmega):
+    """
+    Loss encouraging isotropic 3D uncertainty ellipsoids after transforming distances with
+    f(r) = r_half * arctan(r / r_half). Assumes input distances are in kpc.
+    
+    Parameters
+    ----------
+    r_half_kpc : float
+        The characteristic scale r_{1/2} in kiloparsecs.
+    r : ndarray
+        Array of stellar distances (in kpc), shape (N,)
+    log_dr : ndarray
+        Logarithm of the distance uncertainty, log(delta_r), shape (N,)
+    log_dOmega : ndarray
+        Logarithm of the angular uncertainty term,
+        log(cos^2(b) * delta_l^2 + delta_b^2), shape (N,)
+
+    Returns
+    -------
+    loss : float
+        Sum-of-squares loss.
+    grad : float
+        Derivative of the loss with respect to r_half_kpc.
+    """
+    z = r / r_half_kpc
+    one_plus_z2 = 1 + z**2
+    atan_z = np.arctan(z)
+    
+    # psi_i terms
+    psi = (
+        -2 * np.log(one_plus_z2)
+        -2 * np.log(r_half_kpc)
+        -2 * np.log(atan_z)
+        + np.log(2.0)
+        + 2 * log_dr
+        - log_dOmega
+    )
+
+    # d psi / d r_half
+    dpsi = (
+        4 * z**2 / (r_half_kpc * one_plus_z2)
+        - 2 / r_half_kpc
+        + 2 * z / (r_half_kpc * one_plus_z2 * atan_z)
+    )
+
+    # Loss and gradient
+    loss = np.sum(psi**2)
+    grad = 2 * np.sum(psi * dpsi)
+
+    return loss, grad
 
 def plot_distance_contraction_for_subsample(overwrite=False):
     """
@@ -859,16 +978,14 @@ def plot_distance_contraction_for_subsample(overwrite=False):
 
 def compute_contracted_astrometric_representation(overwrite=True):
     """
-    Computes f(r), x^, mu, and v^ for a set of stars using 5D astrometric data.
+    Computes f(r), x^, mu, and v^ for the subsample of stars using 5D astrometric data.
     """
     # Check if the contracted astrometric representation already exists
-    file_path_f_r = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance.npy")
     file_path_x_hat = os.path.join(SUBSAMPLE_PATH, "gdr3_unit_position_vector.npy")
     file_path_mu = os.path.join(SUBSAMPLE_PATH, "gdr3_proper_motion_magnitude.npy")
     file_path_v_hat = os.path.join(SUBSAMPLE_PATH, "gdr3_unit_tangential_velocity_vector.npy")
-    if os.path.exists(file_path_f_r) and os.path.exists(file_path_x_hat) and os.path.exists(file_path_mu) and os.path.exists(file_path_v_hat) and not overwrite:
+    if os.path.exists(file_path_x_hat) and os.path.exists(file_path_mu) and os.path.exists(file_path_v_hat) and not overwrite:
         print(f"Contracted astrometric representation already exists at:")
-        print(f"\t{file_path_f_r},")
         print(f"\t{file_path_x_hat},")
         print(f"\t{file_path_mu}, and")
         print(f"\t{file_path_v_hat}.")
@@ -879,30 +996,8 @@ def compute_contracted_astrometric_representation(overwrite=True):
     # Load required arrays
     print("... loading required arrays")
     equitorial_coordinates = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_equitorial_coordinates.npy")
-    r = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_r_med_geo.npy") / 1000  # (n,) in kpc
     proper_motions = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_proper_motions.npy")  # (n, 2) in mas/yr
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (n,)
-
-    # Convert parallax (mas) to distance (kpc)
-    #print("... converting parallaxes to distances")
-    #parallax = parallax[subsample_mask]
-    #r = np.full_like(parallax, np.inf)  # Initialize with infinity
-    #r[parallax > 0] = 1/parallax[parallax > 0]  # Set zero or negative parallaxes to infinity
-    #del parallax  # Free memory
-    #gc.collect()  # Force garbage collection
-
-    # Contracted distance
-    print("... calculating contracted distance f(r)")
-    r_half_kpc = 0.5
-    f_r = r[subsample_mask]#r_half_kpc * np.arctan(r[subsample_mask] / r_half_kpc)  # shape (N,)
-    del r # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Save contracted distance
-    print(f"... saving contracted distance to {file_path_f_r} (shape: {f_r.shape})")
-    np.save(file_path_f_r, f_r)
-    del f_r  # Free memory
-    gc.collect()  # Force garbage collection
 
     # Convert angles to radians
     print("... converting equitorial coordinates to radians")

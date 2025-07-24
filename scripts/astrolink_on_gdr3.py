@@ -12,6 +12,9 @@ if "THREAD_CONTROL_INIT" not in os.environ:
     os.environ["THREAD_CONTROL_INIT"] = "1"
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
+from numba import njit, set_num_threads
+set_num_threads(PARALLEL_WORKERS)
+
 # Remaining standard imports
 import gc
 import time
@@ -25,7 +28,6 @@ from scipy.optimize import minimize
 from pykdtree.kdtree import KDTree
 from sklearn import get_config
 from sklearn.utils import gen_batches
-from numba import njit
 
 # Astro-specific imports
 from astropy.table import Table # Works using v6.1.3, but v7.1.0 seems to try and convert 'null' values to float before using fill_values

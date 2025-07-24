@@ -13,7 +13,7 @@ if "THREAD_CONTROL_INIT" not in os.environ:
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 from numba import njit, set_num_threads
-set_num_threads(PARALLEL_WORKERS)
+set_num_threads(PARALLEL_WORKERS) # For some reason this is necessary to get pykdtree to use the correct number of threads
 
 # Remaining standard imports
 import gc
@@ -515,7 +515,7 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     np.save(mask_path, subsample_mask)
     print(f"... saved subsample mask to {mask_path} (selected {subsample_mask.sum()} stars)\n")
 
-def calculate_subsample_selection_function(overwrite=True):
+def calculate_subsample_selection_function(overwrite=False):
     """
     Calculate the subsample selection function using kNN-based metric.
     """
@@ -605,7 +605,7 @@ def calculate_subsample_selection_function(overwrite=True):
 
 
 # === Calculate total selection function for subsample ===
-def calculate_total_selection_function_for_subsample(overwrite=True):
+def calculate_total_selection_function_for_subsample(overwrite=False):
     """
     Calculate the total selection function for the subsample.
     """
@@ -782,7 +782,7 @@ def calculate_total_selection_function_for_subsample(overwrite=True):
     del total_sf_mean_healpix, total_sf_var_healpix  # Free memory
     gc.collect()  # Force garbage collection
 
-def plot_total_selection_function_for_subsample(overwrite=True):
+def plot_total_selection_function_for_subsample(overwrite=False):
     """
     Plot the limiting G-band magnitude across the sky using HEALPix.
     """
@@ -893,7 +893,7 @@ def calculate_distance_contraction_for_subsample(overwrite=True):
     print("... fitting r_{1/2} to get globally isotropic spatial uncertainties")
     idx = np.random.choice(len(r), size=10**4, replace=False)
     sol = minimize(_isotropic_spatial_uncertainties_loss, guess,
-            bounds=((0, np.inf),), args=(r[idx], log_dr[idx], log_dOmega[idx]), jac=True, tol=tol)
+            bounds=((0, np.inf),), args=(r[idx], log_dr[idx], log_dOmega[idx]), jac='2-point', tol=tol)
     print(f"... best fit r_half_kpc = {sol.x[0]:.3f} kpc, with loss = {sol.fun:.3f}")
     r_half_kpc = sol.x  # Best fit characteristic scale r_{1/2} in kpc
 
@@ -957,7 +957,7 @@ def _isotropic_spatial_uncertainties_loss(r_half_kpc, r, log_dr, log_dOmega):
     z = r / r_half_kpc
     one_plus_z2 = 1 + z**2
     atan_z = np.arctan(z)
-    atan_z = np.clip(atan_z, eps, None)
+    #atan_z = np.clip(atan_z, eps, None)
 
     # psi_i terms
     psi = (
@@ -971,19 +971,19 @@ def _isotropic_spatial_uncertainties_loss(r_half_kpc, r, log_dr, log_dOmega):
 
     # Replace any non-finite values to avoid nan loss
     if not np.all(np.isfinite(psi)):
-        return np.inf, np.array([0.0])
+        return np.inf#, np.array([0.0])
 
     # d psi / d r_half
-    dpsi = (
-        4 * z**2 / (r_half_kpc * one_plus_z2)
-        - 2 / r_half_kpc
-        + 2 * z / (r_half_kpc * one_plus_z2 * atan_z)
-    )
+    #dpsi = (
+    #    4 * z**2 / (r_half_kpc * one_plus_z2)
+    #    - 2 / r_half_kpc
+    #    + 2 * z / (r_half_kpc * one_plus_z2 * atan_z)
+    #)
 
     loss = np.mean(psi**2)
-    grad = 2 * np.mean(psi * dpsi)
+    #grad = 2 * np.mean(psi * dpsi)
 
-    return loss, np.array([grad])
+    return loss#, np.array([grad])
 
 def plot_distance_contraction_for_subsample(overwrite=False):
     """

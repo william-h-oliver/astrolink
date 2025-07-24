@@ -821,7 +821,7 @@ def plot_total_selection_function_for_subsample(overwrite=False):
     plt.close()
     gc.collect()  # Free memory
     
-    print(f"... saved mollview plot to {file_total_sf_mean_path}\n")
+    print(f"... saved mollview plot to {file_total_sf_mean_path}")
 
     # Create a Mollweide projection plot of the total selection function variance
     plt.figure(figsize=(12, 6))

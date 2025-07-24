@@ -5,13 +5,12 @@ import sys
 # Restarts the script with a fresh interpreter state and forces the number of threads to be used.
 # (this shouldn't actually be necessary, but is included for full control in case of a misbehaving environment)
 PARALLEL_WORKERS = min(os.cpu_count(), 48)  # Use up to 48 workers or all available CPUs, whichever is smaller
-if "ASTROLINK_OMP_INIT" not in os.environ:
+if "THREAD_CONTROL_INIT" not in os.environ:
     os.environ["OMP_NUM_THREADS"] = f"{PARALLEL_WORKERS}"
-    os.environ["ASTROLINK_OMP_INIT"] = "1"
+    os.environ["NUMBA_NUM_THREADS"] = f"{PARALLEL_WORKERS}"
+    os.environ["NUMBA_DEFAULT_NUM_THREADS"] = f"{PARALLEL_WORKERS}"
+    os.environ["THREAD_CONTROL_INIT"] = "1"
     os.execv(sys.executable, [sys.executable] + sys.argv)
-
-from numba import njit, set_num_threads
-set_num_threads(PARALLEL_WORKERS)
 
 # Remaining standard imports
 import gc
@@ -26,6 +25,7 @@ from scipy.optimize import minimize
 from pykdtree.kdtree import KDTree
 from sklearn import get_config
 from sklearn.utils import gen_batches
+from numba import njit
 
 # Astro-specific imports
 from astropy.table import Table # Works using v6.1.3, but v7.1.0 seems to try and convert 'null' values to float before using fill_values
@@ -78,6 +78,7 @@ def reduce_gdr3_catalogue_to_numpy_files(overwrite=False):
         'astrometric_errors': ['ra_error', 'dec_error', 'parallax_error', 'pmra_error', 'pmdec_error'],
         'astrometric_matched_transits': ['astrometric_matched_transits'],
         'photometry': ['phot_g_mean_mag'],#, 'phot_bp_mean_mag', 'phot_rp_mean_mag'],
+        'ruwe': ['ruwe']
     }
 
     # Skip processing if all merged output files already exist
@@ -91,7 +92,7 @@ def reduce_gdr3_catalogue_to_numpy_files(overwrite=False):
         return
     print("Reducing raw Gaia catalogue to numpy files...")
 
-    file_paths = sorted(globTrue(os.path.join(RAW_GDR3_CATALOGUE_PATH, 'GaiaSource_*.csv.gz')))
+    file_paths = sorted(glob(os.path.join(RAW_GDR3_CATALOGUE_PATH, 'GaiaSource_*.csv.gz')))
     print(f"... found {len(file_paths)} source files.")
 
     # Parallel processing
@@ -500,19 +501,19 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     galactic_coords = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_galactic_coordinates.npy")  # (n, 2) in degrees
     parallax = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_parallaxes.npy")[:, 0]  # (n,)
     proper_motions = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_proper_motions.npy")  # (n, 2) in mas/yr
+    ruwe = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_ruwe.npy")[:, 0]  # (n,)
 
     # Create boolean mask for S_Gaia > threshold and valid astrometric data
-    subsample_mask = np.logical_and(
-        selection_function > SURVEY_SF_LOWER_LIMIT,
-        np.isfinite(parallax),
-        np.isfinite(proper_motions).all(axis=1)
-    )
+    subsample_mask = selection_function > SURVEY_SF_LOWER_LIMIT
+    subsample_mask &= np.isfinite(parallax)
+    subsample_mask &= np.isfinite(proper_motions).all(axis=1)
+    subsample_mask &= ruwe < 1.4  # Use a threshold for RUWE to filter out poor astrometric solutions
 
     # Save mask
     np.save(mask_path, subsample_mask)
     print(f"... saved subsample mask to {mask_path} (selected {subsample_mask.sum()} stars)\n")
 
-def calculate_subsample_selection_function(overwrite=False):
+def calculate_subsample_selection_function(overwrite=True):
     """
     Calculate the subsample selection function using kNN-based metric.
     """
@@ -602,7 +603,7 @@ def calculate_subsample_selection_function(overwrite=False):
 
 
 # === Calculate total selection function for subsample ===
-def calculate_total_selection_function_for_subsample(overwrite=False):
+def calculate_total_selection_function_for_subsample(overwrite=True):
     """
     Calculate the total selection function for the subsample.
     """
@@ -779,7 +780,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     del total_sf_mean_healpix, total_sf_var_healpix  # Free memory
     gc.collect()  # Force garbage collection
 
-def plot_total_selection_function_for_subsample(overwrite=False):
+def plot_total_selection_function_for_subsample(overwrite=True):
     """
     Plot the limiting G-band magnitude across the sky using HEALPix.
     """
@@ -844,7 +845,7 @@ def plot_total_selection_function_for_subsample(overwrite=False):
 
 
 # === Construct input data to be passed to AstroLink ===
-def calculate_distance_contraction_for_subsample(overwrite=False):
+def calculate_distance_contraction_for_subsample(overwrite=True):
     """
     Calculate the distance contraction for the subsample.
     """
@@ -879,11 +880,18 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     gc.collect()  # Force garbage collection
 
     guess = np.array([1.0])  # Initial guess for r_{1/2} in kpc
-    tol = 1e-6  # Tolerance for optimization
+    tol = 1e-10  # Tolerance for optimization
+
+    print('r', np.min(r), np.max(r))
+    print('log_dr', np.min(log_dr), np.max(log_dr))
+    print('log_dOmega', np.min(log_dOmega), np.max(log_dOmega))
+
 
     # Fit model
     print("... fitting r_{1/2} to get globally isotropic spatial uncertainties")
-    sol = minimize(_isotropic_spatial_uncertainties_loss, guess, bounds=((0, np.inf),), args=(r, log_dr, log_dOmega), jac=True, tol=tol)
+    idx = np.random.choice(len(r), size=10**4, replace=False)
+    sol = minimize(_isotropic_spatial_uncertainties_loss, guess,
+            bounds=((0, np.inf),), args=(r[idx], log_dr[idx], log_dOmega[idx]), jac=True, tol=tol)
     print(f"... best fit r_half_kpc = {sol.x[0]:.3f} kpc, with loss = {sol.fun:.3f}")
     r_half_kpc = sol.x  # Best fit characteristic scale r_{1/2} in kpc
 
@@ -941,10 +949,14 @@ def _isotropic_spatial_uncertainties_loss(r_half_kpc, r, log_dr, log_dOmega):
     grad : float
         Derivative of the loss with respect to r_half_kpc.
     """
+    r_half_kpc = np.asarray(r_half_kpc).item()  # ensure scalar
+    eps = 1e-12
+
     z = r / r_half_kpc
     one_plus_z2 = 1 + z**2
     atan_z = np.arctan(z)
-    
+    atan_z = np.clip(atan_z, eps, None)
+
     # psi_i terms
     psi = (
         -2 * np.log(one_plus_z2)
@@ -955,6 +967,10 @@ def _isotropic_spatial_uncertainties_loss(r_half_kpc, r, log_dr, log_dOmega):
         - log_dOmega
     )
 
+    # Replace any non-finite values to avoid nan loss
+    if not np.all(np.isfinite(psi)):
+        return np.inf, np.array([0.0])
+
     # d psi / d r_half
     dpsi = (
         4 * z**2 / (r_half_kpc * one_plus_z2)
@@ -962,18 +978,17 @@ def _isotropic_spatial_uncertainties_loss(r_half_kpc, r, log_dr, log_dOmega):
         + 2 * z / (r_half_kpc * one_plus_z2 * atan_z)
     )
 
-    # Loss and gradient
-    loss = np.sum(psi**2)
-    grad = 2 * np.sum(psi * dpsi)
+    loss = np.mean(psi**2)
+    grad = 2 * np.mean(psi * dpsi)
 
-    return loss, grad
+    return loss, np.array([grad])
 
 def plot_distance_contraction_for_subsample(overwrite=False):
     """
     Plot the distance contraction for the subsample.
     """
     # Placeholder for actual implementation
-    print(f"Plotting distance contraction for subsample at {SUBSAMPLE_PATH}.\n")
+    print(f"Placeholder for plotting distance contraction for subsample.\n")
     # Actual code would go here
 
 def compute_contracted_astrometric_representation(overwrite=True):
@@ -1252,7 +1267,7 @@ def compare_clustering_output_to_ground_truth(overwrite=False):
     Compare the clustering output to the ground truth.
     """
     # Placeholder for actual implementation
-    print(f"Comparing clustering output from {CLUSTERING_PATH} to ground truth.\n")
+    print(f"Placeholder for comparing clustering output from {CLUSTERING_PATH} to ground truth.\n")
     # Actual code would go here
 
 def plot_comparison_results(overwrite=False):
@@ -1260,7 +1275,7 @@ def plot_comparison_results(overwrite=False):
     Plot the results of the comparison between clustering output and ground truth.
     """
     # Placeholder for actual implementation
-    print(f"Plotting comparison results from {CLUSTERING_PATH}.\n")
+    print(f"Placeholder for plotting comparison results from {CLUSTERING_PATH}.\n")
     # Actual code would go here
 
 

@@ -45,13 +45,16 @@ from astrolink import io
 
 
 # === Define script configuration ===
-# Define paths
+# User-defined paths
 RAW_GDR3_CATALOGUE_PATH = "/home/_data/Gaia/cdn.gea.esac.esa.int/Gaia/gdr3/gaia_source/"  # Path to raw gdr3 catalogue files
 BAILERJONES_GEDR3_DISTANCES_FILE = "/home/williamoliver_data/gaia_clustering/bailerjones_gedr3_distances/gedr3dist.dump.gz"  # Path to Bailer-Jones GEDR3 distances
-REDUCED_CATALOGUE_PATH = "/home/williamoliver_data/gaia_clustering/catalogue_files/"  # Path to numpy files of reduced catalogue
-SUBSAMPLE_PATH = "/home/williamoliver_data/gaia_clustering/subsample_files/"  # Path to numpy files of subsample from full catalogue
-CLUSTERING_PATH = "/home/williamoliver_data/gaia_clustering/clustering_output/"  # Path to AstroLink output files
-FIGURES_PATH = "/home/williamoliver_data/gaia_clustering/figures/"  # Path to figures
+OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output files
+
+# Auto-defined paths
+REDUCED_CATALOGUE_PATH = os.path.join(OUTPUT_PATH, "catalogue_files/")  # Path to reduced catalogue numpy files
+SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files/")  # Path to numpy files of subsample from full catalogue
+CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to AstroLink output files
+FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = get_config()["working_memory"] / 2  # Default is 1GB, but can be set to a higher value in sklearn config
@@ -59,6 +62,7 @@ WORKING_MEMORY = get_config()["working_memory"] / 2  # Default is 1GB, but can b
 # Pipeline constants
 KNN_FOR_SELECTION_FUNCTION = 32 # Number of nearest neighbors for selection function calculations
 SURVEY_SF_LOWER_LIMIT = 0.99 # Empirical survey selection function lower limit for subsample stars
+SUBSAMPLE_RUWE_THRESHOLD = 1.2 # RUWE threshold for subsample stars
 HEALPIX_LEVEL = 12 # HEALPix level for on-sky plotting
 KNN_FOR_ASTROLINK = 10 # Number of nearest neighbors for AstroLink
 SIGMA_FOR_ASTROLINK = 4 # Sigma level for AstroLink
@@ -400,7 +404,7 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
     # Check if plot already exists
     file_m10_path = os.path.join(FIGURES_PATH, "limiting_g_mag_m10.png")
     file_limiting_g_mag_path = os.path.join(FIGURES_PATH, "limiting_g_mag_mollview.png")
-    if os.path.exists(file_limiting_g_mag_path) and not overwrite:
+    if os.path.exists(file_m10_path) and os.path.exists(file_limiting_g_mag_path) and not overwrite:
         print(f"Plots already exists at:")
         print(f"\t{file_m10_path} and")
         print(f"\t{file_limiting_g_mag_path}.")
@@ -486,7 +490,7 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
 
 
 # === Construct subsample and subsample selection function ===
-def construct_subsample_from_full_catalogue(overwrite=False):
+def construct_subsample_from_full_catalogue(overwrite=True):
     """
     Create a boolean subsample mask where the empirical survey selection function S_Gaia > SURVEY_SF_LOWER_LIMIT.
     """
@@ -499,23 +503,23 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     print("Constructing subsample from full catalogue...")
 
     # Load selection function and galactic coordinates
-    selection_function = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_empirical_survey_selection_function.npy")
-    galactic_coords = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_galactic_coordinates.npy")  # (n, 2) in degrees
-    parallax = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_parallaxes.npy")[:, 0]  # (n,)
-    proper_motions = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_proper_motions.npy")  # (n, 2) in mas/yr
-    ruwe = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_ruwe.npy")[:, 0]  # (n,)
+    selection_function = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_empirical_survey_selection_function.npy"))  # (n,)
+    galactic_coords = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (n, 2) in degrees
+    r_med_geo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_geo.npy"))  # (n,)
+    proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))  # (n, 2) in mas/yr
+    ruwe = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_ruwe.npy"))[:, 0]  # (n,)
 
     # Create boolean mask for S_Gaia > threshold and valid astrometric data
     subsample_mask = selection_function > SURVEY_SF_LOWER_LIMIT
-    subsample_mask &= np.isfinite(parallax)
+    subsample_mask &= np.isfinite(r_med_geo)
     subsample_mask &= np.isfinite(proper_motions).all(axis=1)
-    subsample_mask &= ruwe < 1.4  # Use a threshold for RUWE to filter out poor astrometric solutions
+    subsample_mask &= ruwe < SUBSAMPLE_RUWE_THRESHOLD
 
     # Save mask
     np.save(mask_path, subsample_mask)
     print(f"... saved subsample mask to {mask_path} (selected {subsample_mask.sum()} stars)\n")
 
-def calculate_subsample_selection_function(overwrite=False):
+def calculate_subsample_selection_function(overwrite=True):
     """
     Calculate the subsample selection function using kNN-based metric.
     """
@@ -529,8 +533,8 @@ def calculate_subsample_selection_function(overwrite=False):
 
     # Load required arrays
     print("... loading required arrays")
-    galactic_coordinates = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_galactic_coordinates.npy")  # shape (n, 2)
-    G_band_magnitudes = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_photometry.npy")[:, 0]           # shape (n,)
+    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # shape (n, 2)
+    G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]           # shape (n,)
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # shape (n,)
 
     # Identify stars with valid G magnitude
@@ -605,7 +609,7 @@ def calculate_subsample_selection_function(overwrite=False):
 
 
 # === Calculate total selection function for subsample ===
-def calculate_total_selection_function_for_subsample(overwrite=False):
+def calculate_total_selection_function_for_subsample(overwrite=True):
     """
     Calculate the total selection function for the subsample.
     """
@@ -630,8 +634,8 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
 
     # Load the required arrays
     print("... loading required arrays from reduced catalogue")
-    galactic_coordinates = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_galactic_coordinates.npy")
-    G_band_magnitudes = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_photometry.npy")[:, 0]
+    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))
+    G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]
     survey_sf = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_empirical_survey_selection_function.npy"))
     subsample_sf = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_selection_function.npy"))
 
@@ -782,7 +786,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     del total_sf_mean_healpix, total_sf_var_healpix  # Free memory
     gc.collect()  # Force garbage collection
 
-def plot_total_selection_function_for_subsample(overwrite=False):
+def plot_total_selection_function_for_subsample(overwrite=True):
     """
     Plot the limiting G-band magnitude across the sky using HEALPix.
     """
@@ -856,7 +860,9 @@ def calculate_distance_contraction_for_subsample(overwrite=True):
     file_path_fr = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance.npy")
     file_path_delta_fr = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance_error.npy")
     file_path_dx = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_spatial_error.npy")
-    if os.path.exists(file_path_fr) and os.path.exists(file_path_delta_fr) and not overwrite:
+
+    all_exist = all(os.path.exists(p) for p in [file_path_r_half_kpc, file_path_fr, file_path_delta_fr, file_path_dx])
+    if all_exist and not overwrite:
         print(f"Distance contraction and its error already exists at:")
         print(f"\t{file_path_r_half_kpc},")
         print(f"\t{file_path_fr},")
@@ -869,14 +875,14 @@ def calculate_distance_contraction_for_subsample(overwrite=True):
     # Load required arrays
     print("... loading required arrays")
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (n,)
-    r = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_r_med_geo.npy")[subsample_mask] / 1000  # (n,) in kpc
-    lo, high = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_r_lo_high_geo.npy")[subsample_mask].T  # each (n,) in pc
+    r = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_r_med_geo.npy"))[subsample_mask] / 1000  # (n,) in kpc
+    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_r_lo_high_geo.npy"))[subsample_mask].T  # each (n,) in pc
     log_dr = np.log((high - lo) / 2000) # (n,) in log(kpc)
     del lo, high  # Free memory
     gc.collect()  # Force garbage collection
 
-    ra, dec = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_equitorial_coordinates.npy")[subsample_mask].T  # each (n,) in degrees
-    dra, ddec = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_astrometric_errors.npy")[subsample_mask, :2].T  # each (n,) in degrees
+    ra, dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equitorial_coordinates.npy"))[subsample_mask].T  # each (n,) in degrees
+    dra, ddec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask, :2].T  # each (n,) in degrees
     log_dOmega = np.log((np.cos(np.deg2rad(dec)) * np.deg2rad(dra))**2 + np.deg2rad(ddec)**2)  # (n,) in log(rad^2)
     del subsample_mask, ra, dec, dra, ddec  # Free memory
     gc.collect()  # Force garbage collection
@@ -1012,8 +1018,8 @@ def compute_contracted_astrometric_representation(overwrite=True):
 
     # Load required arrays
     print("... loading required arrays")
-    equitorial_coordinates = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_equitorial_coordinates.npy")
-    proper_motions = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_proper_motions.npy")  # (n, 2) in mas/yr
+    equitorial_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equitorial_coordinates.npy")) # shape (n, 2) in degrees
+    proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))  # shape (n, 2) in mas/yr
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (n,)
 
     # Convert angles to radians
@@ -1221,7 +1227,7 @@ def plot_clusters_on_sky(overwrite=True):
 
     # Load the required arrays
     print("... loading required arrays for plotting")
-    galactic_coordinates = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_galactic_coordinates.npy")  # (N, 2) in degrees
+    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (N, 2) in degrees
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (N,)
 
     # Reduce coordinates to subsample

@@ -490,7 +490,7 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
 
 
 # === Construct subsample and subsample selection function ===
-def construct_subsample_from_full_catalogue(overwrite=True):
+def construct_subsample_from_full_catalogue(overwrite=False):
     """
     Create a boolean subsample mask where the empirical survey selection function S_Gaia > SURVEY_SF_LOWER_LIMIT.
     """
@@ -505,7 +505,7 @@ def construct_subsample_from_full_catalogue(overwrite=True):
     # Load selection function and galactic coordinates
     selection_function = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_empirical_survey_selection_function.npy"))  # (n,)
     galactic_coords = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (n, 2) in degrees
-    r_med_geo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_geo.npy"))  # (n,)
+    r_med_geo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_r_med_geo.npy"))  # (n,)
     proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))  # (n, 2) in mas/yr
     ruwe = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_ruwe.npy"))[:, 0]  # (n,)
 
@@ -519,7 +519,7 @@ def construct_subsample_from_full_catalogue(overwrite=True):
     np.save(mask_path, subsample_mask)
     print(f"... saved subsample mask to {mask_path} (selected {subsample_mask.sum()} stars)\n")
 
-def calculate_subsample_selection_function(overwrite=True):
+def calculate_subsample_selection_function(overwrite=False):
     """
     Calculate the subsample selection function using kNN-based metric.
     """
@@ -609,7 +609,7 @@ def calculate_subsample_selection_function(overwrite=True):
 
 
 # === Calculate total selection function for subsample ===
-def calculate_total_selection_function_for_subsample(overwrite=True):
+def calculate_total_selection_function_for_subsample(overwrite=False):
     """
     Calculate the total selection function for the subsample.
     """
@@ -786,7 +786,7 @@ def calculate_total_selection_function_for_subsample(overwrite=True):
     del total_sf_mean_healpix, total_sf_var_healpix  # Free memory
     gc.collect()  # Force garbage collection
 
-def plot_total_selection_function_for_subsample(overwrite=True):
+def plot_total_selection_function_for_subsample(overwrite=False):
     """
     Plot the limiting G-band magnitude across the sky using HEALPix.
     """
@@ -927,7 +927,7 @@ def calculate_distance_contraction_for_subsample(overwrite=True):
     gc.collect()  # Force garbage collection
 
     # Save contracted spatial uncertainties
-    print(f"... saving contracted spatial uncertainties to {file_path_dx} (shape: {dx.shape})")
+    print(f"... saving contracted spatial uncertainties to {file_path_dx} (shape: {dx.shape}).\n")
     np.save(file_path_dx, dx)
     del dx  # Free memory
     gc.collect()  # Force garbage collection
@@ -988,7 +988,7 @@ def _isotropic_spatial_uncertainties_loss(r_half_kpc, r, log_dr, log_dOmega):
 
     loss = np.mean(psi**2)
     #grad = 2 * np.mean(psi * dpsi)
-
+    print('Loss:', loss)
     return loss#, np.array([grad])
 
 def plot_distance_contraction_for_subsample(overwrite=False):

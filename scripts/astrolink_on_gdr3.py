@@ -24,7 +24,7 @@ from concurrent.futures import ProcessPoolExecutor
 # Third-party imports
 import numpy as np
 import pandas as pd
-from scipy.optimize import minimize
+from scipy.optimize import minimize_scalar
 from pykdtree.kdtree import KDTree
 from sklearn import get_config
 from sklearn.utils import gen_batches
@@ -87,13 +87,25 @@ def reduce_gdr3_catalogue_to_numpy_files(overwrite=False):
         'ruwe': ['ruwe']
     }
 
+    file_paths = [
+        os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy')
+        for group_name in column_groups
+    ]
+
     # Skip processing if all merged output files already exist
     all_exist = all(
-        os.path.exists(os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy'))
-        for group_name in column_groups
+        os.path.exists(file_path)
+        for file_path in file_paths
     )
     if all_exist and not overwrite:
-        print("All GDR3 catalogue reduction numpy files already exist. Skipping reduction.")
+        print("Reduced GDR3 catalogue numpy files already exist at:")
+        for i, file_path in enumerate(file_paths):
+            if len(file_paths) > 2 and i < len(file_paths) - 2:
+                print(f"\t{file_path},")
+            if len(file_paths) > 1 and i == len(file_paths) - 2:
+                print(f"\t{file_path}, and")
+            if i == len(file_paths) - 1:
+                print(f"\t{file_path}.")
         print("Use overwrite=True to force reprocessing.\n")
         return
     print("Reducing raw Gaia catalogue to numpy files...")
@@ -177,13 +189,25 @@ def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
         'r_lo_high_photogeo': ['r_lo_photogeo', 'r_hi_photogeo']
     }
 
+    file_paths = [
+        os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy')
+        for group_name in column_groups
+    ]
+
     # Skip processing if all merged output files already exist
     all_exist = all(
-        os.path.exists(os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy'))
-        for group_name in column_groups
+        os.path.exists(file_path)
+        for file_path in file_paths
     )
     if all_exist and not overwrite:
-        print("All reduced Bailer-Jones distance numpy files already exist. Skipping reduction.")
+        print("Reduced Bailer-Jones distance numpy files already exist at:")
+        for i, file_path in enumerate(file_paths):
+            if len(file_paths) > 2 and i < len(file_paths) - 2:
+                print(f"\t{file_path},")
+            if len(file_paths) > 1 and i == len(file_paths) - 2:
+                print(f"\t{file_path}, and")
+            if i == len(file_paths) - 1:
+                print(f"\t{file_path}.")
         print("Use overwrite=True to force reprocessing.\n")
         return
     print("Reducing the Bailer-Jones GEDR3 distance dump file to numpy arrays...")
@@ -268,7 +292,7 @@ def calculate_empirical_survey_selection_function(overwrite=False):
         print(f"Empirical selection function and m10 values for the centre of HEALpix pixels already exist at:")
         print(f"\t{file_path_sf} and")
         print(f"\t{file_path_m10_healpix}")
-        print("Use overwrite=True to recompute.\n")
+        print("Use overwrite=True to force recomputation.\n")
         return
     print("Calculating empirical survey selection function...")
 
@@ -408,7 +432,7 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
         print(f"Plots already exists at:")
         print(f"\t{file_m10_path} and")
         print(f"\t{file_limiting_g_mag_path}.")
-        print("Use overwrite=True to recompute.\n")
+        print("Use overwrite=True to force replotting.\n")
         return
     print("Plotting M10 map across the sky...")
 
@@ -498,7 +522,7 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     mask_path = os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy")
     if os.path.exists(mask_path) and not overwrite:
         print(f"Subsample mask already exists at:\n\t{mask_path}.")
-        print("Use overwrite=True to recompute.\n")
+        print("Use overwrite=True to force recomputation.\n")
         return
     print("Constructing subsample from full catalogue...")
 
@@ -527,7 +551,7 @@ def calculate_subsample_selection_function(overwrite=False):
     file_subsample_sf_stars = os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_selection_function.npy")
     if os.path.exists(file_subsample_sf_stars) and not overwrite:
         print(f"Subsample selection function already exists at:\n\t{file_subsample_sf_stars}.")
-        print("Use overwrite=True to recompute.\n")
+        print("Use overwrite=True to force recomputation.\n")
         return
     print("Calculating subsample selection function...")
 
@@ -628,7 +652,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
         print(f"\t{file_nmw_stars},")
         print(f"\t{file_total_sf_mean_healpix}, and")
         print(f"\t{file_total_sf_var_healpix}.")
-        print("Use overwrite=True to recompute.\n")
+        print("Use overwrite=True to force recomputation.\n")
         return
     print("Calculating total selection function for the subsample...")
 
@@ -797,7 +821,7 @@ def plot_total_selection_function_for_subsample(overwrite=False):
         print(f"Plots already exist at:")
         print(f"\t{file_total_sf_mean_path} and")
         print(f"\t{file_total_sf_var_path}.")
-        print("Use overwrite=True to recompute.\n")
+        print("Use overwrite=True to force replotting.\n")
         return
     print("Plotting total selection function on the sky...")
 
@@ -856,62 +880,61 @@ def calculate_distance_contraction_for_subsample(overwrite=True):
     Calculate the distance contraction for the subsample.
     """
     # Check if the distance contraction already exists
-    file_path_r_half_kpc = os.path.join(SUBSAMPLE_PATH, "gdr3_r_half_kpc.npy")
+    file_path_r_half = os.path.join(SUBSAMPLE_PATH, "gdr3_r_half.npy")
     file_path_fr = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance.npy")
     file_path_delta_fr = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance_error.npy")
     file_path_dx = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_spatial_error.npy")
 
-    all_exist = all(os.path.exists(p) for p in [file_path_r_half_kpc, file_path_fr, file_path_delta_fr, file_path_dx])
+    all_exist = all(os.path.exists(p) for p in [file_path_r_half, file_path_fr, file_path_delta_fr, file_path_dx])
     if all_exist and not overwrite:
         print(f"Distance contraction and its error already exists at:")
-        print(f"\t{file_path_r_half_kpc},")
+        print(f"\t{file_path_r_half},")
         print(f"\t{file_path_fr},")
         print(f"\t{file_path_delta_fr}, and")
         print(f"\t{file_path_dx}.")
-        print("Use overwrite=True to recompute.\n")
+        print("Use overwrite=True to force recomputation.\n")
         return
     print("Calculating distance contraction and its error for subsample...")
 
     # Load required arrays
     print("... loading required arrays")
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (n,)
-    r = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_r_med_geo.npy"))[subsample_mask] / 1000  # (n,) in kpc
+    r = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_r_med_geo.npy"))[subsample_mask]  # (n,) in pc
     lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_r_lo_high_geo.npy"))[subsample_mask].T  # each (n,) in pc
-    log_dr = np.log((high - lo) / 2000) # (n,) in log(kpc)
-    del lo, high  # Free memory
-    gc.collect()  # Force garbage collection
-
     ra, dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equitorial_coordinates.npy"))[subsample_mask].T  # each (n,) in degrees
     dra, ddec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask, :2].T  # each (n,) in degrees
-    log_dOmega = np.log((np.cos(np.deg2rad(dec)) * np.deg2rad(dra))**2 + np.deg2rad(ddec)**2)  # (n,) in log(rad^2)
-    del subsample_mask, ra, dec, dra, ddec  # Free memory
+    
+    dr = (high - lo) / 2
+    variances = np.column_stack([
+        dr**2,  # Variance in LOS
+        (np.cos(np.deg2rad(dec)) * np.deg2rad(dra))**2,  # Variance in RA
+        np.deg2rad(ddec)**2 # Variance in Dec
+    ])
+    del subsample_mask, lo, high, dr, ra, dec, dra, ddec  # Free memory
     gc.collect()  # Force garbage collection
 
-    guess = np.array([1.0])  # Initial guess for r_{1/2} in kpc
-    tol = 1e-10  # Tolerance for optimization
-
-    print('r', np.min(r), np.max(r))
-    print('log_dr', np.min(log_dr), np.max(log_dr))
-    print('log_dOmega', np.min(log_dOmega), np.max(log_dOmega))
-
-
-    # Fit model
+    # Fit model using a grid search for r_{1/2}
     print("... fitting r_{1/2} to get globally isotropic spatial uncertainties")
-    idx = np.random.choice(len(r), size=10**4, replace=False)
-    sol = minimize(_isotropic_spatial_uncertainties_loss, guess,
-            bounds=((0, np.inf),), args=(r[idx], log_dr[idx], log_dOmega[idx]), jac='2-point', tol=tol)
-    print(f"... best fit r_half_kpc = {sol.x[0]:.3f} kpc, with loss = {sol.fun:.3f}")
-    r_half_kpc = sol.x  # Best fit characteristic scale r_{1/2} in kpc
+    anisotropy_factor = 1
+    bounds = (1, 10000)  # Initial guess for r_{1/2} in pc
+    result = minimize_scalar(
+        lambda r_half: average_sym_kl_contracted(r_half, variances, r, anisotropy_factor),
+        bounds=bounds,
+        method='bounded',
+        options={'xatol': 1.0}      # stop when r_half is within 1 pc
+    )
+    r_half = result.x  # Best fit characteristic scale r_{1/2} in pc
+    print(f"... best fit r_half = {r_half:.3f} pc, with loss = {result.fun:.3f}")
 
     # Save the best fit r_{1/2}
-    file_path_r_half_kpc = os.path.join(SUBSAMPLE_PATH, "gdr3_r_half_kpc.npy")
-    print(f"... saving best fit r_half_kpc to {file_path_r_half_kpc} (shape: {r_half_kpc.shape})")
-    np.save(file_path_r_half_kpc, r_half_kpc)
+    file_path_r_half = os.path.join(SUBSAMPLE_PATH, "gdr3_r_half.npy")
+    print(f"... saving best fit r_half to {file_path_r_half} (shape: {r_half.shape})")
+    np.save(file_path_r_half, r_half)
 
-    fr = r_half_kpc * np.arctan(r / r_half_kpc)  # shape (N,)
-    dfr = r_half_kpc ** 2 / (r_half_kpc ** 2 + r ** 2)  # Derivative of f(r) with respect to r, shape (N,)
-    dx = np.sqrt(dfr**2 * np.exp(2 * log_dr) + np.exp(2 * log_dOmega))  # shape (N,)
-    del r, log_dr, log_dOmega  # Free memory
+    fr = r_half * np.arctan(r / r_half)  # shape (N,)
+    dfr = r_half ** 2 / (r_half ** 2 + r ** 2)  # Derivative of f(r) with respect to r, shape (N,)
+    dx = np.sqrt(dfr**2 * variances[:, 0] + fr**2 * variances[:, 1] + fr**2 * variances[:, 2])  # shape (N,)
+    del r, variances  # Free memory
     gc.collect()  # Force garbage collection
 
     # Save contracted distance
@@ -933,63 +956,53 @@ def calculate_distance_contraction_for_subsample(overwrite=True):
     gc.collect()  # Force garbage collection
 
 @njit()
-def _isotropic_spatial_uncertainties_loss(r_half_kpc, r, log_dr, log_dOmega):
+def average_sym_kl_contracted(r_half, variances, r, anisotropy_factor):
     """
-    Loss encouraging isotropic 3D uncertainty ellipsoids after transforming distances with
-    f(r) = r_half * arctan(r / r_half). Assumes input distances are in kpc.
-    
-    Parameters
-    ----------
-    r_half_kpc : float
-        The characteristic scale r_{1/2} in kiloparsecs.
-    r : ndarray
-        Array of stellar distances (in kpc), shape (N,)
-    log_dr : ndarray
-        Logarithm of the distance uncertainty, log(delta_r), shape (N,)
-    log_dOmega : ndarray
-        Logarithm of the angular uncertainty term,
-        log(cos^2(b) * delta_l^2 + delta_b^2), shape (N,)
+    Compute the average symmetrized KL divergence between propagated Gaia-like
+    spherical coordinate uncertainties and an optimal isotropic Gaussian under
+    a contracted distance metric f(r) = r_half * arctan(r / r_half).
 
-    Returns
-    -------
-    loss : float
-        Sum-of-squares loss.
-    grad : float
-        Derivative of the loss with respect to r_half_kpc.
+    Parameters:
+        r_half : float
+            Contraction scale parameter r_{1/2} (in pc).
+        variances : np.ndarray of shape (N, 3)
+            Each row contains uncertainties: (delta_r^2, delta_l*^2, delta_b^2)
+            where delta_l* = cos(b) * delta_l in radians.
+        r : np.ndarray of shape (N,)
+            Radial distances (in pc) for each source.
+        anisotropy_factor : float
+            Factor to scale the uncertainties to account for anisotropy in the data.
+
+    Returns:
+        alpha_opt : float
+            Optimal scalar variance alpha.
+        avg_kl_sym : float
+            Average symmetrized KL divergence in contracted space.
     """
-    r_half_kpc = np.asarray(r_half_kpc).item()  # ensure scalar
-    eps = 1e-12
+    # Unpack uncertainties of observables
+    var_r, var_lstar, var_b = variances.T
 
-    z = r / r_half_kpc
-    one_plus_z2 = 1 + z**2
-    atan_z = np.arctan(z)
-    #atan_z = np.clip(atan_z, eps, None)
+    # Contracted distance and its derivative
+    f_r = r_half * np.arctan(r / r_half)
+    f_prime = (r_half**2) / (r_half**2 + r**2)
 
-    # psi_i terms
-    psi = (
-        -2 * np.log(one_plus_z2)
-        -2 * np.log(r_half_kpc)
-        -2 * np.log(atan_z)
-        + np.log(2.0)
-        + 2 * log_dr
-        - log_dOmega
-    )
+    # First-order propagated variances (diagonal)
+    var_los = f_prime**2 * var_r              # LOS direction
+    var_p1 = f_r**2 * var_lstar              # horizontal tangential
+    var_p2 = f_r**2 * var_b                  # vertical tangential
 
-    # Replace any non-finite values to avoid nan loss
-    if not np.all(np.isfinite(psi)):
-        return np.inf#, np.array([0.0])
+    var_los /= anisotropy_factor**2  # Scale the variances by the anisotropy factor
 
-    # d psi / d r_half
-    #dpsi = (
-    #    4 * z**2 / (r_half_kpc * one_plus_z2)
-    #    - 2 / r_half_kpc
-    #    + 2 * z / (r_half_kpc * one_plus_z2 * atan_z)
-    #)
+    # Combine into diagonal covariance matrix for each source
+    tr = var_los + var_p1 + var_p2
+    tr_inv = 1.0 / var_los + 1.0 / var_p1 + 1.0 / var_p2
 
-    loss = np.mean(psi**2)
-    #grad = 2 * np.mean(psi * dpsi)
-    print('Loss:', loss)
-    return loss#, np.array([grad])
+    # Average symmetrized KL divergence
+    avg_kl_sym = np.mean(np.sqrt(tr * tr_inv)) - 3
+
+    print("\t... r_half:", r_half, "loss:", avg_kl_sym)
+
+    return avg_kl_sym
 
 def plot_distance_contraction_for_subsample(overwrite=False):
     """
@@ -1012,7 +1025,7 @@ def compute_contracted_astrometric_representation(overwrite=True):
         print(f"\t{file_path_x_hat},")
         print(f"\t{file_path_mu}, and")
         print(f"\t{file_path_v_hat}.")
-        print("Use overwrite=True to recompute.\n")
+        print("Use overwrite=True to force recomputation.\n")
         return
     print("Computing contracted astrometric representation for subsample...")
 
@@ -1096,7 +1109,7 @@ def construct_cartesian_coordinates_for_subsample(overwrite=True):
     file_cartesian_coordinates = os.path.join(SUBSAMPLE_PATH, "gdr3_cartesian_coordinates.npy")
     if os.path.exists(file_cartesian_coordinates) and not overwrite:
         print(f"Cartesian coordinates already exist at:\n\t{file_cartesian_coordinates}.")
-        print("Use overwrite=True to recompute.\n")
+        print("Use overwrite=True to force recomputation.\n")
         return
     print("Calculating Cartesian coordinates for subsample...")
 
@@ -1134,7 +1147,7 @@ def apply_astrolink_to_subsample(overwrite=True):
     file_astrolink_object = os.path.join(CLUSTERING_PATH, "astrolink_object.npz")
     if os.path.exists(file_astrolink_object) and not overwrite:
         print(f"AstroLink clustering output already exists at:\n\t{file_astrolink_object}.")
-        print("Use overwrite=True to recompute.\n")
+        print("Use overwrite=True to force recomputation.\n")
         return
     print("Running AstroLink clustering on the subsample...")
 
@@ -1214,7 +1227,7 @@ def plot_clusters_on_sky(overwrite=True):
     file_clusters_on_sky_path = os.path.join(FIGURES_PATH, "clusters_on_sky.png")
     if os.path.exists(file_clusters_on_sky_path) and not overwrite:
         print(f"Clusters on sky plot already exists at:\n\t{file_clusters_on_sky_path}.")
-        print("Use overwrite=True to recompute.\n")
+        print("Use overwrite=True to force replotting.\n")
         return
     print("Plotting AstroLink clusters on the sky...")
 

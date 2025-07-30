@@ -915,7 +915,7 @@ def calculate_distance_contraction_for_subsample(overwrite=True):
 
     # Fit model using a grid search for r_{1/2}
     print("... fitting r_{1/2} to get globally isotropic spatial uncertainties")
-    anisotropy_factor = 1
+    anisotropy_factor = 100
     bounds = (1, 10000)  # Initial guess for r_{1/2} in pc
     result = minimize_scalar(
         lambda r_half: average_sym_kl_contracted(r_half, variances, r, anisotropy_factor),
@@ -1003,14 +1003,6 @@ def average_sym_kl_contracted(r_half, variances, r, anisotropy_factor):
     print("\t... r_half:", r_half, "loss:", avg_kl_sym)
 
     return avg_kl_sym
-
-def plot_distance_contraction_for_subsample(overwrite=False):
-    """
-    Plot the distance contraction for the subsample.
-    """
-    # Placeholder for actual implementation
-    print(f"Placeholder for plotting distance contraction for subsample.\n")
-    # Actual code would go here
 
 def compute_contracted_astrometric_representation(overwrite=True):
     """
@@ -1326,7 +1318,6 @@ if __name__ == "__main__":
     
     # Construct input data to be passed to AstroLink
     calculate_distance_contraction_for_subsample()
-    plot_distance_contraction_for_subsample()
     compute_contracted_astrometric_representation()
     construct_cartesian_coordinates_for_subsample()
 

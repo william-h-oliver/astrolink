@@ -25,12 +25,15 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize_scalar
+from scipy.stats import norm, beta
 from pykdtree.kdtree import KDTree
 from sklearn import get_config
 from sklearn.utils import gen_batches
 
 # Astro-specific imports
 from astropy.table import Table # Works using v6.1.3, but v7.1.0 seems to try and convert 'null' values to float before using fill_values
+from astropy.coordinates import SkyCoord
+import astropy.units as u
 from gaiaunlimited.selectionfunctions import m10_to_completeness
 
 # Plotting imports
@@ -42,6 +45,7 @@ from healpy.newvisufunc import projview, newprojplot
 # AstroLink imports
 from astrolink import AstroLink
 from astrolink import io
+from astrolink import visualize
 
 
 # === Define script configuration ===
@@ -915,7 +919,7 @@ def calculate_distance_contraction_for_subsample(overwrite=True):
 
     # Fit model using a grid search for r_{1/2}
     print("... fitting r_{1/2} to get globally isotropic spatial uncertainties")
-    anisotropy_factor = 100
+    anisotropy_factor = 1
     bounds = (1, 10000)  # Initial guess for r_{1/2} in pc
     result = minimize_scalar(
         lambda r_half: average_sym_kl_contracted(r_half, variances, r, anisotropy_factor),
@@ -1000,7 +1004,7 @@ def average_sym_kl_contracted(r_half, variances, r, anisotropy_factor):
     # Average symmetrized KL divergence
     avg_kl_sym = np.mean(np.sqrt(tr * tr_inv)) - 3
 
-    print("\t... r_half:", r_half, "loss:", avg_kl_sym)
+    print("\t... r_{1/2}:", r_half, "loss:", avg_kl_sym)
 
     return avg_kl_sym
 
@@ -1131,7 +1135,7 @@ def construct_cartesian_coordinates_for_subsample(overwrite=True):
 
 
 # === Apply AstroLink to subsample ===
-def apply_astrolink_to_subsample(overwrite=True):
+def apply_astrolink_to_subsample(overwrite=False):
     """
     Run AstroLink clustering on the subsample.
     """
@@ -1211,7 +1215,83 @@ def apply_astrolink_to_subsample(overwrite=True):
     print(f"... saving AstroLink clustering output to {file_astrolink_object}.\n")
     io.saveAstroLinkObject(clusterer, file_astrolink_object)
 
-def plot_clusters_on_sky(overwrite=True):
+def plot_prominence_model_fit(overwrite=False):
+    """
+    Plot the prominence model fit from AstroLink.
+    """
+    # Check if plots already exist
+    file_prominence_model_fit_path = os.path.join(FIGURES_PATH, "prominence_model_fit.png")
+    if os.path.exists(file_prominence_model_fit_path) and not overwrite:
+        print(f"Prominence model fit plot already exists at:\n\t{file_prominence_model_fit_path}.")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting AstroLink prominence model fit...")
+
+    # Load the AstroLink clustering output
+    print("... loading AstroLink clustering output")
+    clusterer = io.loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
+    
+    # Plot the prominence model fit
+    fig, ax = plt.subplots(figsize=(8, 6))
+    h, _, _, _, _, _ = visualize.prominenceModel(clusterer, ax=ax, cutoffKwargs={'alpha': 0.0})
+
+    # Add vertical lines at various significance levels
+    offset = 0.02 * (ax.get_xlim()[1] - ax.get_xlim()[0])  # small offset to the left
+    for i, sig, in enumerate(np.linspace(3, 5, 5)):
+        prom = beta.isf(norm.sf(sig), clusterer.pFit[1], clusterer.pFit[2])  # Inverse survival function for beta distribution
+        ax.axvline(x=prom, color=f"C{i}", linestyle='--', linewidth=2)
+        ax.text(prom - offset, 0.75 * h.max(), f"S = {sig:.1f}",
+            color=f"C{i}", fontsize=10, rotation=270, ha='center', va='bottom')
+
+    # Convert y-axis to logarithmic scale
+    ax.set_ylim(h[h > 0].min() * 0.5, ax.get_ylim()[1])  # Set y-axis limits to avoid zero and very high values
+    ax.set_yscale('log')  # Set y-axis to logarithmic scale
+
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(file_prominence_model_fit_path, dpi=300)
+    plt.close()
+    gc.collect()  # Free memory
+    print(f"... saved prominence model fit plot to {file_prominence_model_fit_path}.\n")
+
+def plot_number_of_clusters_vs_significance(overwrite=True):
+    """
+    Plot the number of clusters vs significance from AstroLink.
+    """
+    # Check if plots already exist
+    file_clusters_vs_significance_path = os.path.join(FIGURES_PATH, "n_clusters_vs_significance.png")
+    if os.path.exists(file_clusters_vs_significance_path) and not overwrite:
+        print(f"Clusters vs significance plot already exists at:\n\t{file_clusters_vs_significance_path}.")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting number of clusters vs significance...")
+
+    # Load the AstroLink clustering output
+    print("... loading AstroLink clustering output")
+    clusterer = io.loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
+    
+    # Plot the number of clusters vs significance
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    significances = np.linspace(3, 10, 71)  # Significance levels from 3 to 10
+    num_clusters = []
+    for sig in significances:
+        clusterer.S = sig
+        clusterer.extract_clusters()
+        num_clusters.append(len(clusterer.clusters) - 1)  # Exclude the background cluster
+
+    ax.loglog(significances, num_clusters, color='C0')
+    ax.set_xlabel(r"Significance, $S$")
+    ax.set_ylabel(r"Number of clusters, $N(>S)$")
+
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(file_clusters_vs_significance_path, dpi=300)
+    plt.close()
+    gc.collect()  # Free memory
+    print(f"... saved clusters vs significance plot to {file_clusters_vs_significance_path}.\n")
+
+def plot_cluster_labels_on_sky(overwrite=True):
     """
     Plot the clustering output from AstroLink.
     """
@@ -1273,6 +1353,95 @@ def plot_clusters_on_sky(overwrite=True):
     gc.collect()  # Free memory
     print(f"... saved clusters on sky plot to {file_clusters_on_sky_path}.\n")
 
+def plot_cluster_proper_motions_on_sky(overwrite=True):
+    """
+    Plot the proper motions of the clusters on the sky.
+    """
+    # Check if plots already exist
+    file_proper_motions_on_sky_path = os.path.join(FIGURES_PATH, "proper_motions_on_sky.png")
+    if os.path.exists(file_proper_motions_on_sky_path) and not overwrite:
+        print(f"Proper motions on sky plot already exists at:\n\t{file_proper_motions_on_sky_path}.")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting AstroLink clusters' proper motions on the sky...")
+
+    # Load the AstroLink clustering output
+    print("... loading AstroLink clustering output")
+    clusterer = io.loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
+    clusterer.S = 4
+    clusterer.extract_clusters()
+
+    # Load the required arrays
+    print("... loading required arrays for plotting")
+    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (N, 2) in degrees
+    equitorial_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))  # (N, 2) in degrees
+    proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))  # (N, 2) in mas/yr
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (N,)
+
+    # Reduce coordinates to subsample
+    galactic_coordinates = galactic_coordinates[subsample_mask].T
+    ra, dec = equitorial_coordinates[subsample_mask].T
+    mu_ra, mu_dec = proper_motions[subsample_mask].T
+    del equitorial_coordinates, proper_motions, subsample_mask  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Define coordinate in ICRS (Equatorial J2000)
+    print("... converting proper motions from equitorial to galactic coordinates")
+    icrs = SkyCoord(ra=ra*u.deg, dec=dec*u.deg,
+                    pm_ra_cosdec=mu_ra*u.mas/u.yr, pm_dec=mu_dec*u.mas/u.yr,
+                    frame='icrs')
+
+    # Transform to Galactic coordinates
+    gal = icrs.transform_to('galactic')
+
+    # Extract proper motions in galactic system
+    mu_l_cosb = gal.pm_l_cosb.to(u.mas/u.yr).value * -1  # Invert x-axis for on-sky astro plot
+    mu_b = gal.pm_b.to(u.mas/u.yr).value
+
+    # Convert (l, b) in degrees to radians for Mollweide projection
+    print("... converting galactic coordinates to radians for Mollweide projection")
+    galactic_coordinates = np.deg2rad(galactic_coordinates)
+
+     # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
+    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
+    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
+    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
+
+    # Make the colour wheel for proper motions
+    print("... creating colour wheel for proper motions")
+    mu_magnitude = np.sqrt(mu_l_cosb**2 + mu_b**2)  # Proper motion magnitude in mas/yr
+    mu_magnitude = np.clip(mu_magnitude, 0, 20) / 20  # Clip to avoid extreme values
+    mu_angle = np.arctan2(mu_b, mu_l_cosb)  # Proper motion angle in radians
+    mu_angle = (mu_angle + np.pi) / (2 * np.pi)  # Shift to [0, 2*pi] range
+    colours = mcolors.hsv_to_rgb(np.column_stack([mu_angle, mu_magnitude, np.ones_like(mu_angle)]))
+    del mu_l_cosb, mu_b, mu_magnitude, mu_angle  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Create a Mollweide projection plot and plot clusters on the sky
+    fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
+
+    # Cycle through the clusters and plot them
+    for i, clst in enumerate(clusterer.clusters[1:]):
+        clusterMembers = clusterer.ordering[clst[0]:clst[1]]
+        ax.scatter(
+            *galactic_coordinates[clusterMembers].T,
+            facecolor=colours[clusterMembers], edgecolor='k',
+            s=0.75, lw=0.075
+        )  # Plot each cluster with colours according to their proper motions
+
+    # Remove grid, ticks, and labels
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(file_proper_motions_on_sky_path, dpi=500)
+    plt.close()
+    gc.collect()  # Free memory
+    print(f"... saved proper motions on sky plot to {file_proper_motions_on_sky_path}.\n")
+
+
 
 # === Analyze clustering output with respect to ground truth ===
 def compare_clustering_output_to_ground_truth(overwrite=False):
@@ -1323,7 +1492,10 @@ if __name__ == "__main__":
 
     # Run AstroLink clustering on subsample
     apply_astrolink_to_subsample()
-    plot_clusters_on_sky()
+    plot_prominence_model_fit()
+    plot_number_of_clusters_vs_significance()
+    plot_cluster_labels_on_sky()
+    plot_cluster_proper_motions_on_sky()
 
     # Analyze clustering output with respect to ground truth
     compare_clustering_output_to_ground_truth()

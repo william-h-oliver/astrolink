@@ -39,6 +39,7 @@ from gaiaunlimited.selectionfunctions import m10_to_completeness
 # Plotting imports
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import healpy as hp
 from healpy.newvisufunc import projview, newprojplot
 
@@ -82,7 +83,7 @@ def reduce_gdr3_catalogue_to_numpy_files(overwrite=False):
     column_groups = {
         'source_ids': ['source_id'],
         'galactic_coordinates': ['l', 'b'],
-        'equitorial_coordinates': ['ra', 'dec'],
+        'equatorial_coordinates': ['ra', 'dec'],
         'parallaxes': ['parallax'],
         'proper_motions': ['pmra', 'pmdec'],
         'astrometric_errors': ['ra_error', 'dec_error', 'parallax_error', 'pmra_error', 'pmdec_error'],
@@ -879,7 +880,7 @@ def plot_total_selection_function_for_subsample(overwrite=False):
 
 
 # === Construct input data to be passed to AstroLink ===
-def calculate_distance_contraction_for_subsample(overwrite=True):
+def calculate_distance_contraction_for_subsample(overwrite=False):
     """
     Calculate the distance contraction for the subsample.
     """
@@ -905,7 +906,7 @@ def calculate_distance_contraction_for_subsample(overwrite=True):
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (n,)
     r = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_r_med_geo.npy"))[subsample_mask]  # (n,) in pc
     lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_r_lo_high_geo.npy"))[subsample_mask].T  # each (n,) in pc
-    ra, dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equitorial_coordinates.npy"))[subsample_mask].T  # each (n,) in degrees
+    ra, dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask].T  # each (n,) in degrees
     dra, ddec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask, :2].T  # each (n,) in degrees
     
     dr = (high - lo) / 2
@@ -1008,7 +1009,7 @@ def average_sym_kl_contracted(r_half, variances, r, anisotropy_factor):
 
     return avg_kl_sym
 
-def compute_contracted_astrometric_representation(overwrite=True):
+def compute_contracted_astrometric_representation(overwrite=False):
     """
     Computes f(r), x^, mu, and v^ for the subsample of stars using 5D astrometric data.
     """
@@ -1027,14 +1028,14 @@ def compute_contracted_astrometric_representation(overwrite=True):
 
     # Load required arrays
     print("... loading required arrays")
-    equitorial_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equitorial_coordinates.npy")) # shape (n, 2) in degrees
+    equatorial_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy")) # shape (n, 2) in degrees
     proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))  # shape (n, 2) in mas/yr
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (n,)
 
     # Convert angles to radians
-    print("... converting equitorial coordinates to radians")
-    ra_rad, dec_rad = np.deg2rad(equitorial_coordinates[subsample_mask]).T  # shape (n, 2) in radians
-    del equitorial_coordinates  # Free memory
+    print("... converting equatorial coordinates to radians")
+    ra_rad, dec_rad = np.deg2rad(equatorial_coordinates[subsample_mask]).T  # shape (n, 2) in radians
+    del equatorial_coordinates  # Free memory
     gc.collect()  # Force garbage collection
 
     # Unit position vector x̂
@@ -1097,7 +1098,7 @@ def compute_contracted_astrometric_representation(overwrite=True):
     del mu_alpha_star, mu_delta, mu, e_alpha, e_delta, v_vec, v_hat  # Free memory
     gc.collect()  # Force garbage collection
 
-def construct_cartesian_coordinates_for_subsample(overwrite=True):
+def construct_cartesian_coordinates_for_subsample(overwrite=False):
     """
     Calculate the Cartesian-like coordinates for the subsample.
     """
@@ -1134,7 +1135,7 @@ def construct_cartesian_coordinates_for_subsample(overwrite=True):
     np.save(file_cartesian_coordinates, cartesian_coordinates)
 
 
-# === Apply AstroLink to subsample ===
+# === Apply AstroLink to subsample and plot of cluster properties ===
 def apply_astrolink_to_subsample(overwrite=False):
     """
     Run AstroLink clustering on the subsample.
@@ -1233,17 +1234,18 @@ def plot_prominence_model_fit(overwrite=False):
     
     # Plot the prominence model fit
     fig, ax = plt.subplots(figsize=(8, 6))
-    h, _, _, _, _, _ = visualize.prominenceModel(clusterer, ax=ax, cutoffKwargs={'alpha': 0.0})
+    h, _, _, _, _ = visualize.prominenceModel(clusterer, ax=ax, cutoffKwargs={'alpha': 0.0})
 
     # Add vertical lines at various significance levels
-    offset = 0.02 * (ax.get_xlim()[1] - ax.get_xlim()[0])  # small offset to the left
+    #offset = 0.02 * (ax.get_xlim()[1] - ax.get_xlim()[0])  # small offset to the left
     for i, sig, in enumerate(np.linspace(3, 5, 5)):
-        prom = beta.isf(norm.sf(sig), clusterer.pFit[1], clusterer.pFit[2])  # Inverse survival function for beta distribution
+        prom = beta.isf(norm.sf(sig), clusterer.pFit[0], clusterer.pFit[1])  # Inverse survival function for beta distribution
         ax.axvline(x=prom, color=f"C{i}", linestyle='--', linewidth=2)
-        ax.text(prom - offset, 0.75 * h.max(), f"S = {sig:.1f}",
-            color=f"C{i}", fontsize=10, rotation=270, ha='center', va='bottom')
+        ax.text(prom, 0.75 * h.max(), f"S = {sig:.1f}",
+            color=f"C{i}", fontsize=10, rotation=90, ha='right', va='top')
 
     # Convert y-axis to logarithmic scale
+    ax.set_xlim(0, beta.isf(norm.sf(7), clusterer.pFit[0], clusterer.pFit[1]))
     ax.set_ylim(h[h > 0].min() * 0.5, ax.get_ylim()[1])  # Set y-axis limits to avoid zero and very high values
     ax.set_yscale('log')  # Set y-axis to logarithmic scale
 
@@ -1254,7 +1256,7 @@ def plot_prominence_model_fit(overwrite=False):
     gc.collect()  # Free memory
     print(f"... saved prominence model fit plot to {file_prominence_model_fit_path}.\n")
 
-def plot_number_of_clusters_vs_significance(overwrite=True):
+def plot_number_of_clusters_vs_significance(overwrite=False):
     """
     Plot the number of clusters vs significance from AstroLink.
     """
@@ -1291,7 +1293,7 @@ def plot_number_of_clusters_vs_significance(overwrite=True):
     gc.collect()  # Free memory
     print(f"... saved clusters vs significance plot to {file_clusters_vs_significance_path}.\n")
 
-def plot_cluster_labels_on_sky(overwrite=True):
+def plot_cluster_labels_on_sky(overwrite=False):
     """
     Plot the clustering output from AstroLink.
     """
@@ -1353,7 +1355,7 @@ def plot_cluster_labels_on_sky(overwrite=True):
     gc.collect()  # Free memory
     print(f"... saved clusters on sky plot to {file_clusters_on_sky_path}.\n")
 
-def plot_cluster_proper_motions_on_sky(overwrite=True):
+def plot_cluster_proper_motions_on_sky(overwrite=False):
     """
     Plot the proper motions of the clusters on the sky.
     """
@@ -1374,41 +1376,95 @@ def plot_cluster_proper_motions_on_sky(overwrite=True):
     # Load the required arrays
     print("... loading required arrays for plotting")
     galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (N, 2) in degrees
-    equitorial_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))  # (N, 2) in degrees
+    equatorial_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))  # (N, 2) in degrees
     proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))  # (N, 2) in mas/yr
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (N,)
 
-    # Reduce coordinates to subsample
-    galactic_coordinates = galactic_coordinates[subsample_mask].T
-    ra, dec = equitorial_coordinates[subsample_mask].T
+    # Reduce coordinates to subsample (and convert to angles to radians)
+    l, b = np.deg2rad(galactic_coordinates[subsample_mask]).T
+    l[l > np.pi] -= 2*np.pi
+    ra, dec = np.deg2rad(equatorial_coordinates[subsample_mask]).T
     mu_ra, mu_dec = proper_motions[subsample_mask].T
-    del equitorial_coordinates, proper_motions, subsample_mask  # Free memory
+    del galactic_coordinates, equatorial_coordinates, proper_motions, subsample_mask  # Free memory
     gc.collect()  # Force garbage collection
 
     # Define coordinate in ICRS (Equatorial J2000)
-    print("... converting proper motions from equitorial to galactic coordinates")
+    print("... converting proper motions from equatorial to galactic coordinates")
+    # Unit vectors in ICRS basis
+    sin_ra, cos_ra = np.sin(ra), np.cos(ra)
+    sin_dec, cos_dec = np.sin(dec), np.cos(dec)
+    del ra, dec  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Unit vectors
+    ra_hat = np.column_stack([
+        -sin_ra,
+         cos_ra,
+         np.zeros_like(cos_ra)
+    ])  # shape (N, 3)
+    dec_hat = np.column_stack([
+        -cos_ra * sin_dec,
+        -sin_ra * sin_dec,
+         cos_dec
+    ])  # shape (N, 3)
+    del sin_ra, cos_ra, sin_dec  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Proper motion Cartesian components in ICRS
+    mu_ra_cosdec = mu_ra * cos_dec  # shape (N,)
+    mu_icrs = ra_hat * mu_ra_cosdec[:, None] + dec_hat * mu_dec[:, None]  # shape (N, 3)
+    del mu_ra, mu_dec, cos_dec, ra_hat, dec_hat, mu_ra_cosdec  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # ICRS-to-Galactic rotation matrix (J2000)
+    R = np.array([
+        [-0.0548755604162154, -0.8734370902348850, -0.4838350155487132],
+        [ 0.4941094278755837, -0.4448296299600112,  0.7469822444972189],
+        [-0.8676661490190047, -0.1980763734312015,  0.4559837761750669]
+    ])
+
+    # Unit vectors in galactic basis
+    sin_l, cos_l = np.sin(l), np.cos(l)
+    sin_b, cos_b = np.sin(b), np.cos(b)
+
+    # Unit vectors
+    l_hat = np.column_stack([
+        -sin_l,
+        cos_l,
+        np.zeros_like(cos_l)
+    ])  # shape (N, 3) for l
+    b_hat = np.column_stack([
+        -cos_l * sin_b,
+        -sin_l * sin_b,
+         cos_b
+    ])  # shape (N, 3) for b
+    del sin_l, cos_l, sin_b, cos_b  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Proper motion Cartesian components in Galactic coordinates
+    mu_gal = R.dot(mu_icrs.T).T  # shape (N, 3)
+
+    # Extract proper motions in galactic system
+    mu_l_cosb = np.sum(l_hat * mu_gal, axis=-1)  # shape (N,)
+    mu_b = np.sum(b_hat * mu_gal, axis=-1)  # shape (N,)
+    del mu_icrs, R, l_hat, b_hat, mu_gal  # Free memory
+    gc.collect()  # Force garbage collection
+    """
+    # Define coordinate in ICRS (Equatorial J2000)
     icrs = SkyCoord(ra=ra*u.deg, dec=dec*u.deg,
-                    pm_ra_cosdec=mu_ra*u.mas/u.yr, pm_dec=mu_dec*u.mas/u.yr,
+                    pm_ra_cosdec=mu_ra*np.cos(np.deg2rad(dec))*u.mas/u.yr, pm_dec=mu_dec*u.mas/u.yr,
                     frame='icrs')
 
     # Transform to Galactic coordinates
     gal = icrs.transform_to('galactic')
 
     # Extract proper motions in galactic system
-    mu_l_cosb = gal.pm_l_cosb.to(u.mas/u.yr).value * -1  # Invert x-axis for on-sky astro plot
+    mu_l_cosb = gal.pm_l_cosb.to(u.mas/u.yr).value
     mu_b = gal.pm_b.to(u.mas/u.yr).value
+    """
 
-    # Convert (l, b) in degrees to radians for Mollweide projection
-    print("... converting galactic coordinates to radians for Mollweide projection")
-    galactic_coordinates = np.deg2rad(galactic_coordinates)
-
-     # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
-    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
-    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
-    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
-
-    # Make the colour wheel for proper motions
-    print("... creating colour wheel for proper motions")
+    # Calculate proper motion colours for plotting
+    print("... calculating proper motion colours for plotting")
     mu_magnitude = np.sqrt(mu_l_cosb**2 + mu_b**2)  # Proper motion magnitude in mas/yr
     mu_magnitude = np.clip(mu_magnitude, 0, 20) / 20  # Clip to avoid extreme values
     mu_angle = np.arctan2(mu_b, mu_l_cosb)  # Proper motion angle in radians
@@ -1418,24 +1474,97 @@ def plot_cluster_proper_motions_on_sky(overwrite=True):
     gc.collect()  # Force garbage collection
 
     # Create a Mollweide projection plot and plot clusters on the sky
+    print("... creating Mollweide projection plot for clusters' proper motions on the sky")
     fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
 
     # Cycle through the clusters and plot them
     for i, clst in enumerate(clusterer.clusters[1:]):
         clusterMembers = clusterer.ordering[clst[0]:clst[1]]
         ax.scatter(
-            *galactic_coordinates[clusterMembers].T,
+            -l[clusterMembers], b[clusterMembers], # Invert x-axis for on-sky astro plot
             facecolor=colours[clusterMembers], edgecolor='k',
             s=0.75, lw=0.075
         )  # Plot each cluster with colours according to their proper motions
+    del clusterer, l, b, colours  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Remove grid, ticks, and labels
     ax.grid(False)
     ax.set_xticks([])
     ax.set_yticks([])
 
-    # Save the figure
+    # Tighten layout before adding inset axes
     plt.tight_layout()
+
+    # Make the colour wheel for proper motions
+    print("... creating colour wheel for proper motions")
+    # Resolution of the colour wheel
+    N = 256
+    radius = 1
+    y, x = np.ogrid[-radius:radius:N*1j, -radius:radius:N*1j]
+    r = np.sqrt(x**2 + y**2)
+    theta = np.arctan2(y, x)
+    del y, x  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Create HSV image
+    hue = (theta + np.pi) / (2 * np.pi)        # [0, 1]
+    saturation = np.clip(r, 0, 1)              # [0, 1]
+    value = np.ones_like(hue)                  # fixed at 1
+    hsv = np.stack([hue, saturation, value], axis=-1)
+    rgb = mcolors.hsv_to_rgb(hsv)
+    del hue, saturation, value, hsv  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Add alpha channel
+    alpha = np.ones((N, N, 1))  # Shape (N, N, 1)
+    rgba = np.concatenate([rgb, alpha], axis=-1)  # Shape (N, N, 4)
+    del rgb, alpha  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Mask outside the circle
+    mask = r > 1
+    rgba[mask] = 0  # clear (alpha=0.0) outside the circle
+
+    # Add inset axes
+    size = 0.215  # Size of the inset axes as a fraction of the main axes
+    fig_width, fig_height = fig.get_size_inches()
+    base = min(fig_width, fig_height)
+    width_abs = size * base  # inches
+    height_abs = size * base
+    loc = 4  # Location of the inset axes (4 = lower right corner)
+    inset_ax = inset_axes(ax, width=width_abs, height=height_abs, loc=loc, borderpad=0)
+
+    # Plot the colour wheel in the inset axes
+    inset_ax.imshow(rgba[:, ::-1, :], extent=(-1, 1, -1, 1), origin='lower')
+    inset_ax.set_xticks([])
+    inset_ax.set_yticks([])
+    inset_ax.set_aspect('equal')
+    del rgba  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Add text and lines to the inset axes
+    inset_ax.text(-radius, 0, r"$+\mu_{l*}$", ha='right', va='center', fontsize=10, color='k')
+    inset_ax.text(0, radius, r"$+\mu_{b}$", ha='center', va='bottom', fontsize=10, color='k')
+
+    # Draw black border and proper motion circles
+    circle = plt.Circle((0, 0), radius, color='k', fill=False, lw=1)
+    inset_ax.add_patch(circle)
+    inset_ax.text(-radius / np.sqrt(2), -radius / np.sqrt(2), r"$\geq20$ [mas/yr]", ha='right', va='top', fontsize=8, color='k')
+    circle = plt.Circle((0, 0), 0.5 * radius, color='k', fill=False, lw=0.25)
+    inset_ax.add_patch(circle)
+    inset_ax.text(-0.5 * radius / np.sqrt(2), -0.5 * radius / np.sqrt(2), r"$10$", ha='right', va='top', fontsize=8, color='k')
+    circle = plt.Circle((0, 0), 0.005, color='k', fill=False, lw=0.25)
+    inset_ax.add_patch(circle)
+    inset_ax.text(0, 0, r"$0$", ha='right', va='top', fontsize=8, color='k')
+
+    # Hide inset axes elements
+    inset_ax.set_frame_on(False)
+    inset_ax.set_facecolor('none')
+    inset_ax.patch.set_alpha(0.0)
+
+    # Save the figure
+    print(f"... saving proper motions on sky plot to {file_proper_motions_on_sky_path}.")
     plt.savefig(file_proper_motions_on_sky_path, dpi=500)
     plt.close()
     gc.collect()  # Free memory
@@ -1490,7 +1619,7 @@ if __name__ == "__main__":
     compute_contracted_astrometric_representation()
     construct_cartesian_coordinates_for_subsample()
 
-    # Run AstroLink clustering on subsample
+    # Apply AstroLink to subsample and plot of cluster properties
     apply_astrolink_to_subsample()
     plot_prominence_model_fit()
     plot_number_of_clusters_vs_significance()

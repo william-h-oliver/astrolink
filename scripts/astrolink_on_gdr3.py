@@ -51,8 +51,8 @@ from astrolink import visualize
 
 # === Define script configuration ===
 # User-defined paths
-RAW_GDR3_CATALOGUE_PATH = "/home/_data/Gaia/cdn.gea.esac.esa.int/Gaia/gdr3/gaia_source/"  # Path to raw gdr3 catalogue files
-BAILERJONES_GEDR3_DISTANCES_FILE = "/home/williamoliver_data/gaia_clustering/bailerjones_gedr3_distances/gedr3dist.dump.gz"  # Path to Bailer-Jones GEDR3 distances
+GDR3_CATALOGUE_PATH = "/home/_data/Gaia/cdn.gea.esac.esa.int/Gaia/gdr3/gaia_source/"  # Path to raw gdr3 catalogue files
+AUXILLARY_CATALOGUES_PATH = "/home/williamoliver_data/gaia_clustering/auxillary_catalogues/"  # Path to auxillary catalogues (e.g. Bailer-Jones GEDR3 distances, Hunt+2024 open clusters)
 OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output files
 
 # Auto-defined paths
@@ -115,7 +115,7 @@ def reduce_gdr3_catalogue_to_numpy_files(overwrite=False):
         return
     print("Reducing raw Gaia catalogue to numpy files...")
 
-    file_paths = sorted(glob(os.path.join(RAW_GDR3_CATALOGUE_PATH, 'GaiaSource_*.csv.gz')))
+    file_paths = sorted(glob(os.path.join(GDR3_CATALOGUE_PATH, 'GaiaSource_*.csv.gz')))
     print(f"... found {len(file_paths)} source files.")
 
     # Parallel processing
@@ -219,7 +219,8 @@ def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
     
     chunksize = 10**6  # Adjust based on your memory
     all_columns = [col for cols in column_groups.values() for col in cols]
-    for i, chunk in enumerate(pd.read_csv(BAILERJONES_GEDR3_DISTANCES_FILE, compression="gzip", chunksize=chunksize, usecols=all_columns)):
+    bailerjones_gedr3_distances_file = os.path.join(AUXILLARY_CATALOGUES_PATH, 'gedr3dist.dump.gz')
+    for i, chunk in enumerate(pd.read_csv(bailerjones_gedr3_distances_file, compression="gzip", chunksize=chunksize, usecols=all_columns)):
         print(f"... processing data in chunks, {i+1} of {1467744818//chunksize + 1}", end='\r')
         # Skip processing if all output files for this chunk already exist
         all_exist = all(
@@ -1011,7 +1012,7 @@ def average_sym_kl_contracted(r_half, variances, r, anisotropy_factor):
 
 def compute_contracted_astrometric_representation(overwrite=False):
     """
-    Computes f(r), x^, mu, and v^ for the subsample of stars using 5D astrometric data.
+    Computes x^, mu, and v^ for the subsample of stars using 5D astrometric data.
     """
     # Check if the contracted astrometric representation already exists
     file_path_x_hat = os.path.join(SUBSAMPLE_PATH, "gdr3_unit_position_vector.npy")
@@ -1034,22 +1035,22 @@ def compute_contracted_astrometric_representation(overwrite=False):
 
     # Convert angles to radians
     print("... converting equatorial coordinates to radians")
-    ra_rad, dec_rad = np.deg2rad(equatorial_coordinates[subsample_mask]).T  # shape (n, 2) in radians
+    ra, dec = np.deg2rad(equatorial_coordinates[subsample_mask]).T  # shape (n, 2) in radians
     del equatorial_coordinates  # Free memory
     gc.collect()  # Force garbage collection
 
     # Unit position vector x̂
     print("... calculating unit position vector")
-    sin_ra = np.sin(ra_rad)
-    cos_ra = np.cos(ra_rad)
-    sin_dec = np.sin(dec_rad)
-    cos_dec = np.cos(dec_rad)
+    sin_ra = np.sin(ra)
+    cos_ra = np.cos(ra)
+    sin_dec = np.sin(dec)
+    cos_dec = np.cos(dec)
     x_hat = np.column_stack([
         cos_ra * cos_dec,   # x
         sin_ra * cos_dec,   # y
         sin_dec             # z
     ])  # shape (N, 3)
-    del ra_rad, dec_rad  # Free memory
+    del ra, dec  # Free memory
     gc.collect()  # Force garbage collection
 
     # Save unit position vector

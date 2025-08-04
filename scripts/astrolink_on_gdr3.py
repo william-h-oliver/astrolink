@@ -295,7 +295,7 @@ def calculate_empirical_survey_selection_function(overwrite=False):
     file_path_sf = f"{REDUCED_CATALOGUE_PATH}/gdr3_empirical_survey_selection_function.npy"
     file_path_m10_healpix = f"{REDUCED_CATALOGUE_PATH}/gdr3_m10_healpix.npy"
     if os.path.exists(file_path_m10_stars) and os.path.exists(file_path_sf) and os.path.exists(file_path_m10_healpix) and not overwrite:
-        print(f"Empirical selection function and m10 values for the centre of HEALpix pixels already exist at:")
+        print(f"Empirical selection function and m10 values for the centre of HEALPix pixels already exist at:")
         print(f"\t{file_path_sf} and")
         print(f"\t{file_path_m10_healpix}")
         print("Use overwrite=True to force recomputation.\n")
@@ -516,7 +516,7 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
     plt.close()
     gc.collect()  # Free memory
     
-    print(f"... saved mollview plot to {file_limiting_g_mag_path}\n")
+    print(f"... saved mollview plot to {file_limiting_g_mag_path}.\n")
 
 
 # === Construct subsample and subsample selection function ===
@@ -889,15 +889,13 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     file_path_r_half = os.path.join(SUBSAMPLE_PATH, "gdr3_r_half.npy")
     file_path_fr = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance.npy")
     file_path_delta_fr = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance_error.npy")
-    file_path_dx = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_spatial_error.npy")
 
-    all_exist = all(os.path.exists(p) for p in [file_path_r_half, file_path_fr, file_path_delta_fr, file_path_dx])
+    all_exist = all(os.path.exists(p) for p in [file_path_r_half, file_path_fr, file_path_delta_fr])
     if all_exist and not overwrite:
         print(f"Distance contraction and its error already exists at:")
         print(f"\t{file_path_r_half},")
-        print(f"\t{file_path_fr},")
-        print(f"\t{file_path_delta_fr}, and")
-        print(f"\t{file_path_dx}.")
+        print(f"\t{file_path_fr}, and")
+        print(f"\t{file_path_delta_fr}.")
         print("Use overwrite=True to force recomputation.\n")
         return
     print("Calculating distance contraction and its error for subsample...")
@@ -933,13 +931,11 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     print(f"... best fit r_half = {r_half:.3f} pc, with loss = {result.fun:.3f}")
 
     # Save the best fit r_{1/2}
-    file_path_r_half = os.path.join(SUBSAMPLE_PATH, "gdr3_r_half.npy")
     print(f"... saving best fit r_half to {file_path_r_half} (shape: {r_half.shape})")
     np.save(file_path_r_half, r_half)
 
     fr = r_half * np.arctan(r / r_half)  # shape (N,)
     dfr = r_half ** 2 / (r_half ** 2 + r ** 2)  # Derivative of f(r) with respect to r, shape (N,)
-    dx = np.sqrt(dfr**2 * variances[:, 0] + fr**2 * variances[:, 1] + fr**2 * variances[:, 2])  # shape (N,)
     del r, variances  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -953,12 +949,6 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     print(f"... saving contracted distance uncertainties to {file_path_delta_fr} (shape: {dfr.shape})")
     np.save(file_path_delta_fr, dfr)
     del dfr  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Save contracted spatial uncertainties
-    print(f"... saving contracted spatial uncertainties to {file_path_dx} (shape: {dx.shape}).\n")
-    np.save(file_path_dx, dx)
-    del dx  # Free memory
     gc.collect()  # Force garbage collection
 
 @njit()
@@ -1099,6 +1089,110 @@ def compute_contracted_astrometric_representation(overwrite=False):
     del mu_alpha_star, mu_delta, mu, e_alpha, e_delta, v_vec, v_hat  # Free memory
     gc.collect()  # Force garbage collection
 
+def compute_distance_contracted_data_and_errors(overwrite=False):
+    """
+    Compute Cartesian positions and velocities, and their uncertainties, 
+    under a contracted distance transform with zero radial velocity.
+    """
+    # Check if the contracted astrometric representation already exists
+    file_path_position = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_positions.npy")
+    file_path_velocity = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_velocities.npy")
+    file_path_sigma_pos = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_position_uncertainties.npy")
+    file_path_sigma_vel = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_velocity_uncertainties.npy")
+    if os.path.exists(file_path_position) and os.path.exists(file_path_velocity) and os.path.exists(file_path_sigma_pos) and os.path.exists(file_path_sigma_vel) and not overwrite:
+        print(f"Transformed kinematics and uncertainties already exist at:")
+        print(f"\t{file_path_position},")
+        print(f"\t{file_path_velocity},")
+        print(f"\t{file_path_sigma_pos}, and")
+        print(f"\t{file_path_sigma_vel}.")
+        print("Use overwrite=True to force recomputation.\n")
+        return
+    print("Computing transformed kinematics and uncertainties for subsample...")
+
+    # Load required arrays
+    print("... loading required arrays for positions and velocities")
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (N,)
+    ra, dec = np.deg2rad(np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask]).T  # shape (N, 2) in radians
+    mu_ra, mu_dec = np.deg2rad(np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))[subsample_mask]).T  # shape (N, 2) in radians  
+
+    # Unit vector in the direction of the star
+    cos_ra, sin_ra = np.cos(ra), np.sin(ra)
+    cos_dec, sin_dec = np.cos(dec), np.sin(dec)
+    del ra, dec  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Load the contracted distance
+    f_r = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance.npy"))  # (N,)
+
+    # Positions
+    print("... calculating transformed positions")
+    x = f_r * cos_ra * cos_dec
+    y = f_r * sin_ra * cos_dec
+    z = f_r * sin_dec
+    positions = np.column_stack([x, y, z])
+
+    # Save the transformed positions
+    print(f"... saving transformed positions to {file_path_position} (shape: {positions.shape})")
+    np.save(file_path_position, positions)
+    del x, y, z, positions  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Tangential velocity direction components
+    print("... calculating transformed velocities")
+    e_alpha = np.column_stack([-sin_ra, cos_ra, np.zeros_like(cos_ra)])  # Tangential basis vector in RA direction
+    e_delta = np.column_stack([-cos_ra * sin_dec, -sin_ra * sin_dec, cos_dec])  # Tangential basis vector in Dec direction
+    velocity = f_r[:, None] * (mu_ra[:, None] * e_alpha + mu_dec[:, None] * e_delta)
+
+    # Save the transformed kinematics
+    print(f"... saving transformed velocities to {file_path_velocity} (shape: {velocity.shape})")
+    np.save(file_path_velocity, velocity)
+    del cos_ra, sin_ra, e_alpha, e_delta, velocity  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Load uncertainties
+    print("... loading observational uncertainties")
+    f_r_prime = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance_error.npy"))  # (N,)
+    astrometric_errors = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask]  # (N, 2)
+    sigma_ra, sigma_dec = np.deg2rad(astrometric_errors[:, :2]).T  # shape (N, 2) in radians
+    sigma_mu_ra, sigma_mu_dec = np.deg2rad(astrometric_errors[:, 3:]).T  # shape (N, 2) in radians
+    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_r_lo_high_geo.npy"))[subsample_mask].T  # each (N,) in pc
+    sigma_r = (high - lo) / 2  # shape (N,) in pc
+    del subsample_mask, astrometric_errors  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Position uncertainty
+    print("... calculating position uncertainties")
+    sigma_pos = np.sqrt(
+        (f_r_prime * sigma_r)**2 +
+        f_r**2 * (
+            (cos_dec * sigma_ra)**2 +
+            sigma_dec**2
+        )
+    )
+
+    # Save sigma_pos
+    print(f"... saving position uncertainties to {file_path_sigma_pos} (shape: {sigma_pos.shape})")
+    np.save(file_path_sigma_pos, sigma_pos)
+
+    # Velocity uncertainty
+    print("... calculating velocity uncertainties")
+    sigma_vel = np.sqrt(
+        (mu_ra**2 + mu_dec**2) * (f_r_prime * sigma_r)**2 +
+        f_r**2 * (
+            (cos_dec * sigma_mu_ra)**2 +
+            (sin_dec * mu_ra * sigma_dec)**2 +
+            sigma_mu_dec**2 +
+            (cos_dec * mu_ra * sigma_ra)**2 +
+            (mu_dec * sigma_dec)**2
+        )
+    )
+    del cos_dec, sin_dec, f_r, f_r_prime, sigma_r, sigma_ra, sigma_dec, sigma_mu_ra, sigma_mu_dec  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save sigma_vel
+    print(f"... saving velocity uncertainties to {file_path_sigma_vel} (shape: {sigma_vel.shape}).\n")
+    np.save(file_path_sigma_vel, sigma_vel)
+
 def construct_cartesian_coordinates_for_subsample(overwrite=False):
     """
     Calculate the Cartesian-like coordinates for the subsample.
@@ -1112,24 +1206,37 @@ def construct_cartesian_coordinates_for_subsample(overwrite=False):
     print("Calculating Cartesian coordinates for subsample...")
 
     # Load required arrays
-    print("... loading required arrays")
-    f_r = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance.npy"))  # (N,)
-    x_hat = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_unit_position_vector.npy"))  # (N, 3)
-    mu = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_proper_motion_magnitude.npy"))  # (N,)
-    v_hat = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_unit_tangential_velocity_vector.npy"))  # (N, 3)
+    #print("... loading required arrays")
+    #f_r = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance.npy"))  # (N,)
+    #x_hat = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_unit_position_vector.npy"))  # (N, 3)
+    #mu = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_proper_motion_magnitude.npy"))  # (N,)
+    #v_hat = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_unit_tangential_velocity_vector.npy"))  # (N, 3)
 
     # Calculate Cartesian coordinates
-    print("... calculating Cartesian coordinates")
-    x = f_r[:, None] * x_hat  # shape (N, 3)
-    v = f_r[:, None] * (mu[:, None] * v_hat)  # shape (N, 3)
-    del f_r, x_hat, mu, v_hat  # Free memory
-    gc.collect()  # Force garbage collection
+    #print("... calculating Cartesian coordinates")
+    #x = f_r[:, None] * x_hat  # shape (N, 3)
+    #v = f_r[:, None] * (mu[:, None] * v_hat)  # shape (N, 3)
+    #del f_r, x_hat, mu, v_hat  # Free memory
+    #gc.collect()  # Force garbage collection
     
     # Balance the Cartesian coordinates
-    print("... balancing Cartesian coordinates")
-    x /= np.sqrt(np.var(x, axis=0).sum())  # Scale positions
-    v /= np.sqrt(np.var(v, axis=0).sum())  # Scale velocities
-    cartesian_coordinates = np.concatenate([x, v], axis=1)  # shape (N, 6)
+    #print("... balancing Cartesian coordinates")
+    #x /= np.sqrt(np.var(x, axis=0).sum())  # Scale positions
+    #v /= np.sqrt(np.var(v, axis=0).sum())  # Scale velocities
+    #cartesian_coordinates = np.concatenate([x, v], axis=1)  # shape (N, 6)
+
+    # Load the contracted positions and velocities
+    print("... loading required arrays")
+    positions = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_positions.npy"))  # (N, 3)
+    velocities = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_velocities.npy"))  # (N, 3)
+    sigma_pos = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_position_uncertainties.npy"))  # (N,)
+    sigma_vel = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_velocity_uncertainties.npy"))  # (N,)
+
+    # Balance the Cartesian coordinates
+    print("... balancing contracted positions and velocities")
+    positions /= np.median(sigma_pos)  # Scale positions
+    velocities /= np.median(sigma_vel)  # Scale velocities
+    cartesian_coordinates = np.concatenate([positions, velocities], axis=1)  # shape (N, 6)
 
     # Save Cartesian coordinates
     print(f"... saving Cartesian coordinates to {file_cartesian_coordinates} (shape: {cartesian_coordinates.shape}).\n")
@@ -1617,7 +1724,8 @@ if __name__ == "__main__":
     
     # Construct input data to be passed to AstroLink
     calculate_distance_contraction_for_subsample()
-    compute_contracted_astrometric_representation()
+    #compute_contracted_astrometric_representation()
+    compute_distance_contracted_data_and_errors()
     construct_cartesian_coordinates_for_subsample()
 
     # Apply AstroLink to subsample and plot of cluster properties

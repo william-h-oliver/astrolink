@@ -85,7 +85,7 @@ def reduce_gdr3_catalogue_to_numpy_files(overwrite=False):
         'source_ids': ['source_id'],
         'galactic_coordinates': ['l', 'b'],
         'equatorial_coordinates': ['ra', 'dec'],
-        'parallaxes': ['parallax'],
+        #'parallaxes': ['parallax'],
         'proper_motions': ['pmra', 'pmdec'],
         'astrometric_errors': ['ra_error', 'dec_error', 'parallax_error', 'pmra_error', 'pmdec_error'],
         'astrometric_matched_transits': ['astrometric_matched_transits'],
@@ -191,13 +191,14 @@ def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
         'source_ids': ['source_id'],
         'r_med_geo': ['r_med_geo'],
         'r_lo_high_geo': ['r_lo_geo', 'r_hi_geo'],
-        'r_med_photogeo': ['r_med_photogeo'],
-        'r_lo_high_photogeo': ['r_lo_photogeo', 'r_hi_photogeo']
+        #'r_med_photogeo': ['r_med_photogeo'],
+        #'r_lo_high_photogeo': ['r_lo_photogeo', 'r_hi_photogeo']
     }
 
     file_paths = [
-        os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy')
+        os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}.npy')
         for group_name in column_groups
+        if group_name != 'source_ids'  # final *_source_ids.npy file is from the GDR3 catalogue
     ]
 
     # Skip processing if all merged output files already exist
@@ -206,18 +207,13 @@ def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
         for file_path in file_paths
     )
     if all_exist and not overwrite:
-        print("Reduced Bailer-Jones distance numpy files already exist at:")
-        for i, file_path in enumerate(file_paths):
-            if len(file_paths) > 2 and i < len(file_paths) - 2:
-                print(f"\t{file_path} ,")
-            if len(file_paths) > 1 and i == len(file_paths) - 2:
-                print(f"\t{file_path} , and")
-            if i == len(file_paths) - 1:
-                print(f"\t{file_path} .")
+        print("Reduced Bailer-Jones et al. 2021 distance numpy files already exist at:")
+        print(f"\t{file_paths[0]} and")
+        print(f"\t{file_paths[1]} .")
         print("Use overwrite=True to force reprocessing.\n")
         return
-    print("Reducing the Bailer-Jones GEDR3 distance dump file to numpy arrays...")
-    
+    print("Reducing the Bailer-Jones et al. 2021 distance dump file to numpy arrays...")
+
     chunksize = 10**6  # Adjust based on your memory
     all_columns = [col for cols in column_groups.values() for col in cols]
     bailerjones_gedr3_distances_file = os.path.join(AUXILLARY_CATALOGUES_PATH, 'gedr3dist.dump.gz')
@@ -269,7 +265,7 @@ def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
             combined_reindexed[indices] = combined
 
             # Save the re-indexed array
-            final_path = os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy')
+            final_path = os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}.npy')
             np.save(final_path, combined_reindexed)
             print(f"... saved re-indexed combined array: {final_path} (shape: {combined_reindexed.shape})")
 
@@ -292,9 +288,9 @@ def calculate_empirical_survey_selection_function(overwrite=False):
     and save each as a .npy files aligned with the G-band photometry array.
     """
     # Check if selection function already exists
-    file_path_m10_stars = f"{REDUCED_CATALOGUE_PATH}/gdr3_m10_stars.npy"
-    file_path_sf = f"{REDUCED_CATALOGUE_PATH}/gdr3_empirical_survey_selection_function.npy"
-    file_path_m10_healpix = f"{REDUCED_CATALOGUE_PATH}/gdr3_m10_healpix.npy"
+    file_path_m10_stars = os.path.join(REDUCED_CATALOGUE_PATH, "m10_stars.npy")
+    file_path_sf = os.path.join(REDUCED_CATALOGUE_PATH, "empirical_survey_selection_function.npy")
+    file_path_m10_healpix = os.path.join(REDUCED_CATALOGUE_PATH, "m10_healpix.npy")
     if os.path.exists(file_path_m10_stars) and os.path.exists(file_path_sf) and os.path.exists(file_path_m10_healpix) and not overwrite:
         print(f"Empirical selection function and m10 values for the centre of HEALPix pixels already exist at:")
         print(f"\t{file_path_sf} and")
@@ -305,9 +301,9 @@ def calculate_empirical_survey_selection_function(overwrite=False):
 
     # Load required arrays
     print("... loading required arrays from reduced catalogue")
-    galactic_coordinates = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_galactic_coordinates.npy")  # shape (n, 2)
-    G_band_magnitudes = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_photometry.npy")[:, 0]           # shape (n,)
-    astrometric_matched_transits = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_astrometric_matched_transits.npy")[:, 0]  # shape (n,)
+    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # shape (n, 2)
+    G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]           # shape (n,)
+    astrometric_matched_transits = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_matched_transits.npy"))[:, 0]  # shape (n,)
 
     # Identify stars with valid G magnitude and also stars with less than 11 astrometric matched transits
     print("... identifying valid G-band magnitudes and astrometric matched transits")
@@ -384,7 +380,7 @@ def calculate_empirical_survey_selection_function(overwrite=False):
     npix = hp.nside2npix(nside)
 
     # Convert (theta, phi) in degrees to unit 3D Cartesian coordinates
-    print("... converting HEALpix pixel centres to unit 3D Cartesian coordinates")
+    print("... converting HEALPix pixel centres to unit 3D Cartesian coordinates")
     phi_rad, theta_rad = hp.pix2ang(nside, np.arange(npix), nest=True) # pix2ang returns arrays in phi, theta order
     phi_rad = np.pi / 2 - phi_rad  # Convert phi from [0, pi] to [-pi/2, pi/2]
     cos_phi = np.cos(phi_rad)
@@ -433,10 +429,10 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
     Plot the limiting G-band magnitude across the sky using HEALPix.
     """
     # Check if plot already exists
-    file_m10_path = os.path.join(FIGURES_PATH, "limiting_g_mag_m10.png")
-    file_limiting_g_mag_path = os.path.join(FIGURES_PATH, "limiting_g_mag_mollview.png")
+    file_m10_path = os.path.join(FIGURES_PATH, "m10_map.png")
+    file_limiting_g_mag_path = os.path.join(FIGURES_PATH, "limiting_g_mag.png")
     if os.path.exists(file_m10_path) and os.path.exists(file_limiting_g_mag_path) and not overwrite:
-        print(f"Plots already exists at:")
+        print(f"Plots of m10 map and limiting G-band magnitude already exist at:")
         print(f"\t{file_m10_path} and")
         print(f"\t{file_limiting_g_mag_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -444,7 +440,7 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
     print("Plotting M10 map across the sky...")
 
     # Load m10 values for HEALPix pixels
-    m10 = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_m10_healpix.npy")  # (npix,)
+    m10 = np.load(f"{REDUCED_CATALOGUE_PATH}/m10_healpix.npy")  # (npix,)
 
     # Create a Mollweide projection plot of the limiting G-band magnitude
     plt.figure(figsize=(12, 6))
@@ -526,7 +522,7 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     Create a boolean subsample mask where the empirical survey selection function S_Gaia > SURVEY_SF_LOWER_LIMIT.
     """
     # Check if subsample mask already exists
-    mask_path = os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy")
+    mask_path = os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy")
     if os.path.exists(mask_path) and not overwrite:
         print(f"Subsample mask already exists at:\n\t{mask_path} .")
         print("Use overwrite=True to force recomputation.\n")
@@ -534,17 +530,17 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     print("Constructing subsample from full catalogue...")
 
     # Load selection function and galactic coordinates
-    selection_function = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_empirical_survey_selection_function.npy"))  # (n,)
+    selection_function = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "empirical_survey_selection_function.npy"))  # (n,)
     galactic_coords = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (n, 2) in degrees
-    r_med_geo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_r_med_geo.npy"))  # (n,)
+    r_med_geo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_geo.npy"))  # (n,)
     proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))  # (n, 2) in mas/yr
     ruwe = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_ruwe.npy"))[:, 0]  # (n,)
 
-    # Create boolean mask for S_Gaia > threshold and valid astrometric data
+    # Create boolean mask for S_Gaia > threshold, ruwe < threshold, and valid astrometric data
     subsample_mask = selection_function > SURVEY_SF_LOWER_LIMIT
+    subsample_mask &= ruwe < SUBSAMPLE_RUWE_THRESHOLD
     subsample_mask &= np.isfinite(r_med_geo)
     subsample_mask &= np.isfinite(proper_motions).all(axis=1)
-    subsample_mask &= ruwe < SUBSAMPLE_RUWE_THRESHOLD
 
     # Save mask
     np.save(mask_path, subsample_mask)
@@ -555,7 +551,7 @@ def calculate_subsample_selection_function(overwrite=False):
     Calculate the subsample selection function using kNN-based metric.
     """
     # Check if total selection function already exists
-    file_subsample_sf_stars = os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_selection_function.npy")
+    file_subsample_sf_stars = os.path.join(SUBSAMPLE_PATH, "subsample_selection_function.npy")
     if os.path.exists(file_subsample_sf_stars) and not overwrite:
         print(f"Subsample selection function already exists at:\n\t{file_subsample_sf_stars} .")
         print("Use overwrite=True to force recomputation.\n")
@@ -566,7 +562,7 @@ def calculate_subsample_selection_function(overwrite=False):
     print("... loading required arrays")
     galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # shape (n, 2)
     G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]           # shape (n,)
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # shape (n,)
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # shape (n,)
 
     # Identify stars with valid G magnitude
     print("... identifying valid G-band magnitudes")
@@ -645,18 +641,18 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     Calculate the total selection function for the subsample.
     """
     # Check if arrays already exists
-    file_nsub_stars = os.path.join(SUBSAMPLE_PATH, "gdr3_nsub_stars.npy")
-    file_nmw_stars = os.path.join(SUBSAMPLE_PATH, "gdr3_nmw_stars.npy")
-    file_total_sf_mean_stars = os.path.join(SUBSAMPLE_PATH, "gdr3_total_selection_function_mean_stars.npy")
-    file_total_sf_var_stars = os.path.join(SUBSAMPLE_PATH, "gdr3_total_selection_function_var_stars.npy")
-    file_total_sf_mean_healpix = os.path.join(SUBSAMPLE_PATH, "gdr3_total_selection_function_mean_healpix.npy")
-    file_total_sf_var_healpix = os.path.join(SUBSAMPLE_PATH, "gdr3_total_selection_function_var_healpix.npy")
-    if os.path.exists(file_nsub_stars) and os.path.exists(file_nmw_stars) and os.path.exists(file_total_sf_mean_stars) and os.path.exists(file_total_sf_var_stars) and os.path.exists(file_total_sf_mean_healpix) and os.path.exists(file_total_sf_var_healpix) and not overwrite:
+    file_nsub = os.path.join(SUBSAMPLE_PATH, "total_selection_function_nsub.npy")
+    file_nmw = os.path.join(SUBSAMPLE_PATH, "total_selection_function_nmw.npy")
+    file_total_sf_mean = os.path.join(SUBSAMPLE_PATH, "total_selection_function_mean.npy")
+    file_total_sf_var = os.path.join(SUBSAMPLE_PATH, "total_selection_function_var.npy")
+    file_total_sf_mean_healpix = os.path.join(SUBSAMPLE_PATH, "total_selection_function_mean_healpix.npy")
+    file_total_sf_var_healpix = os.path.join(SUBSAMPLE_PATH, "total_selection_function_var_healpix.npy")
+    if os.path.exists(file_nsub) and os.path.exists(file_nmw) and os.path.exists(file_total_sf_mean) and os.path.exists(file_total_sf_var) and os.path.exists(file_total_sf_mean_healpix) and os.path.exists(file_total_sf_var_healpix) and not overwrite:
         print(f"Total selection function arrays already exist at:")
-        print(f"\t{file_total_sf_mean_stars} ,")
-        print(f"\t{file_total_sf_var_stars} ,")
-        print(f"\t{file_nsub_stars} ,")
-        print(f"\t{file_nmw_stars} ,")
+        print(f"\t{file_total_sf_mean} ,")
+        print(f"\t{file_total_sf_var} ,")
+        print(f"\t{file_nsub} ,")
+        print(f"\t{file_nmw} ,")
         print(f"\t{file_total_sf_mean_healpix} , and")
         print(f"\t{file_total_sf_var_healpix} .")
         print("Use overwrite=True to force recomputation.\n")
@@ -667,8 +663,8 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     print("... loading required arrays from reduced catalogue")
     galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))
     G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]
-    survey_sf = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_empirical_survey_selection_function.npy"))
-    subsample_sf = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_selection_function.npy"))
+    survey_sf = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "empirical_survey_selection_function.npy"))
+    subsample_sf = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_selection_function.npy"))
 
     # Identify stars with valid G magnitude
     print("... identifying valid G-band magnitudes")
@@ -716,10 +712,10 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
 
     # Initialize total selection function array for stars in the subsample
     print("... initializing total selection function arrays for stars in the subsample")
-    nsub_stars = np.empty(n)
-    nmw_stars = np.empty(n)
-    total_sf_mean_stars = np.empty(n)
-    total_sf_var_stars = np.empty(n)
+    nsub = np.empty(n)
+    nmw = np.empty(n)
+    total_sf_mean = np.empty(n)
+    total_sf_var = np.empty(n)
 
     # Compute total selection function for each star in the subsample
     for i, sl in enumerate(batches):
@@ -728,33 +724,33 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
         _, idx = tree.query(xyz_stars[sl], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
 
         # Total selection function is the posterior distribution Beta(n_sub + 1, n_mw - n_sub + 1)
-        nsub_stars_batch = subsample_sf[idx].sum(axis=1)
-        nmw_stars_batch = inverse_survey_sf[idx].sum(axis=1)
-        nsub_stars[sl] = nsub_stars_batch
-        nmw_stars[sl] = nmw_stars_batch
-        total_sf_mean_stars[sl] = (nsub_stars_batch + 1) / (nmw_stars_batch + 2)  # Mean of selection function for stars in subsample
-        total_sf_var_stars[sl] = (nsub_stars_batch + 1) * (nmw_stars_batch - nsub_stars_batch + 1) / ((nmw_stars_batch + 2)**2 * (nmw_stars_batch + 3))  # Variance of selection function for stars in subsample
+        nsub_batch = subsample_sf[idx].sum(axis=1)
+        nmw_batch = inverse_survey_sf[idx].sum(axis=1)
+        nsub[sl] = nsub_batch
+        nmw[sl] = nmw_batch
+        total_sf_mean[sl] = (nsub_batch + 1) / (nmw_batch + 2)  # Mean of selection function for stars in subsample
+        total_sf_var[sl] = (nsub_batch + 1) * (nmw_batch - nsub_batch + 1) / ((nmw_batch + 2)**2 * (nmw_batch + 3))  # Variance of selection function for stars in subsample
 
         # Delete temporary variables to free memory
-        del _, idx, nsub_stars_batch, nmw_stars_batch
+        del _, idx, nsub_batch, nmw_batch
         gc.collect()
-    print(f"... range of expected number of neighbours in subsample: {nsub_stars.min():.3f} -- {nsub_stars.max():.3f}")
-    print(f"... range of expected number of neighbours in Milky Way: {nmw_stars.min():.3f} -- {nmw_stars.max():.3f}")
-    print(f"... range of total selection function mean: {total_sf_mean_stars.min():.3f} -- {total_sf_mean_stars.max():.3f}")
-    print(f"... range of total selection function variance: {total_sf_var_stars.min():.3f} -- {total_sf_var_stars.max():.3f}")
+    print(f"... range of expected number of neighbours in subsample: {nsub.min():.3f} -- {nsub.max():.3f}")
+    print(f"... range of expected number of neighbours in Milky Way: {nmw.min():.3f} -- {nmw.max():.3f}")
+    print(f"... range of total selection function mean: {total_sf_mean.min():.3f} -- {total_sf_mean.max():.3f}")
+    print(f"... range of total selection function variance: {total_sf_var.min():.3f} -- {total_sf_var.max():.3f}")
 
     # Save total selection function arrays for stars
     print(f"... saving total selection function arrays for stars to:")
-    print(f"\t{file_nsub_stars},")
-    print(f"\t{file_nmw_stars},")
-    print(f"\t{file_total_sf_mean_stars}, and")
-    print(f"\t{file_total_sf_var_stars}\n")
-    np.save(file_nsub_stars, nsub_stars)
-    np.save(file_nmw_stars, nmw_stars)
-    np.save(file_total_sf_mean_stars, total_sf_mean_stars)
-    np.save(file_total_sf_var_stars, total_sf_var_stars)
+    print(f"\t{file_nsub},")
+    print(f"\t{file_nmw},")
+    print(f"\t{file_total_sf_mean}, and")
+    print(f"\t{file_total_sf_var}\n")
+    np.save(file_nsub, nsub)
+    np.save(file_nmw, nmw)
+    np.save(file_total_sf_mean, total_sf_mean)
+    np.save(file_total_sf_var, total_sf_var)
 
-    del nsub_stars, nmw_stars, total_sf_mean_stars, total_sf_var_stars, xyz_stars  # Free memory
+    del nsub, nmw, total_sf_mean, total_sf_var, xyz_stars  # Free memory
     gc.collect()  # Force garbage collection
 
     # Also calculate the total selection function values at the centre of each HEALPix pixel for plotting
@@ -825,7 +821,7 @@ def plot_total_selection_function_for_subsample(overwrite=False):
     file_total_sf_mean_path = os.path.join(FIGURES_PATH, "total_selection_function_mean.png")
     file_total_sf_var_path = os.path.join(FIGURES_PATH, "total_selection_function_var.png")
     if os.path.exists(file_total_sf_mean_path) and os.path.exists(file_total_sf_var_path) and not overwrite:
-        print(f"Plots already exist at:")
+        print(f"Total selection function mean and variance plots already exist at:")
         print(f"\t{file_total_sf_mean_path} and")
         print(f"\t{file_total_sf_var_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -833,8 +829,8 @@ def plot_total_selection_function_for_subsample(overwrite=False):
     print("Plotting total selection function on the sky...")
 
     # Load total selection function for HEALPix pixels
-    total_sf_mean = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_total_selection_function_mean_healpix.npy"))  # (npix,)
-    total_sf_var = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_total_selection_function_var_healpix.npy"))  # (npix,)
+    total_sf_mean = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_mean_healpix.npy"))  # (npix,)
+    total_sf_var = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_var_healpix.npy"))  # (npix,)
 
     # Create a Mollweide projection plot of the total selection function mean
     plt.figure(figsize=(12, 6))
@@ -887,13 +883,13 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     Calculate the distance contraction for the subsample.
     """
     # Check if the distance contraction already exists
-    file_path_r_half = os.path.join(SUBSAMPLE_PATH, "gdr3_r_half.npy")
-    file_path_fr = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance.npy")
-    file_path_delta_fr = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance_error.npy")
+    file_path_r_half = os.path.join(SUBSAMPLE_PATH, "contracted_r_half.npy")
+    file_path_fr = os.path.join(SUBSAMPLE_PATH, "contracted_distance.npy")
+    file_path_delta_fr = os.path.join(SUBSAMPLE_PATH, "contracted_distance_error.npy")
 
     all_exist = all(os.path.exists(p) for p in [file_path_r_half, file_path_fr, file_path_delta_fr])
     if all_exist and not overwrite:
-        print(f"Distance contraction and its error already exists at:")
+        print(f"Distance contraction arrays already exist at:")
         print(f"\t{file_path_r_half} ,")
         print(f"\t{file_path_fr} , and")
         print(f"\t{file_path_delta_fr} .")
@@ -903,9 +899,9 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
 
     # Load required arrays
     print("... loading required arrays")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (n,)
-    r = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_r_med_geo.npy"))[subsample_mask]  # (n,) in pc
-    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_r_lo_high_geo.npy"))[subsample_mask].T  # each (n,) in pc
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (n,)
+    r = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_geo.npy"))[subsample_mask]  # (n,) in pc
+    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_geo.npy"))[subsample_mask].T  # each (n,) in pc
     ra, dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask].T  # each (n,) in degrees
     dra, ddec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask, :2].T  # each (n,) in degrees
     
@@ -1001,29 +997,29 @@ def average_sym_kl_contracted(r_half, variances, r, anisotropy_factor):
 
     return avg_kl_sym
 
-def calculate_contracted_data_and_errors_for_subsample(overwrite=True):
+def calculate_contracted_data_and_errors_for_subsample(overwrite=False):
     """
     Calculate Cartesian positions and velocities, and their uncertainties, 
     under a contracted distance transform with zero radial velocity.
     """
     # Check if the contracted astrometric representation already exists
-    file_path_position = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_positions.npy")
-    file_path_velocity = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_velocities.npy")
-    file_path_sigma_pos = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_position_uncertainties.npy")
-    file_path_sigma_vel = os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_velocity_uncertainties.npy")
+    file_path_position = os.path.join(SUBSAMPLE_PATH, "contracted_positions.npy")
+    file_path_velocity = os.path.join(SUBSAMPLE_PATH, "contracted_velocities.npy")
+    file_path_sigma_pos = os.path.join(SUBSAMPLE_PATH, "contracted_position_uncertainties.npy")
+    file_path_sigma_vel = os.path.join(SUBSAMPLE_PATH, "contracted_velocity_uncertainties.npy")
     if os.path.exists(file_path_position) and os.path.exists(file_path_velocity) and os.path.exists(file_path_sigma_pos) and os.path.exists(file_path_sigma_vel) and not overwrite:
-        print(f"Transformed kinematics and uncertainties already exist at:")
+        print(f"Contracted astrometric representation and its uncertainties already exist at:")
         print(f"\t{file_path_position} ,")
         print(f"\t{file_path_velocity} ,")
         print(f"\t{file_path_sigma_pos} , and")
         print(f"\t{file_path_sigma_vel} .")
         print("Use overwrite=True to force recomputation.\n")
         return
-    print("Computing transformed kinematics and uncertainties for subsample...")
+    print("Computing contracted astrometric representation and uncertainties for subsample...")
 
     # Load required arrays
     print("... loading required arrays for positions and velocities")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (N,)
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
     ra, dec = np.deg2rad(np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask]).T  # shape (N, 2) in radians
     mu_ra, mu_dec = np.deg2rad(np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))[subsample_mask]).T  # shape (N, 2) in radians  
     
@@ -1035,7 +1031,7 @@ def calculate_contracted_data_and_errors_for_subsample(overwrite=True):
     gc.collect()  # Force garbage collection
 
     # Load the contracted distance
-    f_r = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance.npy"))  # (N,)
+    f_r = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_distance.npy"))  # (N,)
 
     # Positions
     print("... calculating transformed positions")
@@ -1065,11 +1061,11 @@ def calculate_contracted_data_and_errors_for_subsample(overwrite=True):
 
     # Load uncertainties
     print("... loading observational uncertainties")
-    f_r_prime = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_distance_error.npy"))  # (N,)
+    f_r_prime = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_distance_error.npy"))  # (N,)
     astrometric_errors = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask]  # (N, 5)
     sigma_ra, sigma_dec = np.deg2rad(astrometric_errors[:, :2]).T  # shape (N, 2) in radians
     sigma_mu_ra, sigma_mu_dec = np.deg2rad(astrometric_errors[:, 3:]).T  # shape (N, 2) in radians
-    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_r_lo_high_geo.npy"))[subsample_mask].T  # each (N,) in pc
+    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_geo.npy"))[subsample_mask].T  # each (N,) in pc
     sigma_r = (high - lo) / 2  # shape (N,) in pc
     del subsample_mask, astrometric_errors  # Free memory
     gc.collect()  # Force garbage collection
@@ -1111,25 +1107,25 @@ def calculate_contracted_data_and_errors_for_subsample(overwrite=True):
     print(f"... saving velocity uncertainties to {file_path_sigma_vel} (shape: {sigma_vel.shape}).\n")
     np.save(file_path_sigma_vel, sigma_vel)
 
-def calculate_subspace_entropies_for_subsample(overwrite=True):
+def calculate_subspace_entropies_for_subsample(overwrite=False):
     """
     Calculate the entropies of the contracted positions and velocities for the 
     subsample.
     """
     # Check if subspace entropy already exists
-    file_path_positions_entropy = os.path.join(SUBSAMPLE_PATH, "gdr3_positions_entropy.npy")
-    file_path_velocities_entropy = os.path.join(SUBSAMPLE_PATH, "gdr3_velocities_entropy.npy")
+    file_path_positions_entropy = os.path.join(SUBSAMPLE_PATH, "contracted_positions_entropy.npy")
+    file_path_velocities_entropy = os.path.join(SUBSAMPLE_PATH, "contracted_velocities_entropy.npy")
     if os.path.exists(file_path_positions_entropy) and os.path.exists(file_path_velocities_entropy) and not overwrite:
-        print(f"Subspace entropies already exists at:")
+        print(f"Position- and velocity-subspace entropies already exists at:")
         print(f"\t{file_path_positions_entropy} and")
         print(f"\t{file_path_velocities_entropy} .")
         print("Use overwrite=True to force recomputation.\n")
         return
-    print("Calculating subspace entropy for subsample...")
+    print("Calculating position- and velocity-subspace entropies for subsample...")
 
     # Load the contracted positions
     print("... loading contracted positions")
-    positions = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_positions.npy"))  # (N, 3)
+    positions = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_positions.npy"))  # (N, 3)
 
     # Build KDTree for positions
     print("... building KDTree positions")
@@ -1167,7 +1163,7 @@ def calculate_subspace_entropies_for_subsample(overwrite=True):
 
     # Load the contracted velocities
     print("... loading contracted velocities")
-    velocities = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_velocities.npy"))  # (N, 3)
+    velocities = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocities.npy"))  # (N, 3)
 
     # Build KDTree for velocities
     print("... building KDTree velocities")
@@ -1203,26 +1199,26 @@ def calculate_subspace_entropies_for_subsample(overwrite=True):
     del velocities, core_sqr_distance, tree  # Free memory
     gc.collect()  # Force garbage collection
 
-def construct_cartesian_coordinates_for_subsample(overwrite=True):
+def construct_cartesian_coordinates_for_subsample(overwrite=False):
     """
     Calculate the Cartesian-like coordinates for the subsample.
     """
     # Check if Cartesian coordinates already exist
-    file_cartesian_coordinates = os.path.join(SUBSAMPLE_PATH, "gdr3_cartesian_coordinates.npy")
+    file_cartesian_coordinates = os.path.join(SUBSAMPLE_PATH, "contracted_cartesian_coordinates.npy")
     if os.path.exists(file_cartesian_coordinates) and not overwrite:
-        print(f"Cartesian coordinates already exist at:\n\t{file_cartesian_coordinates} .")
+        print(f"Contracted Cartesian coordinates already exist at:\n\t{file_cartesian_coordinates} .")
         print("Use overwrite=True to force recomputation.\n")
         return
-    print("Calculating Cartesian coordinates for subsample...")
+    print("Calculating contracted Cartesian coordinates for subsample...")
 
     # Load the contracted positions and velocities
     print("... loading required arrays")
-    positions = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_positions.npy"))  # (N, 3)
-    velocities = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_velocities.npy"))  # (N, 3)
-    delta_pos = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_position_uncertainties.npy"))  # (N,)
-    delta_vel = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_contracted_velocity_uncertainties.npy"))  # (N,)
-    positions_entropy = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_positions_entropy.npy"))  # (,)
-    velocities_entropy = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_velocities_entropy.npy"))  # (,)
+    positions = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_positions.npy"))  # (N, 3)
+    velocities = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocities.npy"))  # (N, 3)
+    delta_pos = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_position_uncertainties.npy"))  # (N,)
+    delta_vel = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocity_uncertainties.npy"))  # (N,)
+    positions_entropy = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_positions_entropy.npy"))  # (,)
+    velocities_entropy = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocities_entropy.npy"))  # (,)
 
     # Reduce to scalar values
     print('... calculating scalar values from arrays')
@@ -1245,7 +1241,7 @@ def construct_cartesian_coordinates_for_subsample(overwrite=True):
     print(f"\t... relative entropy power for positions: {rel_entropy_power_pos:.3f}")
 
     # Calculate scaling factor for positions
-    alpha_pos = median_delta_pos * np.sqrt(rel_entropy_power_pos)  # Calculate scaling factor
+    alpha_pos = median_delta_pos# * np.sqrt(rel_entropy_power_pos)  # Calculate scaling factor
     print(f"\t... scaling factor for positions: {alpha_pos:.3f}")
     positions /= alpha_pos  # Scale positions
     
@@ -1256,7 +1252,7 @@ def construct_cartesian_coordinates_for_subsample(overwrite=True):
     print(f"\t... relative entropy power for velocities: {rel_entropy_power_vel:.3f}")
 
     # Calculate scaling factor for velocities
-    alpha_vel = median_delta_vel * np.sqrt(rel_entropy_power_vel)  # Calculate scaling factor
+    alpha_vel = median_delta_vel# * np.sqrt(rel_entropy_power_vel)  # Calculate scaling factor
     print(f"\t... scaling factor for velocities: {alpha_vel:.3f}")
     velocities /= alpha_vel  # Scale velocities
 
@@ -1284,13 +1280,13 @@ def apply_astrolink_to_subsample(overwrite=False):
 
     # Load the required arrays
     print("... loading required arrays for AstroLink clustering")
-    cartesian_coordinates = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_cartesian_coordinates.npy"))  # (N, 6)
-    total_sf_mean = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_total_selection_function_mean_stars.npy"))  # (N,)
+    cartesian_coordinates = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_cartesian_coordinates.npy"))  # (N, 6)
+    total_sf_mean = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_mean.npy"))  # (N,)
 
     # Reduce total selection function mean to subsample
     G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]  # (N,)
     valid_gmag = np.isfinite(G_band_magnitudes)  # Identify stars with valid G-band magnitudes
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (N,)
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
     total_sf_mean = total_sf_mean[subsample_mask[valid_gmag]]  # Filter by subsample mask
     del G_band_magnitudes, valid_gmag, subsample_mask  # Free memory
     gc.collect()  # Force garbage collection
@@ -1449,7 +1445,7 @@ def plot_cluster_labels_on_sky(overwrite=False):
     # Load the required arrays
     print("... loading required arrays for plotting")
     galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (N, 2) in degrees
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (N,)
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
 
     # Reduce coordinates to subsample
     galactic_coordinates = galactic_coordinates[subsample_mask]
@@ -1512,7 +1508,7 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
     galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (N, 2) in degrees
     equatorial_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))  # (N, 2) in degrees
     proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))  # (N, 2) in mas/yr
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "gdr3_subsample_mask.npy"))  # (N,)
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
 
     # Reduce coordinates to subsample (and convert to angles to radians)
     l, b = np.deg2rad(galactic_coordinates[subsample_mask]).T

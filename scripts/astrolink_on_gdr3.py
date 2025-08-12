@@ -916,10 +916,9 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
 
     # Fit model using a grid search for r_{1/2}
     print("... fitting r_{1/2} to get globally isotropic spatial uncertainties")
-    anisotropy_factor = 1
-    bounds = (1, 10000)  # Initial guess for r_{1/2} in pc
+    bounds = (1, 1000)  # Initial guess for r_{1/2} in pc
     result = minimize_scalar(
-        lambda r_half: average_sym_kl_contracted(r_half, variances, r, anisotropy_factor),
+        lambda r_half: average_sym_kl_contracted(r_half, variances, r),
         bounds=bounds,
         method='bounded',
         options={'xatol': 1.0}      # stop when r_half is within 1 pc
@@ -949,7 +948,7 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     gc.collect()  # Force garbage collection
 
 @njit()
-def average_sym_kl_contracted(r_half, variances, r, anisotropy_factor):
+def average_sym_kl_contracted(r_half, variances, r):
     """
     Compute the average symmetrized KL divergence between propagated Gaia-like
     spherical coordinate uncertainties and an optimal isotropic Gaussian under
@@ -963,8 +962,6 @@ def average_sym_kl_contracted(r_half, variances, r, anisotropy_factor):
             where delta_l* = cos(b) * delta_l in radians.
         r : np.ndarray of shape (N,)
             Radial distances (in pc) for each source.
-        anisotropy_factor : float
-            Factor to scale the uncertainties to account for anisotropy in the data.
 
     Returns:
         alpha_opt : float
@@ -983,8 +980,6 @@ def average_sym_kl_contracted(r_half, variances, r, anisotropy_factor):
     var_los = f_prime**2 * var_r              # LOS direction
     var_p1 = f_r**2 * var_lstar              # horizontal tangential
     var_p2 = f_r**2 * var_b                  # vertical tangential
-
-    var_los /= anisotropy_factor**2  # Scale the variances by the anisotropy factor
 
     # Combine into diagonal covariance matrix for each source
     tr = var_los + var_p1 + var_p2
@@ -1021,8 +1016,7 @@ def calculate_contracted_data_and_errors_for_subsample(overwrite=False):
     print("... loading required arrays for positions and velocities")
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
     ra, dec = np.deg2rad(np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask]).T  # shape (N, 2) in radians
-    mu_ra, mu_dec = np.deg2rad(np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))[subsample_mask]).T  # shape (N, 2) in radians  
-    
+    mu_ra, mu_dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))[subsample_mask].T  # shape (N, 2) in mas/yr
     
     # Unit vector in the direction of the star
     cos_ra, sin_ra = np.cos(ra), np.sin(ra)
@@ -1035,15 +1029,12 @@ def calculate_contracted_data_and_errors_for_subsample(overwrite=False):
 
     # Positions
     print("... calculating transformed positions")
-    x = f_r * cos_ra * cos_dec
-    y = f_r * sin_ra * cos_dec
-    z = f_r * sin_dec
-    positions = np.column_stack([x, y, z])
+    positions = f_r[:, None] * np.column_stack([cos_ra * cos_dec, sin_ra * cos_dec, sin_dec])
 
     # Save the transformed positions
     print(f"... saving transformed positions to {file_path_position} (shape: {positions.shape})")
     np.save(file_path_position, positions)
-    del x, y, z, positions  # Free memory
+    del positions  # Free memory
     gc.collect()  # Force garbage collection
 
     # Tangential velocity direction components
@@ -1064,7 +1055,7 @@ def calculate_contracted_data_and_errors_for_subsample(overwrite=False):
     f_r_prime = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_distance_error.npy"))  # (N,)
     astrometric_errors = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask]  # (N, 5)
     sigma_ra, sigma_dec = np.deg2rad(astrometric_errors[:, :2]).T  # shape (N, 2) in radians
-    sigma_mu_ra, sigma_mu_dec = np.deg2rad(astrometric_errors[:, 3:]).T  # shape (N, 2) in radians
+    sigma_mu_ra, sigma_mu_dec = astrometric_errors[:, 3:].T  # shape (N, 2) in radians
     lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_geo.npy"))[subsample_mask].T  # each (N,) in pc
     sigma_r = (high - lo) / 2  # shape (N,) in pc
     del subsample_mask, astrometric_errors  # Free memory
@@ -1106,98 +1097,6 @@ def calculate_contracted_data_and_errors_for_subsample(overwrite=False):
     # Save sigma_vel
     print(f"... saving velocity uncertainties to {file_path_sigma_vel} (shape: {sigma_vel.shape}).\n")
     np.save(file_path_sigma_vel, sigma_vel)
-
-def calculate_subspace_entropies_for_subsample(overwrite=False):
-    """
-    Calculate the entropies of the contracted positions and velocities for the 
-    subsample.
-    """
-    # Check if subspace entropy already exists
-    file_path_positions_entropy = os.path.join(SUBSAMPLE_PATH, "contracted_positions_entropy.npy")
-    file_path_velocities_entropy = os.path.join(SUBSAMPLE_PATH, "contracted_velocities_entropy.npy")
-    if os.path.exists(file_path_positions_entropy) and os.path.exists(file_path_velocities_entropy) and not overwrite:
-        print(f"Position- and velocity-subspace entropies already exists at:")
-        print(f"\t{file_path_positions_entropy} and")
-        print(f"\t{file_path_velocities_entropy} .")
-        print("Use overwrite=True to force recomputation.\n")
-        return
-    print("Calculating position- and velocity-subspace entropies for subsample...")
-
-    # Load the contracted positions
-    print("... loading contracted positions")
-    positions = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_positions.npy"))  # (N, 3)
-
-    # Build KDTree for positions
-    print("... building KDTree positions")
-    N, d = positions.shape  # N is the number of stars, d is the dimensionality (3 for positions)
-    core_sqr_distance = np.empty(N)  # Initialize array for core distances
-    tree = KDTree(positions)
-
-    # Batching for memory efficiency
-    chunk_n_rows = max(min(int(WORKING_MEMORY * (2**20) // 16*KNN_FOR_ASTROLINK), N), 1)
-    batches = list(gen_batches(N, chunk_n_rows))
-    num_batches = len(batches)
-
-    # Find the distance to the k-th nearest neighbour for each star
-    for i, sl in enumerate(batches):
-        print(f"... finding distance to k-th nearest neighbour for each star -- batch {i + 1} of {num_batches}")
-        # k-nearest neighbours query
-        sqr_distances, _ = tree.query(positions[sl], k=KNN_FOR_ASTROLINK, sqr_dists=True)
-
-        # Distance to the k-th nearest neighbour
-        core_sqr_distance[sl] = sqr_distances[:, -1]  # shape (N,)
-
-        del sqr_distances, _  # Free memory
-        gc.collect()  # Force garbage collection
-    
-    # Calculate positions entropy
-    print("... calculating positions entropy")
-    volume_unit_ball = np.pi ** (d / 2) / np.exp(np.log(gamma(d / 2 + 1)))
-    positions_entropy = digamma(N) - digamma(KNN_FOR_ASTROLINK) + np.log(volume_unit_ball) + 0.5 * d * np.mean(np.log(core_sqr_distance))
-
-    # Save positions entropy
-    print(f"... saving positions entropy to {file_path_positions_entropy} (shape: {positions_entropy.shape})")
-    np.save(file_path_positions_entropy, positions_entropy)
-    del positions, core_sqr_distance, tree  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Load the contracted velocities
-    print("... loading contracted velocities")
-    velocities = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocities.npy"))  # (N, 3)
-
-    # Build KDTree for velocities
-    print("... building KDTree velocities")
-    N, d = velocities.shape  # N is the number of stars, d is the dimensionality (technically 2 for velocities, but for entropy calculation we use 3 so as not to overestimate it)
-    core_sqr_distance = np.empty(N)  # Initialize array for core distances
-    tree = KDTree(velocities)
-
-    # Batching for memory efficiency
-    chunk_n_rows = max(min(int(WORKING_MEMORY * (2**20) // 16*KNN_FOR_ASTROLINK), N), 1)
-    batches = list(gen_batches(N, chunk_n_rows))
-    num_batches = len(batches)
-
-    # Find the distance to the k-th nearest neighbour for each star
-    for i, sl in enumerate(batches):
-        print(f"... finding distance to k-th nearest neighbour for each star -- batch {i + 1} of {num_batches}")
-        # k-nearest neighbours query
-        sqr_distances, _ = tree.query(velocities[sl], k=KNN_FOR_ASTROLINK, sqr_dists=True)
-
-        # Distance to the k-th nearest neighbour
-        core_sqr_distance[sl] = sqr_distances[:, -1]  # shape (N,)
-
-        del sqr_distances, _  # Free memory
-        gc.collect()  # Force garbage collection
-    
-    # Calculate velocities entropy
-    print("... calculating velocities entropy")
-    volume_unit_ball = np.pi ** (d / 2) / np.exp(np.log(gamma(d / 2 + 1)))
-    velocities_entropy = digamma(N) - digamma(KNN_FOR_ASTROLINK) + np.log(volume_unit_ball) + 0.5 * d * np.mean(np.log(core_sqr_distance))
-
-    # Save velocities entropy
-    print(f"... saving velocities entropy to {file_path_velocities_entropy} (shape: {velocities_entropy.shape}).\n")
-    np.save(file_path_velocities_entropy, velocities_entropy)
-    del velocities, core_sqr_distance, tree  # Free memory
-    gc.collect()  # Force garbage collection
 
 def construct_cartesian_coordinates_for_subsample(overwrite=False):
     """
@@ -1701,14 +1600,21 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
     print(f"... saved proper motions on sky plot to {file_proper_motions_on_sky_path}.\n")
 
 
-
-# === Analyze clustering output with respect to ground truth ===
-def compare_clustering_output_to_ground_truth(overwrite=False):
+# === Compare clustering output to Hunt et al. 2024 ===
+def prepare_for_Hunt2024_comparison(overwrite=False):
     """
-    Compare the clustering output to the ground truth.
+    Prepare the data for comparison with Hunt et al. 2024.
     """
     # Placeholder for actual implementation
-    print(f"Placeholder for comparing clustering output from {CLUSTERING_PATH} to ground truth.\n")
+    print(f"Placeholder for preparing data for comparison with Hunt et al. 2024 from {CLUSTERING_PATH}.\n")
+    # Actual code would go here
+
+def compare_to_Hunt2024(overwrite=False):
+    """
+    Compare the clustering output to the Hunt et al. 2024.
+    """
+    # Placeholder for actual implementation
+    print(f"Placeholder for comparing clustering output from {CLUSTERING_PATH} to Hunt et al. 2024.\n")
     # Actual code would go here
 
 def plot_comparison_results(overwrite=False):
@@ -1757,6 +1663,7 @@ if __name__ == "__main__":
     plot_cluster_labels_on_sky()
     plot_cluster_proper_motions_on_sky()
 
-    # Analyze clustering output with respect to ground truth
-    compare_clustering_output_to_ground_truth()
+    # Compare clustering output to Hunt et al. 2024
+    prepare_for_Hunt2024_comparison()
+    compare_to_Hunt2024()
     plot_comparison_results()

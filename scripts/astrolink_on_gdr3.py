@@ -20,6 +20,8 @@ import gc
 import time
 from glob import glob
 from concurrent.futures import ProcessPoolExecutor
+import re
+from pathlib import Path
 
 # Third-party imports
 import numpy as np
@@ -85,11 +87,10 @@ def reduce_gdr3_catalogue_to_numpy_files(overwrite=False):
         'source_ids': ['source_id'],
         'galactic_coordinates': ['l', 'b'],
         'equatorial_coordinates': ['ra', 'dec'],
-        #'parallaxes': ['parallax'],
         'proper_motions': ['pmra', 'pmdec'],
-        'astrometric_errors': ['ra_error', 'dec_error', 'parallax_error', 'pmra_error', 'pmdec_error'],
+        'astrometric_errors': ['ra_error', 'dec_error', 'pmra_error', 'pmdec_error'],
         'astrometric_matched_transits': ['astrometric_matched_transits'],
-        'photometry': ['phot_g_mean_mag'],#, 'phot_bp_mean_mag', 'phot_rp_mean_mag'],
+        'photometry': ['phot_g_mean_mag'],
         'ruwe': ['ruwe']
     }
 
@@ -133,7 +134,7 @@ def reduce_gdr3_catalogue_to_numpy_files(overwrite=False):
     for group_name in column_groups.keys():
         group_files = sorted(glob(os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}_*.npy')))
         arrays = [np.load(f) for f in group_files]
-        combined = np.concatenate(arrays)
+        combined = np.concatenate(arrays).squeeze()
 
         final_path = os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy')
         np.save(final_path, combined)
@@ -247,7 +248,7 @@ def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
         if i == 0:  # source_id is the first group, so we can use it to re-index
             # Load GDR3 source IDs and Bailer-Jones source IDs
             print("... loading GDR3 and Bailer-Jones source IDs")
-            gdr3_source_ids = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_source_ids.npy")[:, 0]  # (n,)
+            gdr3_source_ids = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_source_ids.npy"))  # (n,)
             n = gdr3_source_ids.size
 
             # Compute index lookup for Bailer-Jones source IDs in GDR3
@@ -302,8 +303,8 @@ def calculate_empirical_survey_selection_function(overwrite=False):
     # Load required arrays
     print("... loading required arrays from reduced catalogue")
     galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # shape (n, 2)
-    G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]           # shape (n,)
-    astrometric_matched_transits = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_matched_transits.npy"))[:, 0]  # shape (n,)
+    G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))           # shape (n,)
+    astrometric_matched_transits = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_matched_transits.npy")) # shape (n,)
 
     # Identify stars with valid G magnitude and also stars with less than 11 astrometric matched transits
     print("... identifying valid G-band magnitudes and astrometric matched transits")
@@ -534,17 +535,19 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     galactic_coords = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (n, 2) in degrees
     r_med_geo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_geo.npy"))  # (n,)
     proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))  # (n, 2) in mas/yr
-    ruwe = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_ruwe.npy"))[:, 0]  # (n,)
+    ruwe = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_ruwe.npy"))  # (n,)
+    G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy")) # (n,)
 
     # Create boolean mask for S_Gaia > threshold, ruwe < threshold, and valid astrometric data
     subsample_mask = selection_function > SURVEY_SF_LOWER_LIMIT
     subsample_mask &= ruwe < SUBSAMPLE_RUWE_THRESHOLD
     subsample_mask &= np.isfinite(r_med_geo)
     subsample_mask &= np.isfinite(proper_motions).all(axis=1)
+    subsample_mask &= np.isfinite(G_band_magnitudes)
 
     # Save mask
     np.save(mask_path, subsample_mask)
-    print(f"... saved subsample mask to {mask_path} (selected {subsample_mask.sum()} stars)\n")
+    print(f"... saved subsample mask to {mask_path} (selected {subsample_mask.sum()} stars).\n")
 
 def calculate_subsample_selection_function(overwrite=False):
     """
@@ -561,7 +564,7 @@ def calculate_subsample_selection_function(overwrite=False):
     # Load required arrays
     print("... loading required arrays")
     galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # shape (n, 2)
-    G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]           # shape (n,)
+    G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))  # shape (n,)
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # shape (n,)
 
     # Identify stars with valid G magnitude
@@ -662,7 +665,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     # Load the required arrays
     print("... loading required arrays from reduced catalogue")
     galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))
-    G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]
+    G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))
     survey_sf = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "empirical_survey_selection_function.npy"))
     subsample_sf = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_selection_function.npy"))
 
@@ -1055,7 +1058,7 @@ def calculate_contracted_data_and_errors_for_subsample(overwrite=False):
     f_r_prime = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_distance_error.npy"))  # (N,)
     astrometric_errors = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask]  # (N, 5)
     sigma_ra, sigma_dec = np.deg2rad(astrometric_errors[:, :2]).T  # shape (N, 2) in radians
-    sigma_mu_ra, sigma_mu_dec = astrometric_errors[:, 3:].T  # shape (N, 2) in radians
+    sigma_mu_ra, sigma_mu_dec = astrometric_errors[:, 2:].T  # shape (N, 2) in radians
     lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_geo.npy"))[subsample_mask].T  # each (N,) in pc
     sigma_r = (high - lo) / 2  # shape (N,) in pc
     del subsample_mask, astrometric_errors  # Free memory
@@ -1116,31 +1119,9 @@ def construct_cartesian_coordinates_for_subsample(overwrite=False):
     velocities = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocities.npy"))  # (N, 3)
     delta_pos = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_position_uncertainties.npy"))  # (N,)
     delta_vel = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocity_uncertainties.npy"))  # (N,)
-    positions_entropy = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_positions_entropy.npy"))  # (,)
-    velocities_entropy = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocities_entropy.npy"))  # (,)
-
-    # Reduce to scalar values
-    print('... calculating scalar values from arrays')
-    median_delta_pos = np.median(delta_pos)  # Median of position uncertainties
-    median_delta_vel = np.median(delta_vel)  # Median of velocity uncertainties
-    entropy_power_pos = np.exp((2/3) * positions_entropy)  # Entropy power for positions
-    entropy_power_vel = np.exp((2/3) * velocities_entropy)  # Entropy power for velocities
-    max_entropy_power_pos = (2*np.pi*np.e) * np.linalg.det(np.cov(positions, rowvar=False))**(1/3)  # Entropy power for a distribution with covariance equal to that of positions
-    max_entropy_power_vel = (2*np.pi*np.e) * np.linalg.det(np.cov(velocities, rowvar=False))**(1/3)  # Entropy power for a distribution with covariance equal to that of velocities
-    rel_entropy_power_pos = entropy_power_pos / max_entropy_power_pos  # Relative entropy power for positions
-    rel_entropy_power_vel = entropy_power_vel / max_entropy_power_vel  # Relative entropy power for velocities
-    del delta_pos, delta_vel, positions_entropy, velocities_entropy  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Balance the Cartesian coordinates
-    print("... balancing contracted positions")
-    print(f"\t... median delta_pos: {median_delta_pos:.3f}")
-    print(f"\t... entropy power for positions: {entropy_power_pos:.3f}")
-    print(f"\t... max entropy power for positions: {max_entropy_power_pos:.3f}")
-    print(f"\t... relative entropy power for positions: {rel_entropy_power_pos:.3f}")
 
     # Calculate scaling factor for positions
-    alpha_pos = median_delta_pos# * np.sqrt(rel_entropy_power_pos)  # Calculate scaling factor
+    alpha_pos = np.median(delta_pos)  # Calculate scaling factor
     print(f"\t... scaling factor for positions: {alpha_pos:.3f}")
     positions /= alpha_pos  # Scale positions
     
@@ -1151,7 +1132,7 @@ def construct_cartesian_coordinates_for_subsample(overwrite=False):
     print(f"\t... relative entropy power for velocities: {rel_entropy_power_vel:.3f}")
 
     # Calculate scaling factor for velocities
-    alpha_vel = median_delta_vel# * np.sqrt(rel_entropy_power_vel)  # Calculate scaling factor
+    alpha_vel = np.median(delta_vel)  # Calculate scaling factor
     print(f"\t... scaling factor for velocities: {alpha_vel:.3f}")
     velocities /= alpha_vel  # Scale velocities
 
@@ -1180,14 +1161,9 @@ def apply_astrolink_to_subsample(overwrite=False):
     # Load the required arrays
     print("... loading required arrays for AstroLink clustering")
     cartesian_coordinates = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_cartesian_coordinates.npy"))  # (N, 6)
-    total_sf_mean = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_mean.npy"))  # (N,)
-
-    # Reduce total selection function mean to subsample
-    G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]  # (N,)
-    valid_gmag = np.isfinite(G_band_magnitudes)  # Identify stars with valid G-band magnitudes
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
-    total_sf_mean = total_sf_mean[subsample_mask[valid_gmag]]  # Filter by subsample mask
-    del G_band_magnitudes, valid_gmag, subsample_mask  # Free memory
+    total_sf_mean = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_mean.npy"))[subsample_mask]  # (N,)
+    del subsample_mask  # Free memory
     gc.collect()  # Force garbage collection
 
     # Initialize AstroLink
@@ -1339,15 +1315,12 @@ def plot_cluster_labels_on_sky(overwrite=False):
     clusterer = io.loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
     clusterer.S = 4
     clusterer.extract_clusters()
-    print(f"... found {len(clusterer.clusters) - 1} clusters in the clustering output")
+    print(f"... found {len(clusterer.clusters) - 1} clusters at S=4 in the clustering output")
 
     # Load the required arrays
     print("... loading required arrays for plotting")
-    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (N, 2) in degrees
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
-
-    # Reduce coordinates to subsample
-    galactic_coordinates = galactic_coordinates[subsample_mask]
+    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
     del subsample_mask  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -1404,17 +1377,19 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
 
     # Load the required arrays
     print("... loading required arrays for plotting")
-    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (N, 2) in degrees
-    equatorial_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))  # (N, 2) in degrees
-    proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))  # (N, 2) in mas/yr
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
+    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
+    equatorial_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
+    proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))[subsample_mask]  # (N, 2) in mas/yr
+    del subsample_mask  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Reduce coordinates to subsample (and convert to angles to radians)
-    l, b = np.deg2rad(galactic_coordinates[subsample_mask]).T
+    l, b = np.deg2rad(galactic_coordinates).T
     l[l > np.pi] -= 2*np.pi
-    ra, dec = np.deg2rad(equatorial_coordinates[subsample_mask]).T
-    mu_ra, mu_dec = proper_motions[subsample_mask].T
-    del galactic_coordinates, equatorial_coordinates, proper_motions, subsample_mask  # Free memory
+    ra, dec = np.deg2rad(equatorial_coordinates).T
+    mu_ra, mu_dec = proper_motions.T
+    del galactic_coordinates, equatorial_coordinates, proper_motions  # Free memory
     gc.collect()  # Force garbage collection
 
     # Define coordinate in ICRS (Equatorial J2000)
@@ -1478,19 +1453,6 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
     mu_b = np.sum(b_hat * mu_gal, axis=-1)  # shape (N,)
     del mu_icrs, R, l_hat, b_hat, mu_gal  # Free memory
     gc.collect()  # Force garbage collection
-    """
-    # Define coordinate in ICRS (Equatorial J2000)
-    icrs = SkyCoord(ra=ra*u.deg, dec=dec*u.deg,
-                    pm_ra_cosdec=mu_ra*np.cos(np.deg2rad(dec))*u.mas/u.yr, pm_dec=mu_dec*u.mas/u.yr,
-                    frame='icrs')
-
-    # Transform to Galactic coordinates
-    gal = icrs.transform_to('galactic')
-
-    # Extract proper motions in galactic system
-    mu_l_cosb = gal.pm_l_cosb.to(u.mas/u.yr).value
-    mu_b = gal.pm_b.to(u.mas/u.yr).value
-    """
 
     # Calculate proper motion colours for plotting
     print("... calculating proper motion colours for plotting")
@@ -1601,21 +1563,318 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
 
 
 # === Compare clustering output to Hunt et al. 2024 ===
-def prepare_for_Hunt2024_comparison(overwrite=False):
+def prepare_for_Hunt2024_comparison(overwrite=True):
     """
     Prepare the data for comparison with Hunt et al. 2024.
     """
-    # Placeholder for actual implementation
-    print(f"Placeholder for preparing data for comparison with Hunt et al. 2024 from {CLUSTERING_PATH}.\n")
-    # Actual code would go here
+    # Check if files already exist
+    file_path_members_mask = os.path.join(CLUSTERING_PATH, "hunt24_members_mask.npy")
+    file_path_members_cluster_ids = os.path.join(CLUSTERING_PATH, "hunt24_members_cluster_ids.npy")
+    file_path_members_probs = os.path.join(CLUSTERING_PATH, "hunt24_members_probs.npy")
+    file_path_clusters_names = os.path.join(CLUSTERING_PATH, "hunt24_clusters_names.npy")
+    file_path_clusters_types = os.path.join(CLUSTERING_PATH, "hunt24_clusters_types.npy")
+    file_path_clusters_snr = os.path.join(CLUSTERING_PATH, "hunt24_clusters_snr.npy")
+    if (os.path.exists(file_path_members_mask) and
+        os.path.exists(file_path_members_cluster_ids) and
+        os.path.exists(file_path_members_probs) and
+        os.path.exists(file_path_clusters_names) and
+        os.path.exists(file_path_clusters_types) and
+        os.path.exists(file_path_clusters_snr)) and not overwrite:
+        print("Hunt et al. 2024 reduced data already exists at:")
+        print(f"\t{file_path_members_mask} ,")
+        print(f"\t{file_path_members_cluster_ids} ,")
+        print(f"\t{file_path_members_probs} ,")
+        print(f"\t{file_path_clusters_names} ,")
+        print(f"\t{file_path_clusters_types} , and")
+        print(f"\t{file_path_clusters_snr} .")
+        print("Use overwrite=True to force recomputation.\n")
+        return
+    print("Preparing data for comparison with Hunt et al. 2024...")
+
+    # Read the clusters.dat.gz file
+    print("... loading clusters.dat.gz data")
+    readme_path = os.path.join(AUXILLARY_CATALOGUES_PATH, "ReadMe")
+    clusters_path = os.path.join(AUXILLARY_CATALOGUES_PATH, "clusters.dat.gz")
+    df_clusters = load_cds_table(readme_path, clusters_path)
+
+    # Save the names, types, and snr of the clusters
+    print("... saving cluster information")
+    H24_clusters_names = df_clusters["Name"].to_numpy()  # Cluster names
+    H24_clusters_types = df_clusters["Type"].to_numpy()  # Cluster types
+    H24_clusters_snr = df_clusters["CST"].to_numpy()  # Signal-to-noise ratio
+    np.save(file_path_clusters_names, H24_clusters_names)
+    np.save(file_path_clusters_types, H24_clusters_types)
+    np.save(file_path_clusters_snr, H24_clusters_snr)
+    del df_clusters, H24_clusters_names, H24_clusters_types, H24_clusters_snr  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Read the members.dat.gz file
+    print("... loading members.dat.gz data")
+    H24_members_path = os.path.join(AUXILLARY_CATALOGUES_PATH, "members.dat.gz")
+    df_members = load_cds_table(readme_path, H24_members_path)
+
+    # Save the cluster IDs and probabilities
+    print("... saving member information")
+    H24_members_cluster_ids = df_members["ID"].to_numpy()  # Cluster IDs
+    H24_members_probs = df_members["Prob"].to_numpy()  # Membership probabilities
+    np.save(file_path_members_cluster_ids, H24_members_cluster_ids)
+    np.save(file_path_members_probs, H24_members_probs)
+    #del H24_members_cluster_ids, H24_members_probs  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save the membership mask
+    print("... making membership mask")
+    H24_members_source_ids = df_members['GaiaDR3'].to_numpy()  # Source IDs of the members
+    del df_members  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Load Gaia DR3 source_ids
+    print(H24_members_source_ids.shape)
+    unique_sids, counts = np.unique(H24_members_source_ids, return_counts=True)
+    print(f"... found {len(unique_sids)} unique source IDs in Hunt+2024 members.")
+    duplicates2 = []
+    probs2 = []
+    duplicates3 = []
+    probs3 = []
+    for i, idx in enumerate(np.where(counts > 1)[0]):
+        #print(f"\t... source ID {unique_sids[idx]} has {counts[idx]} occurrences in Hunt+2024 members.")
+        #print(f"\t... with probabilities: {H24_members_probs[H24_members_source_ids == unique_sids[idx]]}")
+        #print(f"\t... and cluster IDs: {H24_members_cluster_ids[H24_members_source_ids == unique_sids[idx]]}")
+
+        #print()
+        duplicate_cluster_ids = H24_members_cluster_ids[H24_members_source_ids == unique_sids[idx]]
+        if len(duplicate_cluster_ids) == 2:
+            duplicates2.append(duplicate_cluster_ids)
+            probs2.append(H24_members_probs[H24_members_source_ids == unique_sids[idx]])
+        elif len(duplicate_cluster_ids) == 3:
+            duplicates3.append(duplicate_cluster_ids)
+            probs3.append(H24_members_probs[H24_members_source_ids == unique_sids[idx]])
+    duplicates2 = np.array(duplicates2)  # Convert to numpy array
+    probs2 = np.array(probs2)  # Convert to numpy array
+    duplicates3 = np.array(duplicates3)  # Convert to numpy array
+    probs3 = np.array(probs3)  # Convert to numpy array
+    unique_duplicates2, counts2 = np.unique(duplicates2, return_counts=True, axis=0)
+    print(unique_duplicates2, counts2)
+    print(probs2[duplicates2 == unique_duplicates2[0]])
+
+    print(f"In 136: N = {np.sum(H24_members_cluster_ids == 136)}")
+    print(f"In 3509: N = {np.sum(H24_members_cluster_ids == 3509)}")
+
+    #unique_duplicates3, counts3 = np.unique(duplicates3, return_counts=True, axis=0)
+    #print(unique_duplicates3, counts3)
+    #print(probs3[duplicates3 == unique_duplicates3[0]])
+
+    a = np.array([0])
+    a[0] = np.array([0, 1])
+
+    gdr3_source_ids = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_source_ids.npy"))  # (N,)
+
+    indices = np.searchsorted(gdr3_source_ids, H24_members_source_ids) # Assumes gdr3_source_ids is sorted
+
+    H24_members_mask = np.zeros_like(gdr3_source_ids, dtype=np.bool_)  # Create a mask of the same shape as gdr3_source_ids
+    H24_members_mask[indices] = True  # Set the indices of the members to True
+    del gdr3_source_ids, H24_members_source_ids, indices  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save the membership mask
+    print(f"... saving membership mask to {file_path_members_mask} (shape: {H24_members_mask.shape}).\n")
+    np.save(file_path_members_mask, H24_members_mask)
+    del H24_members_mask  # Free memory
+    gc.collect()  # Force garbage collection
+
+def load_cds_table(readme_path, data_path):
+    """
+    Load a CDS/VizieR fixed-width .dat.gz file into a pandas DataFrame
+    using column specs parsed from the ReadMe file.
+
+    Parameters
+    ----------
+    readme_path : str or Path
+        Path to the CDS ReadMe file.
+    data_path : str or Path
+        Path to the .dat.gz file.
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        DataFrame with parsed columns.
+    """
+    readme_path = Path(readme_path)
+    data_path = Path(data_path)
+    table_name_nogz = data_path.name.replace(".gz", "")
+
+    # Read ReadMe
+    with open(readme_path, "r") as f:
+        lines = f.readlines()
+
+    # Find start of table section
+    start_idx = None
+    for i, line in enumerate(lines):
+        if f"Byte-by-byte Description of file: {table_name_nogz}" in line:
+            start_idx = i + 2  # Skip header line
+            break
+    if start_idx is None:
+        raise ValueError(f"Table {table_name_nogz} not found in ReadMe.")
+
+    colspecs = []
+    names = []
+
+    # Updated pattern: allow spaces around dash, dash optional
+    pattern = re.compile(
+        r"^\s*(\d+)(?:\s*-\s*(\d+))?\s+\S+\s+\S+\s+(\S+)"
+    )
+
+    for line in lines[start_idx:]:
+        if not line.strip():
+            break
+        m = pattern.match(line)
+        if m:
+            start, end, name = m.groups()
+            start = int(start)
+            end = int(end) if end else start  # single column case
+            colspecs.append((start - 1, end))
+            names.append(name)
+
+    # Read fixed-width file
+    df = pd.read_fwf(data_path, compression="gzip", colspecs=colspecs, names=names)
+    return df
 
 def compare_to_Hunt2024(overwrite=False):
     """
     Compare the clustering output to the Hunt et al. 2024.
     """
-    # Placeholder for actual implementation
-    print(f"Placeholder for comparing clustering output from {CLUSTERING_PATH} to Hunt et al. 2024.\n")
-    # Actual code would go here
+    # Check if comparison results already exist
+    file_path_best_match_astrolink_clusters = os.path.join(CLUSTERING_PATH, "hunt24_best_match_astrolink_clusters.npy")
+    file_path_cluster_rpje = os.path.join(CLUSTERING_PATH, "hunt24_rpje.npy")
+    file_path_number_of_astrolink_clusters_per_sig = os.path.join(CLUSTERING_PATH, "number_of_astrolink_clusters.npy")
+    if (os.path.exists(file_path_cluster_rpje) and
+        os.path.exists(file_path_best_match_astrolink_clusters) and
+        os.path.exists(file_path_averaged_match_stats)) and not overwrite:
+        print("Hunt et al. 2024 comparison results already exist at:")
+        print(f"\t{file_path_cluster_rpje} ,")
+        print(f"\t{file_path_best_match_astrolink_clusters} , and")
+        print(f"\t{file_path_averaged_match_stats} .")
+        print("Use overwrite=True to force recomputation.\n")
+        return
+    print("Comparing clustering output to Hunt et al. 2024...")
+
+    # Load required arrays
+    print("... loading required arrays for comparison")
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
+    H24_members_mask = np.load(os.path.join(CLUSTERING_PATH, "hunt24_members_mask.npy"))  # (N,)
+    H24_members_cluster_ids = np.load(os.path.join(CLUSTERING_PATH, "hunt24_members_cluster_ids.npy"))  # (N,)
+    H24_members_probs = np.load(os.path.join(CLUSTERING_PATH, "hunt24_members_probs.npy"))  # (N,)
+
+    # Load the AstroLink clustering output
+    print("... loading AstroLink clustering output")
+    clusterer = io.loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
+    ordering = clusterer.ordering  # (N,)
+
+    # Get Hunt+2024 cluster IDs for this subsample
+    print("... getting Hunt+2024 cluster IDs for the subsample in this work")
+    print(H24_members_mask.sum(), "Hunt+2024 members in the subsample of this work")
+    print(H24_members_cluster_ids.shape)
+    H24_members_cluster_ids_gdr3 = np.zeros_like(H24_members_mask, dtype=np.int64)  # (N,) Initialize with 0 since Hunt+2024 cluster IDs start from 1
+    H24_members_cluster_ids_gdr3[H24_members_mask] = H24_members_cluster_ids  # Assign cluster IDs to members
+    H24_members_cluster_ids_subsample = H24_members_cluster_ids_gdr3[subsample_mask]
+    del H24_members_cluster_ids_gdr3  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Get the membership probabilities for the Hunt+2024 clusters in this subsample
+    print("... getting Hunt+2024 membership probabilities for the subsample in this work")
+    H24_members_probs_gdr3 = np.zeros_like(H24_members_mask, dtype=np.float32)  # (N,) Initialize with 0
+    H24_members_probs_gdr3[H24_members_mask] = H24_members_probs  # Assign probabilities to members
+    H24_members_probs_subsample = H24_members_probs_gdr3[subsample_mask]
+    del subsample_mask, H24_members_mask, H24_members_probs_gdr3  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Pre-compute the total sum of probabilities for each Hunt+2024 cluster
+    print("... pre-computing the total sum of probabilities for each Hunt+2024 cluster")
+    max_H24_cluster_ID = H24_members_cluster_ids[-1]  # Maximum cluster ID in Hunt+2024
+    H24_cluster_boundaries = np.searchsorted(H24_members_cluster_ids, np.arange(1, max_H24_cluster_ID + 1))  # (N_clusters,)
+    H24_cluster_probability_sums = np.add.reduceat(H24_members_probs, H24_cluster_boundaries) # (N_clusters,)
+    del H24_members_cluster_ids, H24_members_probs, H24_cluster_boundaries  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Pre-compute the sum of probabilities for each Hunt+2024 cluster in the overlap with the subsample
+    print("... pre-computing the total sum of probabilities for each Hunt+2024 cluster in the subsample of this work")
+    H24_P_j_overlap_by_id = np.bincount(H24_members_cluster_ids_subsample.astype(np.int64),
+                                    weights=H24_members_probs_subsample.astype(np.float64),
+                                    minlength=max_H24_cluster_ID + 1)[1:]  # (N_clusters,)
+    
+    # Calculate the RPJE values for each significance level
+    print("... calculating RPJE values for each significance level")
+    significances = np.linspace(3, 10, 71)  # Significance levels from 3 to 10
+    whichClusters = -np.ones((significances.size, H24_cluster_probability_sums.size, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
+    RPJE = np.zeros((significances.size, H24_cluster_probability_sums.size, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
+    num_astrolink_clusters = np.zeros(significances.size, dtype=np.int64)  # Number of AstroLink clusters for each significance level
+    for k, significance in enumerate(significances):
+        clusterer.S = significance
+        clusterer.extract_clusters()
+
+        num_astrolink_clusters[k] = len(clusterer.clusters) - 1  # Exclude the background cluster
+
+        print(f"\t... comparing AstroLink clusters extracted at S={significance:.1f} to Hunt+2024 clusters     ", end='\r')
+        whichClusters[k], RPJE[k] = calculate_rpje(
+            clusterer.clusters,
+            ordering,
+            H24_members_cluster_ids_subsample,
+            H24_members_probs_subsample,
+            H24_cluster_probability_sums,
+            H24_P_j_overlap_by_id
+        )
+    del clusterer, ordering, H24_members_cluster_ids_subsample, H24_members_probs_subsample, \
+        H24_cluster_probability_sums, H24_P_j_overlap_by_id  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save the results
+    print("... saving comparison results.\n")
+    np.save(file_path_best_match_astrolink_clusters, whichClusters)
+    np.save(file_path_cluster_rpje, RPJE)
+    np.save(file_path_number_of_astrolink_clusters_per_sig, num_astrolink_clusters)
+    del whichClusters, RPJE, num_astrolink_clusters  # Free memory
+    gc.collect()  # Force garbage collection
+
+@njit()
+def calculate_rpje(astrolink_clusters, ordering, H24_members_cluster_ids_subsample, H24_members_probs_subsample, H24_cluster_probability_sums, H24_P_j_overlap_by_id):
+    # Store the results
+    whichClusters = -np.ones((H24_cluster_probability_sums.size, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
+    RPJE = np.zeros((H24_cluster_probability_sums.size, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
+
+    # Cycle through the clusters in the AstroLink output
+    for i, (start, end) in enumerate(astrolink_clusters[1:]):
+        # Get cluster members in the AstroLink output
+        cluster_members = ordering[start:end]
+        N_i = cluster_members.size
+
+        # Get the Hunt+2024 cluster IDs of the AstroLink cluster members
+        xmatched_cluster_IDs = H24_members_cluster_ids_subsample[cluster_members]
+
+        # Loop through unique cluster IDs and calculate the RPJE
+        for j in np.unique(xmatched_cluster_IDs):
+            mask = xmatched_cluster_IDs == j
+
+            if j == 0:
+                N_i -= np.sum(mask) # Correct for the difference in subsamples used
+                continue  # Skip the case where the cluster ID is 0 (stars not in Hunt+2024)
+
+            # Probability mass of the Hunt+2024 cluster
+            P_j = H24_cluster_probability_sums[j - 1]  # j - 1 because Hunt+2024 cluster IDs start from 1
+
+            # Calculate the probability- and availability-aware intersection
+            M_ij = np.sum(H24_members_probs_subsample[cluster_members][mask])
+
+            recovery = M_ij / P_j # Recovery rate of the Hunt+2024 cluster by the AstroLink cluster
+            purity = M_ij / N_i # Purity of the AstroLink cluster with respect to the Hunt+2024 cluster
+            jaccard_index = M_ij / (N_i + P_j - M_ij) # Jaccard index for the cluster comparison
+            evidence = (N_i + H24_P_j_overlap_by_id[j - 1]) / (cluster_members.size + P_j)  # Evidence for the cluster comparison
+
+            # Store the results
+            if jaccard_index > RPJE[j - 1, 2]:  # Only store if the Jaccard index is higher than the current best
+                whichClusters[j - 1] = start, end  # Store the start and end of the best-match AstroLink cluster for the Hunt+2024 cluster index
+                RPJE[j - 1] = recovery, purity, jaccard_index, evidence  # Store the RPJE values
+
+    return whichClusters, RPJE
 
 def plot_comparison_results(overwrite=False):
     """
@@ -1653,7 +1912,6 @@ if __name__ == "__main__":
     # Construct input data to be passed to AstroLink
     calculate_distance_contraction_for_subsample()
     calculate_contracted_data_and_errors_for_subsample()
-    calculate_subspace_entropies_for_subsample()
     construct_cartesian_coordinates_for_subsample()
 
     # Apply AstroLink to subsample and plot of cluster properties

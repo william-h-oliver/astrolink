@@ -1563,24 +1563,27 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
 
 
 # === Compare clustering output to Hunt et al. 2024 ===
-def prepare_for_Hunt2024_comparison(overwrite=True):
+def prepare_for_Hunt2024_comparison(overwrite=False):
     """
     Prepare the data for comparison with Hunt et al. 2024.
     """
     # Check if files already exist
+    file_path_source_ids = os.path.join(CLUSTERING_PATH, "hunt24_source_ids.npy")
     file_path_members_mask = os.path.join(CLUSTERING_PATH, "hunt24_members_mask.npy")
     file_path_members_cluster_ids = os.path.join(CLUSTERING_PATH, "hunt24_members_cluster_ids.npy")
     file_path_members_probs = os.path.join(CLUSTERING_PATH, "hunt24_members_probs.npy")
     file_path_clusters_names = os.path.join(CLUSTERING_PATH, "hunt24_clusters_names.npy")
     file_path_clusters_types = os.path.join(CLUSTERING_PATH, "hunt24_clusters_types.npy")
     file_path_clusters_snr = os.path.join(CLUSTERING_PATH, "hunt24_clusters_snr.npy")
-    if (os.path.exists(file_path_members_mask) and
+    if (os.path.exists(file_path_source_ids) and
+        os.path.exists(file_path_members_mask) and
         os.path.exists(file_path_members_cluster_ids) and
         os.path.exists(file_path_members_probs) and
         os.path.exists(file_path_clusters_names) and
         os.path.exists(file_path_clusters_types) and
         os.path.exists(file_path_clusters_snr)) and not overwrite:
         print("Hunt et al. 2024 reduced data already exists at:")
+        print(f"\t{file_path_source_ids} ,")
         print(f"\t{file_path_members_mask} ,")
         print(f"\t{file_path_members_cluster_ids} ,")
         print(f"\t{file_path_members_probs} ,")
@@ -1615,62 +1618,22 @@ def prepare_for_Hunt2024_comparison(overwrite=True):
 
     # Save the cluster IDs and probabilities
     print("... saving member information")
+    H24_members_source_ids = df_members['GaiaDR3'].to_numpy()  # Source IDs of the members
     H24_members_cluster_ids = df_members["ID"].to_numpy()  # Cluster IDs
     H24_members_probs = df_members["Prob"].to_numpy()  # Membership probabilities
+    np.save(file_path_source_ids, H24_members_source_ids)  # Save source IDs
     np.save(file_path_members_cluster_ids, H24_members_cluster_ids)
     np.save(file_path_members_probs, H24_members_probs)
-    #del H24_members_cluster_ids, H24_members_probs  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Save the membership mask
-    print("... making membership mask")
-    H24_members_source_ids = df_members['GaiaDR3'].to_numpy()  # Source IDs of the members
-    del df_members  # Free memory
+    del df_members, H24_members_cluster_ids, H24_members_probs  # Free memory
     gc.collect()  # Force garbage collection
 
     # Load Gaia DR3 source_ids
-    print(H24_members_source_ids.shape)
-    unique_sids, counts = np.unique(H24_members_source_ids, return_counts=True)
-    print(f"... found {len(unique_sids)} unique source IDs in Hunt+2024 members.")
-    duplicates2 = []
-    probs2 = []
-    duplicates3 = []
-    probs3 = []
-    for i, idx in enumerate(np.where(counts > 1)[0]):
-        #print(f"\t... source ID {unique_sids[idx]} has {counts[idx]} occurrences in Hunt+2024 members.")
-        #print(f"\t... with probabilities: {H24_members_probs[H24_members_source_ids == unique_sids[idx]]}")
-        #print(f"\t... and cluster IDs: {H24_members_cluster_ids[H24_members_source_ids == unique_sids[idx]]}")
-
-        #print()
-        duplicate_cluster_ids = H24_members_cluster_ids[H24_members_source_ids == unique_sids[idx]]
-        if len(duplicate_cluster_ids) == 2:
-            duplicates2.append(duplicate_cluster_ids)
-            probs2.append(H24_members_probs[H24_members_source_ids == unique_sids[idx]])
-        elif len(duplicate_cluster_ids) == 3:
-            duplicates3.append(duplicate_cluster_ids)
-            probs3.append(H24_members_probs[H24_members_source_ids == unique_sids[idx]])
-    duplicates2 = np.array(duplicates2)  # Convert to numpy array
-    probs2 = np.array(probs2)  # Convert to numpy array
-    duplicates3 = np.array(duplicates3)  # Convert to numpy array
-    probs3 = np.array(probs3)  # Convert to numpy array
-    unique_duplicates2, counts2 = np.unique(duplicates2, return_counts=True, axis=0)
-    print(unique_duplicates2, counts2)
-    print(probs2[duplicates2 == unique_duplicates2[0]])
-
-    print(f"In 136: N = {np.sum(H24_members_cluster_ids == 136)}")
-    print(f"In 3509: N = {np.sum(H24_members_cluster_ids == 3509)}")
-
-    #unique_duplicates3, counts3 = np.unique(duplicates3, return_counts=True, axis=0)
-    #print(unique_duplicates3, counts3)
-    #print(probs3[duplicates3 == unique_duplicates3[0]])
-
-    a = np.array([0])
-    a[0] = np.array([0, 1])
-
+    print("... loading Gaia DR3 source IDs")
     gdr3_source_ids = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_source_ids.npy"))  # (N,)
 
+    # Save the membership mask
+    print("... making membership mask")
     indices = np.searchsorted(gdr3_source_ids, H24_members_source_ids) # Assumes gdr3_source_ids is sorted
-
     H24_members_mask = np.zeros_like(gdr3_source_ids, dtype=np.bool_)  # Create a mask of the same shape as gdr3_source_ids
     H24_members_mask[indices] = True  # Set the indices of the members to True
     del gdr3_source_ids, H24_members_source_ids, indices  # Free memory
@@ -1761,36 +1724,50 @@ def compare_to_Hunt2024(overwrite=False):
     # Load required arrays
     print("... loading required arrays for comparison")
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
+    H24_members_source_ids = np.load(os.path.join(CLUSTERING_PATH, "hunt24_source_ids.npy"))  # (N, 3)
     H24_members_mask = np.load(os.path.join(CLUSTERING_PATH, "hunt24_members_mask.npy"))  # (N,)
     H24_members_cluster_ids = np.load(os.path.join(CLUSTERING_PATH, "hunt24_members_cluster_ids.npy"))  # (N,)
     H24_members_probs = np.load(os.path.join(CLUSTERING_PATH, "hunt24_members_probs.npy"))  # (N,)
 
-    # Load the AstroLink clustering output
-    print("... loading AstroLink clustering output")
-    clusterer = io.loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
-    ordering = clusterer.ordering  # (N,)
+    # Get Hunt+2024 cluster IDs for this subsample (three columns since stars can be in up to 3 Hunt+2024 clusters)
+    print("... getting Hunt+2024 cluster IDs and membership probabilities for the subsample in this work")
+    H24_members_cluster_ids_gdr3 = np.zeros((H24_members_mask.size, 3), dtype=np.int64)  # (N,) Initialize with 0 since Hunt+2024 cluster IDs start from 1
+    H24_members_probs_gdr3 = np.zeros((H24_members_mask.size, 3), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
+    H24_members_mask_where = np.where(H24_members_mask)[0]  # Use indices of members in the full catalogue from now on to do efficient slicing/indexing
+    
+    # Assign first, second, and third cluster IDs / membership probabilities to each of the members
+    unique_H24_source_ids, indices, counts = np.unique(H24_members_source_ids, return_index=True, return_counts=True)
+    for num_count in [1, 2, 3]:
+        # Get the relative position of the members in the full catalogue for this count
+        num_count_bool = counts == num_count
 
-    # Get Hunt+2024 cluster IDs for this subsample
-    print("... getting Hunt+2024 cluster IDs for the subsample in this work")
-    print(H24_members_mask.sum(), "Hunt+2024 members in the subsample of this work")
-    print(H24_members_cluster_ids.shape)
-    H24_members_cluster_ids_gdr3 = np.zeros_like(H24_members_mask, dtype=np.int64)  # (N,) Initialize with 0 since Hunt+2024 cluster IDs start from 1
-    H24_members_cluster_ids_gdr3[H24_members_mask] = H24_members_cluster_ids  # Assign cluster IDs to members
+        # Get the cluster IDs and probabilities for the members with this count
+        if num_count == 1:
+            cluster_ids = H24_members_cluster_ids[indices[num_count_bool]][:, None]
+            members_probs = H24_members_probs[indices[num_count_bool]][:, None]
+        else:
+            cluster_ids = np.zeros((num_count_bool.sum(), num_count), dtype=np.int64)
+            members_probs = np.zeros((num_count_bool.sum(), num_count), dtype=np.float32)
+            for i, sid in enumerate(unique_H24_source_ids[num_count_bool]):
+                # Get the indices of the members with this source ID
+                source_id_match = np.where(H24_members_source_ids == sid)[0]
+
+                # Get the cluster IDs and probabilities for these members
+                cluster_ids[i] = H24_members_cluster_ids[source_id_match]
+                members_probs[i] = H24_members_probs[source_id_match]
+
+        # Assign the cluster IDs and probabilities to the members
+        H24_members_cluster_ids_gdr3[H24_members_mask_where[num_count_bool], :num_count] = cluster_ids
+        H24_members_probs_gdr3[H24_members_mask_where[num_count_bool], :num_count] = members_probs
+
     H24_members_cluster_ids_subsample = H24_members_cluster_ids_gdr3[subsample_mask]
-    del H24_members_cluster_ids_gdr3  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Get the membership probabilities for the Hunt+2024 clusters in this subsample
-    print("... getting Hunt+2024 membership probabilities for the subsample in this work")
-    H24_members_probs_gdr3 = np.zeros_like(H24_members_mask, dtype=np.float32)  # (N,) Initialize with 0
-    H24_members_probs_gdr3[H24_members_mask] = H24_members_probs  # Assign probabilities to members
     H24_members_probs_subsample = H24_members_probs_gdr3[subsample_mask]
-    del subsample_mask, H24_members_mask, H24_members_probs_gdr3  # Free memory
+    del subsample_mask, H24_members_source_ids, H24_members_mask, H24_members_cluster_ids_gdr3, H24_members_probs_gdr3  # Free memory
     gc.collect()  # Force garbage collection
 
     # Pre-compute the total sum of probabilities for each Hunt+2024 cluster
     print("... pre-computing the total sum of probabilities for each Hunt+2024 cluster")
-    max_H24_cluster_ID = H24_members_cluster_ids[-1]  # Maximum cluster ID in Hunt+2024
+    max_H24_cluster_ID = H24_members_cluster_ids[-1]
     H24_cluster_boundaries = np.searchsorted(H24_members_cluster_ids, np.arange(1, max_H24_cluster_ID + 1))  # (N_clusters,)
     H24_cluster_probability_sums = np.add.reduceat(H24_members_probs, H24_cluster_boundaries) # (N_clusters,)
     del H24_members_cluster_ids, H24_members_probs, H24_cluster_boundaries  # Free memory
@@ -1798,9 +1775,14 @@ def compare_to_Hunt2024(overwrite=False):
 
     # Pre-compute the sum of probabilities for each Hunt+2024 cluster in the overlap with the subsample
     print("... pre-computing the total sum of probabilities for each Hunt+2024 cluster in the subsample of this work")
-    H24_P_j_overlap_by_id = np.bincount(H24_members_cluster_ids_subsample.astype(np.int64),
-                                    weights=H24_members_probs_subsample.astype(np.float64),
+    H24_P_j_overlap_by_id = np.bincount(H24_members_cluster_ids_subsample,
+                                    weights=H24_members_probs_subsample,
                                     minlength=max_H24_cluster_ID + 1)[1:]  # (N_clusters,)
+
+    # Load the AstroLink clustering output
+    print("... loading AstroLink clustering output")
+    clusterer = io.loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
+    ordering = clusterer.ordering  # (N,)
     
     # Calculate the RPJE values for each significance level
     print("... calculating RPJE values for each significance level")

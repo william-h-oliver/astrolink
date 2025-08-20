@@ -73,7 +73,8 @@ SURVEY_SF_LOWER_LIMIT = 0.99 # Empirical survey selection function lower limit f
 SUBSAMPLE_RUWE_THRESHOLD = 1.2 # RUWE threshold for subsample stars
 HEALPIX_LEVEL = 12 # HEALPix level for on-sky plotting
 KNN_FOR_ASTROLINK = 10 # Number of nearest neighbors for AstroLink
-SIGMA_FOR_ASTROLINK = 4 # Sigma level for AstroLink
+SIGMA_FOR_ASTROLINK = 4 # Significance level for AstroLink
+SIGMA_THRESHOLDS_FOR_COMPARISONS = np.linspace(3, 10, 71)  # Significance levels from 3 to 10 to be used when comparing to existing cluster catalogues
 
 
 
@@ -1122,18 +1123,12 @@ def construct_cartesian_coordinates_for_subsample(overwrite=False):
 
     # Calculate scaling factor for positions
     alpha_pos = np.median(delta_pos)  # Calculate scaling factor
-    print(f"\t... scaling factor for positions: {alpha_pos:.3f}")
+    print(f"... scaling factor for positions: {alpha_pos:.3f}")
     positions /= alpha_pos  # Scale positions
-    
-    print("... balancing contracted velocities")
-    print(f"\t... median delta_vel: {median_delta_vel:.3f}")
-    print(f"\t... entropy power for velocities: {entropy_power_vel:.3f}")
-    print(f"\t... max entropy power for velocities: {max_entropy_power_vel:.3f}")
-    print(f"\t... relative entropy power for velocities: {rel_entropy_power_vel:.3f}")
 
     # Calculate scaling factor for velocities
     alpha_vel = np.median(delta_vel)  # Calculate scaling factor
-    print(f"\t... scaling factor for velocities: {alpha_vel:.3f}")
+    print(f"... scaling factor for velocities: {alpha_vel:.3f}")
     velocities /= alpha_vel  # Scale velocities
 
     # Concatenate positions and velocities to form Cartesian coordinates
@@ -1562,10 +1557,10 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
     print(f"... saved proper motions on sky plot to {file_proper_motions_on_sky_path}.\n")
 
 
-# === Compare clustering output to Hunt et al. 2024 ===
+# === Compare clustering output to Hunt & Reffert (2024) ===
 def prepare_for_Hunt2024_comparison(overwrite=False):
     """
-    Prepare the data for comparison with Hunt et al. 2024.
+    Prepare the data for comparison with Hunt & Reffert (2024).
     """
     # Check if files already exist
     file_path_source_ids = os.path.join(CLUSTERING_PATH, "hunt24_source_ids.npy")
@@ -1582,7 +1577,7 @@ def prepare_for_Hunt2024_comparison(overwrite=False):
         os.path.exists(file_path_clusters_names) and
         os.path.exists(file_path_clusters_types) and
         os.path.exists(file_path_clusters_snr)) and not overwrite:
-        print("Hunt et al. 2024 reduced data already exists at:")
+        print("Hunt & Reffert (2024) reduced data already exists at:")
         print(f"\t{file_path_source_ids} ,")
         print(f"\t{file_path_members_mask} ,")
         print(f"\t{file_path_members_cluster_ids} ,")
@@ -1592,7 +1587,7 @@ def prepare_for_Hunt2024_comparison(overwrite=False):
         print(f"\t{file_path_clusters_snr} .")
         print("Use overwrite=True to force recomputation.\n")
         return
-    print("Preparing data for comparison with Hunt et al. 2024...")
+    print("Preparing data for comparison with Hunt & Reffert (2024)...")
 
     # Read the clusters.dat.gz file
     print("... loading clusters.dat.gz data")
@@ -1704,7 +1699,7 @@ def load_cds_table(readme_path, data_path):
 
 def compare_to_Hunt2024(overwrite=False):
     """
-    Compare the clustering output to the Hunt et al. 2024.
+    Compare the clustering output to the Hunt & Reffert (2024).
     """
     # Check if comparison results already exist
     file_path_best_match_astrolink_clusters = os.path.join(CLUSTERING_PATH, "hunt24_best_match_astrolink_clusters.npy")
@@ -1713,13 +1708,13 @@ def compare_to_Hunt2024(overwrite=False):
     if (os.path.exists(file_path_cluster_rpje) and
         os.path.exists(file_path_best_match_astrolink_clusters) and
         os.path.exists(file_path_averaged_match_stats)) and not overwrite:
-        print("Hunt et al. 2024 comparison results already exist at:")
+        print("Hunt & Reffert (2024) comparison results already exist at:")
         print(f"\t{file_path_cluster_rpje} ,")
         print(f"\t{file_path_best_match_astrolink_clusters} , and")
         print(f"\t{file_path_averaged_match_stats} .")
         print("Use overwrite=True to force recomputation.\n")
         return
-    print("Comparing clustering output to Hunt et al. 2024...")
+    print("Comparing clustering output to Hunt & Reffert (2024)...")
 
     # Load required arrays
     print("... loading required arrays for comparison")
@@ -1745,7 +1740,7 @@ def compare_to_Hunt2024(overwrite=False):
         if num_count == 1:
             cluster_ids = H24_members_cluster_ids[indices[num_count_bool]][:, None]
             members_probs = H24_members_probs[indices[num_count_bool]][:, None]
-        else:
+        else: # There are not too many of these so what follows is efficient enough
             cluster_ids = np.zeros((num_count_bool.sum(), num_count), dtype=np.int64)
             members_probs = np.zeros((num_count_bool.sum(), num_count), dtype=np.float32)
             for i, sid in enumerate(unique_H24_source_ids[num_count_bool]):
@@ -1775,42 +1770,85 @@ def compare_to_Hunt2024(overwrite=False):
 
     # Pre-compute the sum of probabilities for each Hunt+2024 cluster in the overlap with the subsample
     print("... pre-computing the total sum of probabilities for each Hunt+2024 cluster in the subsample of this work")
-    H24_P_j_overlap_by_id = np.bincount(H24_members_cluster_ids_subsample,
-                                    weights=H24_members_probs_subsample,
-                                    minlength=max_H24_cluster_ID + 1)[1:]  # (N_clusters,)
+    H24_P_j_overlap_by_cluster_id = np.zeros(max_H24_cluster_ID, dtype=np.float32)  # (N_clusters,)
+    for i in range(3):  # Loop through the three columns of Hunt+2024 cluster IDs
+        H24_P_j_overlap_by_cluster_id += np.bincount(H24_members_cluster_ids_subsample[:, i],
+                                                weights=H24_members_probs_subsample[:, i],
+                                                minlength=max_H24_cluster_ID + 1)[1:]  # (N_clusters,)
 
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
     clusterer = io.loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
-    ordering = clusterer.ordering  # (N,)
     
     # Calculate the RPJE values for each significance level
-    print("... calculating RPJE values for each significance level")
-    significances = np.linspace(3, 10, 71)  # Significance levels from 3 to 10
-    whichClusters = -np.ones((significances.size, H24_cluster_probability_sums.size, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
-    RPJE = np.zeros((significances.size, H24_cluster_probability_sums.size, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
-    num_astrolink_clusters = np.zeros(significances.size, dtype=np.int64)  # Number of AstroLink clusters for each significance level
-    for k, significance in enumerate(significances):
+    print("... calculating recovery, purity, Jaccard-index, and evidence values at each significance level")
+    whichClusters = -np.ones((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, H24_cluster_probability_sums.size, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
+    RPJE = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, H24_cluster_probability_sums.size, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
+    num_astrolink_clusters = np.zeros(SIGMA_THRESHOLDS_FOR_COMPARISONS.size, dtype=np.int64)  # Number of AstroLink clusters for each significance level
+    for k, significance in enumerate(SIGMA_THRESHOLDS_FOR_COMPARISONS):
         clusterer.S = significance
         clusterer.extract_clusters()
 
-        num_astrolink_clusters[k] = len(clusterer.clusters) - 1  # Exclude the background cluster
+        num_astrolink_clusters[k] = clusterer.clusters.shape[0] - 1  # Exclude the background cluster
 
-        print(f"\t... comparing AstroLink clusters extracted at S={significance:.1f} to Hunt+2024 clusters     ", end='\r')
-        whichClusters[k], RPJE[k] = calculate_rpje(
-            clusterer.clusters,
-            ordering,
-            H24_members_cluster_ids_subsample,
-            H24_members_probs_subsample,
-            H24_cluster_probability_sums,
-            H24_P_j_overlap_by_id
-        )
-    del clusterer, ordering, H24_members_cluster_ids_subsample, H24_members_probs_subsample, \
-        H24_cluster_probability_sums, H24_P_j_overlap_by_id  # Free memory
+        # Cycle through the clusters in the AstroLink output
+        for i, (start, end) in enumerate(clusterer.clusters[1:]):
+            print(f"\t... comparing AstroLink cluster {i + 1} of {num_astrolink_clusters[k]} extracted at S={significance:.1f} to all Hunt+2024 clusters            ", end='\r')
+            # Get cluster members in the AstroLink output
+            astrolink_cluster_members = clusterer.ordering[start:end]
+
+            # Get Hunt+2024 cluster IDs for those members
+            xmatched_cluster_IDs = H24_members_cluster_ids_subsample[astrolink_cluster_members]
+
+            # Flatten IDs
+            ids_flat = xmatched_cluster_IDs.ravel()
+
+            # Handle "no cluster" ID
+            mask_valid = ids_flat > 0
+            ids_valid = ids_flat[mask_valid]
+
+            if ids_valid.size == 0:
+                continue  # No valid Hunt+2024 clusters to compare
+
+            # Get number of members in the AstroLink cluster adjusted for the overlap with all Hunt+2024 clusters
+            N_i = end - start - np.sum(xmatched_cluster_IDs[:, 0] == 0)
+            del xmatched_cluster_IDs, ids_flat  # Free memory
+            gc.collect()  # Force garbage collection
+
+            # If there are Hunt+2024 clusters to compare to the, similarly, get the valid Hunt+2024 probabilities
+            H24_probs_in_astrolink_cluster = H24_members_probs_subsample[astrolink_cluster_members]
+            probs_flat = H24_probs_in_astrolink_cluster.ravel()
+            probs_valid = probs_flat[mask_valid]
+            del astrolink_cluster_members, mask_valid, H24_probs_in_astrolink_cluster, probs_flat  # Free memory
+            gc.collect()  # Force garbage collection
+
+            # Vectorized grouping: unique IDs and their summed probabilities
+            unique_ids, inv = np.unique(ids_valid, return_inverse=True)
+            M_sums = np.bincount(inv, weights=probs_valid)
+            del ids_valid, probs_valid, inv  # Free memory
+            gc.collect()  # Force garbage collection
+
+            # Now loop only over *unique_ids* and their corresponding probability sums
+            calculate_rpje_for_astrolink_cluster_matches(
+                whichClusters,
+                RPJE,
+                k,
+                H24_cluster_probability_sums,
+                H24_P_j_overlap_by_cluster_id,
+                unique_ids,
+                M_sums,
+                N_i,
+                start,
+                end
+            )
+            del unique_ids, M_sums  # Free memory
+            gc.collect()  # Force garbage collection
+    
+    del clusterer, H24_members_cluster_ids_subsample, H24_members_probs_subsample, H24_cluster_probability_sums, H24_P_j_overlap_by_cluster_id  # Free memory
     gc.collect()  # Force garbage collection
 
     # Save the results
-    print("... saving comparison results.\n")
+    print("... saving comparison results.                                                                                                                                   \n")
     np.save(file_path_best_match_astrolink_clusters, whichClusters)
     np.save(file_path_cluster_rpje, RPJE)
     np.save(file_path_number_of_astrolink_clusters_per_sig, num_astrolink_clusters)
@@ -1818,53 +1856,98 @@ def compare_to_Hunt2024(overwrite=False):
     gc.collect()  # Force garbage collection
 
 @njit()
-def calculate_rpje(astrolink_clusters, ordering, H24_members_cluster_ids_subsample, H24_members_probs_subsample, H24_cluster_probability_sums, H24_P_j_overlap_by_id):
-    # Store the results
-    whichClusters = -np.ones((H24_cluster_probability_sums.size, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
-    RPJE = np.zeros((H24_cluster_probability_sums.size, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
+def calculate_rpje_for_astrolink_cluster_matches(
+        whichClusters,
+        RPJE,
+        k,
+        H24_cluster_probability_sums,
+        H24_P_j_overlap_by_cluster_id,
+        unique_ids,
+        M_sums,
+        N_i,
+        start,
+        end
+    ):
+    # Loop only over *unique_ids* and their corresponding probability sums
+    for j, M_ij in zip(unique_ids, M_sums):
+        # Probability mass of the Hunt+2024 cluster
+        P_j = H24_cluster_probability_sums[j - 1]  # cluster IDs start from 1
 
-    # Cycle through the clusters in the AstroLink output
-    for i, (start, end) in enumerate(astrolink_clusters[1:]):
-        # Get cluster members in the AstroLink output
-        cluster_members = ordering[start:end]
-        N_i = cluster_members.size
+        # Calculate the RPJE values
+        recovery = M_ij / P_j
+        purity = M_ij / N_i
+        jaccard_index = M_ij / (N_i + P_j - M_ij)
+        evidence = (N_i + H24_P_j_overlap_by_cluster_id[j - 1]) / (end - start + P_j)
 
-        # Get the Hunt+2024 cluster IDs of the AstroLink cluster members
-        xmatched_cluster_IDs = H24_members_cluster_ids_subsample[cluster_members]
+        # Store results if this is the best match so far
+        if jaccard_index > RPJE[k, j - 1, 2]:
+            whichClusters[k, j - 1] = start, end
+            RPJE[k, j - 1] = recovery, purity, jaccard_index, evidence
 
-        # Loop through unique cluster IDs and calculate the RPJE
-        for j in np.unique(xmatched_cluster_IDs):
-            mask = xmatched_cluster_IDs == j
-
-            if j == 0:
-                N_i -= np.sum(mask) # Correct for the difference in subsamples used
-                continue  # Skip the case where the cluster ID is 0 (stars not in Hunt+2024)
-
-            # Probability mass of the Hunt+2024 cluster
-            P_j = H24_cluster_probability_sums[j - 1]  # j - 1 because Hunt+2024 cluster IDs start from 1
-
-            # Calculate the probability- and availability-aware intersection
-            M_ij = np.sum(H24_members_probs_subsample[cluster_members][mask])
-
-            recovery = M_ij / P_j # Recovery rate of the Hunt+2024 cluster by the AstroLink cluster
-            purity = M_ij / N_i # Purity of the AstroLink cluster with respect to the Hunt+2024 cluster
-            jaccard_index = M_ij / (N_i + P_j - M_ij) # Jaccard index for the cluster comparison
-            evidence = (N_i + H24_P_j_overlap_by_id[j - 1]) / (cluster_members.size + P_j)  # Evidence for the cluster comparison
-
-            # Store the results
-            if jaccard_index > RPJE[j - 1, 2]:  # Only store if the Jaccard index is higher than the current best
-                whichClusters[j - 1] = start, end  # Store the start and end of the best-match AstroLink cluster for the Hunt+2024 cluster index
-                RPJE[j - 1] = recovery, purity, jaccard_index, evidence  # Store the RPJE values
-
-    return whichClusters, RPJE
-
-def plot_comparison_results(overwrite=False):
+def plot_evidence_weighted_comparison_results(overwrite=False):
     """
-    Plot the results of the comparison between clustering output and ground truth.
+    Plot the results of the comparison between clustering output and Hunt & Reffert (2024).
     """
-    # Placeholder for actual implementation
-    print(f"Placeholder for plotting comparison results from {CLUSTERING_PATH}.\n")
-    # Actual code would go here
+    # Check if plot already exists
+    file_path = os.path.join(FIGURES_PATH, "Hunt2024_evidence_weighted_comparison_results.png")
+    if os.path.exists(file_path) and not overwrite:
+        print(f"Hunt & Reffert (2024) evidence-weighted comparison results plot already exists at:\n\t{file_path} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting Hunt & Reffert (2024) evidence-weighted comparison results...")
+
+    # Load the comparison results
+    print("... loading comparison results")
+    RPJE = np.load(os.path.join(CLUSTERING_PATH, "hunt24_rpje.npy"))  # (N_sigmas, N_clusters, 4)
+    #num_astrolink_clusters = np.load(os.path.join(CLUSTERING_PATH, "number_of_astrolink_clusters.npy"))  # (N_sigmas,)
+
+    # Load the Hunt & Reffert (2024) cluster types
+    print("... loading Hunt & Reffert (2024) cluster types")
+    H24_cluster_types = np.load(os.path.join(CLUSTERING_PATH, "hunt24_cluster_types.npy"))  # (N_clusters,)
+
+    # Weight the recovery, purity, and Jaccard index by the evidence
+    print("... weighting the recovery, purity, and Jaccard index by the evidence")
+    RPJE[..., 0] *= RPJE[..., 3]  # Weighted recovery
+    RPJE[..., 1] *= RPJE[..., 3]  # Weighted purity
+    RPJE[..., 2] *= RPJE[..., 3]  # Weighted Jaccard index
+
+    # Make figure
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Plot the recovery, purity, and Jaccard index for each significance level
+    print("... plotting the recovery, purity, and Jaccard index vs significance level for all clusters")
+    sum_of_evidence_weights = np.sum(RPJE[..., 3], axis=1)  # Sum of evidence weights for each significance level
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+            np.sum(RPJE[..., 0], axis=1) / sum_of_evidence_weights,
+            color="k", linestyle='dotted', linewidth=1.5)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+            np.sum(RPJE[..., 1], axis=1) / sum_of_evidence_weights,
+            color="k", linestyle='dashed', linewidth=1.5)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+            np.sum(RPJE[..., 2], axis=1) / sum_of_evidence_weights,
+            color="k", linestyle='solid', linewidth=1.5)
+    
+    # Plot the recovery, purity, and Jaccard index for each significance level for each cluster type
+    print("... plotting the recovery, purity, and Jaccard index vs significance level for each cluster type")
+    unique_types = np.unique(H24_cluster_types)
+    for cluster_type, type_colour in zip(['o', 'm', 'g', 'd', 'r'], ['C0', 'C1', 'C2', 'C3', 'C4']):
+        mask = H24_cluster_types == cluster_type
+        sum_of_evidence_weights = np.sum(RPJE[:, mask, 3], axis=1)
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+                np.sum(RPJE[:, mask, 0], axis=1) / sum_of_evidence_weights,
+                color=type_colour, linestyle='dotted', linewidth=0.5, alpha=0.75)
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+                np.sum(RPJE[:, mask, 1], axis=1) / sum_of_evidence_weights,
+                color=type_colour, linestyle='dashed', linewidth=0.5, alpha=0.75)
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+                np.sum(RPJE[:, mask, 2], axis=1) / sum_of_evidence_weights,
+                color=type_colour, linestyle='solid', linewidth=0.5, alpha=0.75)
+
+    ax.set_xlabel("Significance Level")
+    ax.set_ylabel("Comparison Statistic")
+    plt.tight_layout()
+    plt.savefig(file_path)
+    plt.close(fig)
 
 
 # === Run script ===
@@ -1903,7 +1986,7 @@ if __name__ == "__main__":
     plot_cluster_labels_on_sky()
     plot_cluster_proper_motions_on_sky()
 
-    # Compare clustering output to Hunt et al. 2024
+    # Compare clustering output to Hunt & Reffert (2024)
     prepare_for_Hunt2024_comparison()
     compare_to_Hunt2024()
     plot_comparison_results()

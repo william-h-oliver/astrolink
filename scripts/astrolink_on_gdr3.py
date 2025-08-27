@@ -66,7 +66,7 @@ CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to Astr
 FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
-WORKING_MEMORY = get_config()["working_memory"] / 4  # Default is 1GB, but can be set to a higher value in sklearn config
+WORKING_MEMORY = get_config()["working_memory"] / 2  # Default is 1GB, but can be set to a higher value in sklearn config
 
 # Pipeline constants
 KNN_FOR_SELECTION_FUNCTION = 64 # Number of nearest neighbors for selection function calculations
@@ -312,6 +312,7 @@ def calculate_empirical_survey_selection_function(overwrite=True):
     print("... identifying valid G-band magnitudes and astrometric matched transits")
     valid_gmag = np.isfinite(G_band_magnitudes)
     valid_for_kNN = np.where(valid_gmag & (astrometric_matched_transits < 11))[0]  # Indices of stars with valid G-band magnitudes and <11 astrometric matched transits
+    valid_for_kNN = valid_for_kNN.astype(np.int32)
     del astrometric_matched_transits  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -339,7 +340,7 @@ def calculate_empirical_survey_selection_function(overwrite=True):
     tree = KDTree(xyz_stars[valid_for_kNN])
 
     # Batching for memory efficiency
-    chunk_n_rows = max(min(int(WORKING_MEMORY * (2**20) // 16*KNN_FOR_SELECTION_FUNCTION), n), 1)
+    chunk_n_rows = min(int(WORKING_MEMORY * (2**20) // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
     batches = list(gen_batches(n, chunk_n_rows))
     num_batches = len(batches)
 
@@ -347,14 +348,14 @@ def calculate_empirical_survey_selection_function(overwrite=True):
     for i, sl in enumerate(batches):
         print(f"... computing m10 values for each star -- batch {i + 1} of {num_batches}")
         # k-nearest neighbours query
-        _, idx = tree.query(xyz_stars[sl], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
+        sqr_dists, idx = tree.query(xyz_stars[sl], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
+        del sqr_dists  # Free memory
+        gc.collect()  # Force garbage collection
 
         # Median G-band magnitude of neighbors
         m10_stars[sl] = np.median(G_band_magnitudes[valid_for_kNN[idx]], axis=1)
-
-        # Delete temporary variables to free memory
-        del _, idx
-        gc.collect()
+        del idx  # Free memory
+        gc.collect()  # Force garbage collection
 
     # Save m10 values for stars
     print(f"... saving m10 values for stars to {file_path_m10_stars} (shape: {m10_stars.shape})")
@@ -397,7 +398,7 @@ def calculate_empirical_survey_selection_function(overwrite=True):
 
     # Update chunking for HEALPix
     print("... updating chunk size for HEALPix pixels")
-    chunk_n_rows = max(min(int(WORKING_MEMORY * (2**20) // 16*KNN_FOR_SELECTION_FUNCTION), npix), 1)
+    chunk_n_rows = min(int(WORKING_MEMORY * (2**20) // (16 * KNN_FOR_SELECTION_FUNCTION)), npix)
     batches = list(gen_batches(npix, chunk_n_rows))
     num_batches = len(batches)
 
@@ -615,7 +616,7 @@ def calculate_subsample_selection_function(overwrite=True):
     gc.collect()  # Force garbage collection
 
     # Batching for memory efficiency
-    chunk_n_rows = max(min(int(WORKING_MEMORY * (2**20) // 16*KNN_FOR_SELECTION_FUNCTION), n), 1)
+    chunk_n_rows = min(int(WORKING_MEMORY * (2**20) // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
     batches = list(gen_batches(n, chunk_n_rows))
     num_batches = len(batches)
 
@@ -711,7 +712,7 @@ def calculate_total_selection_function_for_subsample(overwrite=True):
     tree = KDTree(xyz_stars) # Build KDTree with all stars with valid G-band magnitudes
 
     # Batching for memory efficiency
-    chunk_n_rows = max(min(int(WORKING_MEMORY * (2**20) // 16*KNN_FOR_SELECTION_FUNCTION), n), 1)
+    chunk_n_rows = min(int(WORKING_MEMORY * (2**20) // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
     batches = list(gen_batches(n, chunk_n_rows))
     num_batches = len(batches)
 
@@ -781,7 +782,7 @@ def calculate_total_selection_function_for_subsample(overwrite=True):
 
     # Update chunking for HEALPix
     print("... updating chunk size for HEALPix pixels")
-    chunk_n_rows = max(min(int(WORKING_MEMORY * (2**20) // 16*KNN_FOR_SELECTION_FUNCTION), npix), 1)
+    chunk_n_rows = min(int(WORKING_MEMORY * (2**20) // (16 * KNN_FOR_SELECTION_FUNCTION)), npix)
     batches = list(gen_batches(npix, chunk_n_rows))
     num_batches = len(batches)
 

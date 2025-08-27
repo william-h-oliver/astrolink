@@ -271,7 +271,7 @@ class AstroLink:
 
         # Chunking for memory efficiency
         working_memory = get_config()["working_memory"]
-        chunk_n_rows = max(min(int(working_memory * (2**20) // 16*self.k_den), self.n_samples), 1)
+        chunk_n_rows = max(min(int(working_memory * (2**20) // (16*self.k_den)), self.n_samples), 1)
 
         # Estimate densities and find kNN in a memory efficient way
         for sl in gen_batches(self.n_samples, chunk_n_rows):

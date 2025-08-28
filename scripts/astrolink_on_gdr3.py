@@ -66,10 +66,10 @@ CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to Astr
 FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
-WORKING_MEMORY = get_config()["working_memory"] / 2  # Default is 1GB, but can be set to a higher value in sklearn config
+WORKING_MEMORY = get_config()["working_memory"]  # Default is 1GB, but can be set to a higher value in sklearn config
 
 # Pipeline constants
-KNN_FOR_SELECTION_FUNCTION = 64 # Number of nearest neighbors for selection function calculations
+KNN_FOR_SELECTION_FUNCTION = 32 # Number of nearest neighbors for selection function calculations
 SURVEY_SF_LOWER_LIMIT = 0.99 # Empirical survey selection function lower limit for subsample stars
 SUBSAMPLE_RUWE_THRESHOLD = 1.2 # RUWE threshold for subsample stars
 HEALPIX_LEVEL = 12 # HEALPix level for on-sky plotting
@@ -679,7 +679,7 @@ def calculate_total_selection_function_for_subsample(overwrite=True):
     gc.collect()  # Force garbage collection
 
     # Calculate the inverse of the empirical survey selection function for the subsample
-    inverse_survey_sf = 1 / np.sqrt(survey_sf[valid_gmag]**2 + 1 / KNN_FOR_SELECTION_FUNCTION**2)  # Avoids diverging values and stops the total selection function from being unreasonably small
+    inverse_survey_sf = 1 / np.sqrt(survey_sf[valid_gmag]**2 + 1 / KNN_FOR_ASTROLINK**2)  # Avoids diverging values and stops the total selection function from being unreasonably small
     del survey_sf  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -718,27 +718,31 @@ def calculate_total_selection_function_for_subsample(overwrite=True):
 
     # Initialize total selection function array for stars in the subsample
     print("... initializing total selection function arrays for stars in the subsample")
-    nsub = np.empty(n)
-    nmw = np.empty(n)
-    total_sf_mean = np.empty(n)
-    total_sf_var = np.empty(n)
+    nsub = np.full_like(valid_gmag, fill_value=np.nan, dtype=np.float64)
+    nmw = np.full_like(valid_gmag, fill_value=np.nan, dtype=np.float64)
+    total_sf_mean = np.full_like(valid_gmag, fill_value=np.nan, dtype=np.float64)
+    total_sf_var = np.full_like(valid_gmag, fill_value=np.nan, dtype=np.float64)
+    valid_gmag = np.where(valid_gmag)[0]  # Indices of stars with valid G-band magnitudes
 
     # Compute total selection function for each star in the subsample
     for i, sl in enumerate(batches):
-        print(f"... computing total selection function for each star in subsample -- batch {i + 1} of {num_batches}")
+        print(f"... computing total selection function for each star in subsample -- batch {i + 1} of {num_batches}   ", end='\r')
         # k-nearest neighbours query
-        _, idx = tree.query(xyz_stars[sl], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
+        sqr_dists, idx = tree.query(xyz_stars[sl], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
+        del sqr_dists  # Free memory
+        gc.collect()  # Force garbage collection
 
         # Total selection function is the posterior distribution Beta(n_sub + 1, n_mw - n_sub + 1)
         nsub_batch = subsample_sf[idx].sum(axis=1)
         nmw_batch = inverse_survey_sf[idx].sum(axis=1)
-        nsub[sl] = nsub_batch
-        nmw[sl] = nmw_batch
-        total_sf_mean[sl] = (nsub_batch + 1) / (nmw_batch + 2)  # Mean of selection function for stars in subsample
-        total_sf_var[sl] = (nsub_batch + 1) * (nmw_batch - nsub_batch + 1) / ((nmw_batch + 2)**2 * (nmw_batch + 3))  # Variance of selection function for stars in subsample
+        valid_slice = valid_gmag[sl]
+        nsub[valid_slice] = nsub_batch
+        nmw[valid_slice] = nmw_batch
+        total_sf_mean[valid_slice] = (nsub_batch + 1) / (nmw_batch + 2)  # Mean of selection function for stars in subsample
+        total_sf_var[valid_slice] = (nsub_batch + 1) * (nmw_batch - nsub_batch + 1) / ((nmw_batch + 2)**2 * (nmw_batch + 3))  # Variance of selection function for stars in subsample
 
         # Delete temporary variables to free memory
-        del _, idx, nsub_batch, nmw_batch
+        del idx, nsub_batch, nmw_batch
         gc.collect()
     print(f"... range of expected number of neighbours in subsample: {nsub.min():.3f} -- {nsub.max():.3f}")
     print(f"... range of expected number of neighbours in Milky Way: {nmw.min():.3f} -- {nmw.max():.3f}")
@@ -747,10 +751,10 @@ def calculate_total_selection_function_for_subsample(overwrite=True):
 
     # Save total selection function arrays for stars
     print(f"... saving total selection function arrays for stars to:")
-    print(f"\t{file_nsub},")
-    print(f"\t{file_nmw},")
-    print(f"\t{file_total_sf_mean}, and")
-    print(f"\t{file_total_sf_var}\n")
+    print(f"\t{file_nsub} ,")
+    print(f"\t{file_nmw} ,")
+    print(f"\t{file_total_sf_mean} , and")
+    print(f"\t{file_total_sf_var} .")
     np.save(file_nsub, nsub)
     np.save(file_nmw, nmw)
     np.save(file_total_sf_mean, total_sf_mean)
@@ -760,7 +764,7 @@ def calculate_total_selection_function_for_subsample(overwrite=True):
     gc.collect()  # Force garbage collection
 
     # Also calculate the total selection function values at the centre of each HEALPix pixel for plotting
-    print("Calculating total selection function for HEALPix pixels...")
+    print("... calculating total selection function for HEALPix pixels")
     nside = 2**HEALPIX_LEVEL
     npix = hp.nside2npix(nside)
 
@@ -793,7 +797,7 @@ def calculate_total_selection_function_for_subsample(overwrite=True):
 
     # Compute m10 for each HEALPix pixel as median G of neighbors with <11 transits
     for i, sl in enumerate(batches):
-        print(f"... computing total selection function for HEALPix pixels -- batch {i + 1} of {num_batches}")
+        print(f"... computing total selection function for HEALPix pixels -- batch {i + 1} of {num_batches}   ", end='\r')
         # k-nearest neighbours query
         _, idx = tree.query(xyz_healpix[sl], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
 
@@ -812,8 +816,8 @@ def calculate_total_selection_function_for_subsample(overwrite=True):
 
     # Save total selection function arrays for healpix pixels
     print(f"... saving total selection function arrays for HEALPix pixels to:")
-    print(f"\t{file_total_sf_mean_healpix}, and")
-    print(f"\t{file_total_sf_var_healpix}.\n")
+    print(f"\t{file_total_sf_mean_healpix} , and")
+    print(f"\t{file_total_sf_var_healpix} .\n")
     np.save(file_total_sf_mean_healpix, total_sf_mean_healpix)
     np.save(file_total_sf_var_healpix, total_sf_var_healpix)
     del total_sf_mean_healpix, total_sf_var_healpix  # Free memory

@@ -38,7 +38,7 @@ from astropy.table import Table # Works using v6.1.3, but v7.1.0 seems to try an
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from gaiaunlimited.selectionfunctions import m10_to_completeness
-import galstreams
+import galstreams # Also needs astropy==6.1.3 as well as gala==1.10.1
 
 # Plotting imports
 import matplotlib.pyplot as plt
@@ -48,9 +48,7 @@ import healpy as hp
 from healpy.newvisufunc import projview, newprojplot
 
 # AstroLink imports
-from astrolink import AstroLink
-from astrolink import io
-from astrolink import visualize
+from astrolink import AstroLink, io ,visualize
 
 
 # === Define script configuration ===
@@ -2374,7 +2372,7 @@ def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
 
 
 # === Compare clustering output to galstreams ===
-def compare_to_galstreams(overwrite=False):
+def compare_to_galstreams(overwrite=True):
     """
     Compare the clustering output to the galstreams catalogue.
     """
@@ -2451,7 +2449,7 @@ def compare_to_galstreams(overwrite=False):
         chi2 = (((phi2 - interp_phi2) / width_phi2)**2).to_value(1)
 
         # Proper motions (if available for stream and stars)
-        if stream.has_pm:
+        if mws.summary.loc[stream_track_name, 'has_pm']:
             # Mask for the stars with proper motions
             pm_mask = np.isfinite(stream_stars.pm_phi1_cosphi2)
             stream_stars_with_pm = stream_stars[pm_mask]
@@ -2473,7 +2471,7 @@ def compare_to_galstreams(overwrite=False):
             chi2 += (((pm_phi2 - track_pm2) / width_pm_phi2)**2).to_value(1)
 
         # Distance (if available)
-        if stream.has_dist:
+        if False: #mws.summary.loc[stream_track_name, 'has_D']:
             # Mask for the stars with distances
             dist_mask = np.isfinite(stars_in_stream.distance)
             stars_in_stream_with_dist = stars_in_stream[dist_mask]
@@ -2602,3 +2600,6 @@ if __name__ == "__main__":
     prepare_for_UCC_comparison()
     compare_to_UCC()
     plot_evidence_weighted_UCC_comparison_results()
+
+    # Compare to galstreams catalogue
+    compare_to_galstreams()

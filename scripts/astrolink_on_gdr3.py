@@ -34,11 +34,11 @@ from pykdtree.kdtree import KDTree
 from sklearn.utils import gen_batches
 
 # Astro-specific imports
-from astropy.table import Table # Works using v6.1.3, but v7.1.0 seems to try and convert 'null' values to float before using fill_values
+from astropy.table import Table # Works using v6.1.2, but v7.1.0 seems to try and convert 'null' values to float before using fill_values
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from gaiaunlimited.selectionfunctions import m10_to_completeness
-import galstreams # Also needs astropy==6.1.3 as well as gala==1.10.1
+import galstreams # Also needs astropy==6.1.2 as well as gala==1.9.1
 
 # Plotting imports
 import matplotlib.pyplot as plt
@@ -1560,7 +1560,7 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
 
 
 # === Define methods for calculating comparison statistics ===
-def to_shm(arr, dtype):
+def arr_to_shared_memory(arr, dtype):
     shm = shared_memory.SharedMemory(create=True, size=arr.nbytes)
     shm_arr = np.ndarray(arr.shape, dtype=dtype, buffer=shm.buf)
     np.copyto(shm_arr, arr)
@@ -1882,9 +1882,9 @@ def compare_to_Hunt2024(overwrite=False):
 
     # Put large arrays into shared memory
     print("... putting large arrays into shared memory")
-    shm_ids, shape_ids, dtype_ids = to_shm(H24_members_cluster_ids_subsample, np.int64)
-    shm_probs, shape_probs, dtype_probs = to_shm(H24_members_probs_subsample, np.float32)
-    shm_ordering, shape_ordering, dtype_ordering = to_shm(ordering, ordering.dtype.type)
+    shm_ids, shape_ids, dtype_ids = arr_to_shared_memory(H24_members_cluster_ids_subsample, np.int64)
+    shm_probs, shape_probs, dtype_probs = arr_to_shared_memory(H24_members_probs_subsample, np.float32)
+    shm_ordering, shape_ordering, dtype_ordering = arr_to_shared_memory(ordering, ordering.dtype.type)
     
     # Calculate the RPJE values for each significance level
     whichClusters = -np.ones((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, H24_cluster_probability_sums_total.size, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
@@ -2216,9 +2216,9 @@ def compare_to_UCC(overwrite=False):
     
     # Put large arrays into shared memory
     print("... putting large arrays into shared memory")
-    shm_ids, shape_ids, dtype_ids = to_shm(UCC_members_cluster_ids_subsample, np.int64)
-    shm_probs, shape_probs, dtype_probs = to_shm(UCC_members_probs_subsample, np.float32)
-    shm_ordering, shape_ordering, dtype_ordering = to_shm(ordering, ordering.dtype.type)
+    shm_ids, shape_ids, dtype_ids = arr_to_shared_memory(UCC_members_cluster_ids_subsample, np.int64)
+    shm_probs, shape_probs, dtype_probs = arr_to_shared_memory(UCC_members_probs_subsample, np.float32)
+    shm_ordering, shape_ordering, dtype_ordering = arr_to_shared_memory(ordering, ordering.dtype.type)
     
     # Calculate the RPJE values for each significance level
     whichClusters = -np.ones((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, UCC_cluster_probability_sums_total.size, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
@@ -2415,7 +2415,7 @@ def compare_to_galstreams(overwrite=True):
     del ra, dec, mu_ra, mu_dec, r_med_geo  # Free memory
     gc.collect()   # Force garbage collection
 
-    # Get MWStreams object from galstreams : NEEDS astropy==6.0.1 and maybe also gala==1.10.1
+    # Get MWStreams object from galstreams
     print('... creating MWStreams object')
     mws = galstreams.MWStreams(print_topcat_friendly_files=False)
 
@@ -2425,8 +2425,8 @@ def compare_to_galstreams(overwrite=True):
     galstreams_members_probs_gdr3 = np.zeros((subsample_mask.size, 1), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
     for i, (stream_track_name, stream) in enumerate(mws.items()):
         print(f'... calculating membership probabilities for stream {i + 1}/{len(mws)}: {stream_track_name}                   ', end='\r')
-        if not stream.has_footprint:
-            continue
+        #if not stream.has_footprint:
+        #    continue
 
         # Make mask for which stars are in the footprint
         in_footprint_mask = stream.get_mask_in_poly_footprint(all_star_sky_coordinates)
@@ -2495,7 +2495,7 @@ def compare_to_galstreams(overwrite=True):
 
     # Put large arrays into shared memory
     print("... putting large arrays into shared memory")
-    shm_ordering, shape_ordering, dtype_ordering = to_shm(ordering, ordering.dtype.type)
+    shm_ordering, shape_ordering, dtype_ordering = arr_to_shared_memory(ordering, ordering.dtype.type)
 
     # Initialize arrays to save comparison results
     galstream_stream_purities = np.empty(shape_galcoords, dtype=np.float32)

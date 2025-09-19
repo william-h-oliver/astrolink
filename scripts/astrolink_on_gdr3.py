@@ -2553,7 +2553,7 @@ def prepare_for_galstreams_comparison(overwrite=True):
         # Convert chi2 to probability measure
         probs = np.exp(-0.5 * chi2)
 
-        # Keep only stars with probability > 0.1
+        # Keep only stars with sigma < 3 (i.e. probability > exp(-0.5 * 3^2) ~ 0.011)
         prob_mask = probs > np.exp(-0.5 * 3.0**2)
         if not prob_mask.any():
             continue

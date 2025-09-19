@@ -23,6 +23,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import shared_memory
 import re
 from pathlib import Path
+import contextlib
 
 # Third-party imports
 import numpy as np
@@ -1655,7 +1656,12 @@ def calculate_rpje_for_astrolink_cluster_matches(
 
     return RPJE
 
-
+@contextlib.contextmanager
+def printout_suppressor():
+    with open(os.devnull, 'w') as fnull:
+        with contextlib.redirect_stdout(fnull), contextlib.redirect_stderr(fnull):
+            yield
+            
 # === Compare clustering output to Hunt & Reffert (2024) ===
 def prepare_for_Hunt2024_comparison(overwrite=False):
     """
@@ -2372,52 +2378,43 @@ def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
 
 
 # === Compare clustering output to galstreams ===
-def compare_to_galstreams(overwrite=True):
+def prepare_for_galstreams_comparison(overwrite=True):
     """
-    Compare the clustering output to the galstreams catalogue.
+    Prepare the data for comparison with the galstreams catalogue.
     """
-    # Check if comparison results already exist
-    file_path_stream_name = os.path.join(CLUSTERING_PATH, 'galstreams_stream_names.npy')
-    file_path_stream_purity = os.path.join(CLUSTERING_PATH, 'galstreams_stream_purities.npy')
-    file_path_best_match_astrolink_clusters = os.path.join(CLUSTERING_PATH, 'galstreams_best_match_astrolink_clusters.npy')
+    # Check if files already exist
+    file_path_galstreams_members_streams_ids_subsample = os.path.join(CLUSTERING_PATH, "galstreams_members_streams_ids_subsample.npy")
+    file_path_galstreams_members_probs_subsample = os.path.join(CLUSTERING_PATH, "galstreams_members_probs_subsample.npy")
+    file_path_galstreams_streams_probability_sums_total = os.path.join(CLUSTERING_PATH, "galstreams_streams_probability_sums_total.npy")
+    file_path_galstreams_streams_probability_sums_overlap = os.path.join(CLUSTERING_PATH, "galstreams_streams_probability_sums_overlap.npy")
 
-    # Skip processing if comparison results already exist
-    all_exist = all(
-        os.path.exists(p)
-        for p in [file_path_stream_name, file_path_stream_purity, file_path_best_match_astrolink_clusters]
-    )
+    # Skip processing if all merged output files already exist
+    all_exist = (os.path.exists(file_path_galstreams_members_streams_ids_subsample) and
+                  os.path.exists(file_path_galstreams_members_probs_subsample) and
+                  os.path.exists(file_path_galstreams_streams_probability_sums_total) and
+                  os.path.exists(file_path_galstreams_streams_probability_sums_overlap))
     if all_exist and not overwrite:
-        print("galstreams comparison results already exist at:")
-        print(f"\t{file_path_stream_name} ,")
-        print(f"\t{file_path_stream_purity} , and")
-        print(f"\t{file_path_best_match_astrolink_clusters} .")
+        print("Galstreams reduced data already exists at:")
+        print(f"\t{file_path_galstreams_members_streams_ids_subsample} ,")
+        print(f"\t{file_path_galstreams_members_probs_subsample} ,")
+        print(f"\t{file_path_galstreams_streams_probability_sums_total} , and")
+        print(f"\t{file_path_galstreams_streams_probability_sums_overlap} .")
         print("Use overwrite=True to force recomputation.\n")
         return
-    print("Comparing clustering output to the galstreams catalogue...")
+    print("Preparing data for comparison with the galstreams catalogue...")
 
     # Load required arrays
     print('... loading required arrays')
+    source_ids = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_source_ids.npy"))  # (N_gdr3,)
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, 'subsample_mask.npy'))  # (N_gdr3,)
     ra, dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy")).T  # Each (N_gdr3,) in degrees
     mu_ra, mu_dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy")).T  # Each (N_gdr3,) in mas/yr
     r_med_geo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_geo.npy"))  # (N_gdr3,) in pc
-    
-    # Make SkyCoord object
-    print('... creating SkyCoord object from GDR3 stars')
-    all_star_sky_coordinates = SkyCoord(
-        ra=ra * u.deg,
-        dec=dec * u.deg,
-        pm_ra_cosdec=mu_ra * np.cos(np.deg2rad(dec)) * u.mas / u.yr,
-        pm_dec=mu_dec * u.mas / u.yr,
-        distance=r_med_geo * u.pc,
-        frame='icrs'
-    )
-    del ra, dec, mu_ra, mu_dec, r_med_geo  # Free memory
-    gc.collect()   # Force garbage collection
 
     # Get MWStreams object from galstreams
     print('... creating MWStreams object')
-    mws = galstreams.MWStreams(print_topcat_friendly_files=False)
+    with printout_suppressor():  # Suppress the printout from galstreams
+        mws = galstreams.MWStreams(print_topcat_friendly_files=False)
 
     # Cycle through each stream, find which stars are in its footprint, and then compute stream membership probability with the information available
     max_galstream_cluster_ID = len(mws) - 1
@@ -2425,68 +2422,226 @@ def compare_to_galstreams(overwrite=True):
     galstreams_members_probs_gdr3 = np.zeros((subsample_mask.size, 1), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
     for i, (stream_track_name, stream) in enumerate(mws.items()):
         print(f'... calculating membership probabilities for stream {i + 1}/{len(mws)}: {stream_track_name}                   ', end='\r')
-        #if not stream.has_footprint:
-        #    continue
+        # Width and sigma in phi2
+        width_phi2 = mws.summary.loc[stream_track_name, 'width_phi2']  # Interpret as FWHM in degrees
+        sigma_phi2 = width_phi2 / (2 * np.sqrt(2 * np.log(2))) * (np.pi/180)  # Convert FWHM to sigma in radians
 
-        # Make mask for which stars are in the footprint
-        in_footprint_mask = stream.get_mask_in_poly_footprint(all_star_sky_coordinates)
+        # Calculate HEALPix nside given the stream width such that a star at most 4 sigma away from the stream track to be guaranteed to fall into the same pixel as a track point
+        nside_max = 1 / (2 * np.sqrt(3) * 4 * sigma_phi2)
+        level = int(np.log2(nside_max))
+        nside = 2**level  # Round down to nearest power of 2
 
-        # Transform stars in stream footprint to stream coordinates
-        stream_stars = all_star_sky_coordinates[in_footprint_mask].transform_to(stream.frame)
+        # Convert RA/Dec (ICRS) to HEALPix pixel indices
+        pixels_intersected_by_track = np.unique(hp.ang2pix(nside, stream.track.ra.deg, stream.track.dec.deg, lonlat=True, nest=True))
 
-        phi1 = stream_stars.phi1.to_value(u.deg)
-        phi2 = stream_stars.phi2.to_value(u.deg)
+        # Get HEALPix pixel indices for all stars at the same level
+        all_stars_pixels = (source_ids >> 35) >> (2 * (12 - level))
 
-        # Interpolate track phi2 vs phi1
+        # Make mask for which stars are in the footprint by doing a binary search for membership (faster and more memory efficient than np.isin)
+        idx = np.searchsorted(pixels_intersected_by_track, all_stars_pixels)
+        idx[idx == len(pixels_intersected_by_track)] = len(pixels_intersected_by_track) - 1
+        in_footprint_mask = pixels_intersected_by_track[idx] == all_stars_pixels
+        del pixels_intersected_by_track, all_stars_pixels, idx  # Free memory
+        gc.collect()  # Force garbage collection
+
+        # Make SkyCoord object for stars in footprint
+        stream_stars = SkyCoord(
+            ra=ra[in_footprint_mask] * u.deg,
+            dec=dec[in_footprint_mask] * u.deg,
+            pm_ra_cosdec=mu_ra[in_footprint_mask] * np.cos(np.deg2rad(dec[in_footprint_mask])) * u.mas / u.yr,
+            pm_dec=mu_dec[in_footprint_mask] * u.mas / u.yr,
+            distance=r_med_geo[in_footprint_mask] * u.pc,
+            frame='icrs'
+        )
+
+        # Transform stars in stream footprint and stream track into stream coordinates
+        stream_stars = stream_stars.transform_to(stream.stream_frame)
+        stream.track = stream.track.transform_to(stream.stream_frame)
+
+        # Extract phi1 and phi2 of stream stars
+        stars_phi1 = stream_stars.phi1.to_value(u.deg)
+        stars_phi2 = stream_stars.phi2.to_value(u.deg)
+
+        # Extract phi2 and phi1 of stream track
         track_phi1 = stream.track.phi1.to_value(u.deg)
         track_phi2 = stream.track.phi2.to_value(u.deg)
-        interp_phi2 = np.interp(phi1, track_phi1, track_phi2) * u.deg
 
-        # Width in phi2
-        width_phi2 = mws.summary.loc[stream_track_name, 'width_phi2']
+        # Interpolate track phi2 vs phi1
+        interp_phi2 = np.interp(stars_phi1, track_phi1, track_phi2)
 
         # Compute chi2 value for position perpendicular to stream
-        chi2 = (((phi2 - interp_phi2) / width_phi2)**2).to_value(1)
+        chi2 = ((stars_phi2 - interp_phi2) / width_phi2)**2
+
+        del stars_phi2, track_phi2, interp_phi2 # Free memory
+        gc.collect()  # Force garbage collection
 
         # Proper motions (if available for stream and stars)
         if mws.summary.loc[stream_track_name, 'has_pm']:
-            # Mask for the stars with proper motions
-            pm_mask = np.isfinite(stream_stars.pm_phi1_cosphi2)
-            stream_stars_with_pm = stream_stars[pm_mask]
+            # Widths in proper motions
+            width_pm1 = mws.summary.loc[stream_track_name, 'width_pm_phi1_cosphi2']
+            width_pm2 = mws.summary.loc[stream_track_name, 'width_pm_phi2']
 
-            # Extract proper motions of stream stars in the stream frame
-            pm_phi1_cosphi2 = stream_stars_with_pm.pm_phi1_cosphi2.to_value(u.mas / u.yr)
-            pm_phi2 = stream_stars_with_pm.pm_phi2.to_value(u.mas / u.yr)
+            # Mask for the stars with proper motions
+            pm_mask = np.isfinite(stream_stars.pm_phi1_cosphi2) & np.isfinite(stream_stars.pm_phi2)
+
+            # Extract proper motions of stream stars
+            stars_pm1 = stream_stars[pm_mask].pm_phi1_cosphi2.to_value(u.mas / u.yr)
+            stars_pm2 = stream_stars[pm_mask].pm_phi2.to_value(u.mas / u.yr)
+
+            # Extract proper motions of stream track
+            track_pm1 = stream.track.pm_phi1_cosphi2.to_value(u.mas / u.yr)
+            track_pm2 = stream.track.pm_phi2.to_value(u.mas / u.yr)
 
             # Interpolate track proper motions vs phi1
-            track_pm1 = np.interp(phi1, track_phi1, pm_phi1_cosphi2) * u.mas / u.yr
-            track_pm2 = np.interp(phi1, track_phi1, pm_phi2) * u.mas / u.yr
-
-            # Widths in proper motions
-            width_pm_phi1_cosphi2 = mws.summary.loc[stream_track_name, 'width_pm_phi1_cosphi2']
-            width_pm_phi2 = mws.summary.loc[stream_track_name, 'width_pm_phi2']
+            interp_pm1 = np.interp(stars_phi1[pm_mask], track_phi1, track_pm1)
+            interp_pm2 = np.interp(stars_phi1[pm_mask], track_phi1, track_pm2)
 
             # Compute chi2 value for proper motions
-            chi2 += (((pm_phi1_cosphi2 - track_pm1) / width_pm_phi1_cosphi2)**2).to_value(1)
-            chi2 += (((pm_phi2 - track_pm2) / width_pm_phi2)**2).to_value(1)
+            chi2[pm_mask] += ((stars_pm1 - interp_pm1) / width_pm1)**2
+            chi2[pm_mask] += ((stars_pm2 - interp_pm2) / width_pm2)**2
 
-        # Distance (if available)
+            del pm_mask, stars_pm1, stars_pm2, track_pm1, track_pm2, interp_pm1, interp_pm2  # Free memory
+            gc.collect()  # Force garbage collection
+
+        # Distance (for if / when this becomes available)
         if False: #mws.summary.loc[stream_track_name, 'has_D']:
+            # Width in distance
+            width_dist = mws.summary.loc[stream_track_name, 'width_dist']  # This doesn't exist in galstreams yet
+
             # Mask for the stars with distances
-            dist_mask = np.isfinite(stars_in_stream.distance)
-            stars_in_stream_with_dist = stars_in_stream[dist_mask]
+            dist_mask = np.isfinite(stream_stars.distance)
 
             # Extract distance of stream stars
-            distance = stars_in_stream_with_dist.distance.to_value(u.pc)
+            stars_dist = stream_stars[dist_mask].distance.to_value(u.pc)
+
+            # Extract distance of stream track
+            track_dist = stream.track.distance.to_value(u.pc)
 
             # Interpolate track distance vs phi1
-            track_dist = np.interp(phi1, track_phi1, distance) * u.pc
+            interp_dist = np.interp(stars_phi1[dist_mask], track_phi1, track_dist)
 
-            width_dist = default_widths['dist']  # Up to here!!!!
-            chi2 += (((stars_in_stream.distance - track_dist) / width_dist)**2).to_value(1)
+            chi2[dist_mask] += ((stars_dist - interp_dist) / width_dist)**2
 
+            del dist_mask, stars_dist, track_dist, interp_dist  # Free memory
+            gc.collect()  # Force garbage collection
+
+        # Line-of-sight velocity (for if / when this becomes available)
+        if False: #mws.summary.loc[stream_track_name, 'has_vrad']:
+            # Width in line-of-sight velocity
+            width_vrad = mws.summary.loc[stream_track_name, 'width_vrad']  # This doesn't exist in galstreams yet
+
+            # Mask for the stars with line-of-sight velocities
+            vrad_mask = np.isfinite(stream_stars.vrad)
+
+            # Extract line-of-sight velocity of stream stars
+            stars_vrad = stream_stars[vrad_mask].vrad.to_value(u.km / u.s)
+
+            # Extract line-of-sight velocity of stream track
+            track_vrad = stream.track.vrad.to_value(u.km / u.s)
+
+            # Interpolate track line-of-sight velocity vs phi1
+            interp_vrad = np.interp(stars_phi1[vrad_mask], track_phi1, track_vrad)
+
+            chi2[vrad_mask] += ((stars_vrad - interp_vrad) / width_vrad)**2
+
+            del vrad_mask, stars_vrad, track_vrad, interp_vrad  # Free memory
+            gc.collect()  # Force garbage collection
+
+        del stream_stars, stars_phi1, track_phi1  # Free memory
+        gc.collect()  # Force garbage collection
+
+        # Convert chi2 to probability measure
         probs = np.exp(-0.5 * chi2)
 
+        # Keep only stars with probability > 0.1
+        prob_mask = probs > np.exp(-0.5 * 3.0**2)
+        if not prob_mask.any():
+            continue
+        probs = probs[prob_mask]
+        indices = np.where(in_footprint_mask)[0][prob_mask]
+        del in_footprint_mask, chi2, prob_mask  # Free memory
+        gc.collect()  # Force garbage collection
+
+        # Assign the stream IDs and probabilities to the members
+        assigned_bool = False
+        indices_stream_ids = galstreams_members_streams_ids_gdr3[indices]
+        for j in range(galstreams_members_streams_ids_gdr3.shape[1]):
+            if np.all(indices_stream_ids[j] == max_galstream_cluster_ID + 1):
+                galstreams_members_streams_ids_gdr3[indices, j] = i
+                galstreams_members_probs_gdr3[indices, j] = probs
+                assigned_bool = True
+                break
+        del indices_stream_ids  # Free memory
+        gc.collect()  # Force garbage collection
+        
+        if not assigned_bool:
+            # Add another column to the arrays
+            galstreams_members_streams_ids_gdr3 = np.concatenate(
+                (galstreams_members_streams_ids_gdr3, np.full((subsample_mask.size, 1), max_galstream_cluster_ID + 1, dtype=np.int64)),
+                axis=1
+            )
+            galstreams_members_probs_gdr3 = np.concatenate(
+                (galstreams_members_probs_gdr3, np.zeros((subsample_mask.size, 1), dtype=np.float32)),
+                axis=1
+            )
+
+            # Assign the stream IDs and probabilities to the members
+            galstreams_members_streams_ids_gdr3[indices, -1] = i
+            galstreams_members_probs_gdr3[indices, -1] = probs
+    del mws, probs, indices  # Free memory
+    gc.collect()  # Force garbage collection
+    
+    galstreams_members_streams_ids_subsample = galstreams_members_streams_ids_gdr3[subsample_mask]
+    galstreams_members_probs_subsample = galstreams_members_probs_gdr3[subsample_mask]
+
+    # Pre-compute the total sum of probabilities for each galstreams stream
+    print("... pre-computing the total sum of probabilities for each galstreams stream")
+    galstreams_streams_probability_sums_total = np.bincount(galstreams_members_streams_ids_gdr3.ravel(), 
+                                        weights=galstreams_members_probs_gdr3.ravel(),
+                                        minlength=max_galstream_cluster_ID + 1)[:max_galstream_cluster_ID + 1]  # (N_streams,)
+    del galstreams_members_streams_ids_gdr3, galstreams_members_probs_gdr3  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Pre-compute the sum of probabilities for each galstreams stream in the overlap with the subsample
+    print("... pre-computing the total sum of probabilities for each galstreams stream in the subsample of this work")
+    galstreams_streams_probability_sums_overlap = np.bincount(galstreams_members_streams_ids_subsample.ravel(),
+                                        weights=galstreams_members_probs_subsample.ravel(),
+                                        minlength=max_galstream_cluster_ID + 1)[:max_galstream_cluster_ID + 1]  # (N_streams,)
+
+    # Save the intermediary results
+    print('... saving intermediary results')
+    np.save(file_path_galstreams_members_streams_ids_subsample, galstreams_members_streams_ids_subsample)
+    np.save(file_path_galstreams_members_probs_subsample, galstreams_members_probs_subsample)
+    np.save(file_path_galstreams_streams_probability_sums_total, galstreams_streams_probability_sums_total)
+    np.save(file_path_galstreams_streams_probability_sums_overlap, galstreams_streams_probability_sums_overlap)
+    del subsample_mask, galstreams_members_streams_ids_subsample, galstreams_members_probs_subsample, galstreams_streams_probability_sums_total, galstreams_streams_probability_sums_overlap  # Free memory
+    gc.collect()  # Force garbage collection
+
+def compare_to_galstreams(overwrite=True):
+    """
+    Compare the clustering output to the galstreams catalogue.
+    """
+    # Check if comparison results already exist
+    file_path_best_match_astrolink_clusters = os.path.join(CLUSTERING_PATH, "galstreams_best_match_astrolink_clusters.npy")
+    file_path_cluster_rpje = os.path.join(CLUSTERING_PATH, "galstreams_rpje.npy")
+
+    # Skip processing if all merged output files already exist
+    all_exist = (os.path.exists(file_path_best_match_astrolink_clusters) and
+                  os.path.exists(file_path_cluster_rpje))
+    if all_exist and not overwrite:
+        print("Galstreams comparison results already exist at:")
+        print(f"\t{file_path_best_match_astrolink_clusters} , and")
+        print(f"\t{file_path_cluster_rpje} .")
+        print("Use overwrite=True to force recomputation.\n")
+        return
+    print("Comparing clustering output to the galstreams catalogue...")
+
+    # Load the reduced galstreams data
+    print("... loading reduced galstreams data")
+    galstreams_members_streams_ids_subsample = np.load(os.path.join(CLUSTERING_PATH, "galstreams_members_streams_ids_subsample.npy"))  # (N,)
+    galstreams_members_probs_subsample = np.load(os.path.join(CLUSTERING_PATH, "galstreams_members_probs_subsample.npy"))  # (N,)
+    galstreams_streams_probability_sums_total = np.load(os.path.join(CLUSTERING_PATH, "galstreams_streams_probability_sums_total.npy"))  # (N_streams,)
+    galstreams_streams_probability_sums_overlap = np.load(os.path.join(CLUSTERING_PATH, "galstreams_streams_probability_sums_overlap.npy"))  #
 
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
@@ -2495,12 +2650,14 @@ def compare_to_galstreams(overwrite=True):
 
     # Put large arrays into shared memory
     print("... putting large arrays into shared memory")
+    shm_ids, shape_ids, dtype_ids = arr_to_shared_memory(galstreams_members_streams_ids_subsample, galstreams_members_streams_ids_subsample.dtype.type)
+    shm_probs, shape_probs, dtype_probs = arr_to_shared_memory(galstreams_members_probs_subsample, galstreams_members_probs_subsample.dtype.type)
     shm_ordering, shape_ordering, dtype_ordering = arr_to_shared_memory(ordering, ordering.dtype.type)
 
-    # Initialize arrays to save comparison results
-    galstream_stream_purities = np.empty(shape_galcoords, dtype=np.float32)
-    best_match_astrolink_clusters = np.empty(shape_galcoords, dtype=np.int64)
-
+    # Calculate the RPJE values for each significance level
+    whichClusters = -np.ones((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, galstreams_streams_probability_sums_total.size, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
+    RPJE = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, galstreams_streams_probability_sums_total.size, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
+    
     # Loop over significance values
     for k, significance in enumerate(SIGMA_THRESHOLDS_FOR_COMPARISONS):
         print(f"... calculating stream-match purities at significance level S={significance:.1f}   ", end = '\r')
@@ -2551,7 +2708,6 @@ def compare_to_galstreams(overwrite=True):
     print("... saving comparison results.\n")
     np.save(file_path_best_match_astrolink_clusters, whichClusters)
     np.save(file_path_cluster_rpje, RPJE)
-    np.save(file_path_number_of_astrolink_clusters_per_sig, num_astrolink_clusters)
     del whichClusters, RPJE, num_astrolink_clusters  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -2602,4 +2758,5 @@ if __name__ == "__main__":
     plot_evidence_weighted_UCC_comparison_results()
 
     # Compare to galstreams catalogue
+    prepare_for_galstreams_comparison()
     compare_to_galstreams()

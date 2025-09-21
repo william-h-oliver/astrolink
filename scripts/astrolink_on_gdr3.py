@@ -2424,10 +2424,10 @@ def prepare_for_galstreams_comparison(overwrite=True):
         print(f'... calculating membership probabilities for stream {i + 1}/{len(mws)}: {stream_track_name}                   ', end='\r')
         # Width and sigma in phi2
         width_phi2 = mws.summary.loc[stream_track_name, 'width_phi2']  # Interpret as FWHM in degrees
-        sigma_phi2 = width_phi2 / (2 * np.sqrt(2 * np.log(2))) * (np.pi/180)  # Convert FWHM to sigma in radians
+        sigma_phi2 = width_phi2 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
 
         # Calculate HEALPix nside given the stream width such that a star at most 4 sigma away from the stream track to be guaranteed to fall into the same pixel as a track point
-        nside_max = 1 / (2 * np.sqrt(3) * 4 * sigma_phi2)
+        nside_max = 1 / (2 * np.sqrt(3) * 4 * sigma_phi2  * (np.pi/180))
         level = int(np.log2(nside_max))
         nside = 2**level  # Round down to nearest power of 2
 
@@ -2470,7 +2470,7 @@ def prepare_for_galstreams_comparison(overwrite=True):
         interp_phi2 = np.interp(stars_phi1, track_phi1, track_phi2)
 
         # Compute chi2 value for position perpendicular to stream
-        chi2 = ((stars_phi2 - interp_phi2) / width_phi2)**2
+        chi2 = ((stars_phi2 - interp_phi2) / sigma_phi2)**2 - np.log(2 * np.pi) - 2 * np.log(sigma_phi2)
 
         del stars_phi2, track_phi2, interp_phi2 # Free memory
         gc.collect()  # Force garbage collection
@@ -2479,7 +2479,9 @@ def prepare_for_galstreams_comparison(overwrite=True):
         if mws.summary.loc[stream_track_name, 'has_pm']:
             # Widths in proper motions
             width_pm1 = mws.summary.loc[stream_track_name, 'width_pm_phi1_cosphi2']
+            sigma_pm1 = width_pm1 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
             width_pm2 = mws.summary.loc[stream_track_name, 'width_pm_phi2']
+            sigma_pm2 = width_pm2 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
 
             # Mask for the stars with proper motions
             pm_mask = np.isfinite(stream_stars.pm_phi1_cosphi2) & np.isfinite(stream_stars.pm_phi2)
@@ -2496,9 +2498,11 @@ def prepare_for_galstreams_comparison(overwrite=True):
             interp_pm1 = np.interp(stars_phi1[pm_mask], track_phi1, track_pm1)
             interp_pm2 = np.interp(stars_phi1[pm_mask], track_phi1, track_pm2)
 
-            # Compute chi2 value for proper motions
-            chi2[pm_mask] += ((stars_pm1 - interp_pm1) / width_pm1)**2
-            chi2[pm_mask] += ((stars_pm2 - interp_pm2) / width_pm2)**2
+            # Compute chi2 values for proper motions
+            chi2[pm_mask] += (
+                ((stars_pm1 - interp_pm1) / sigma_pm1)**2  - np.log(2 * np.pi) - 2 * np.log(sigma_pm1) +
+                ((stars_pm2 - interp_pm2) / sigma_pm2)**2  - np.log(2 * np.pi) - 2 * np.log(sigma_pm2)
+            )
 
             del pm_mask, stars_pm1, stars_pm2, track_pm1, track_pm2, interp_pm1, interp_pm2  # Free memory
             gc.collect()  # Force garbage collection
@@ -2507,6 +2511,7 @@ def prepare_for_galstreams_comparison(overwrite=True):
         if False: #mws.summary.loc[stream_track_name, 'has_D']:
             # Width in distance
             width_dist = mws.summary.loc[stream_track_name, 'width_dist']  # This doesn't exist in galstreams yet
+            sigma_dist = width_dist / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
 
             # Mask for the stars with distances
             dist_mask = np.isfinite(stream_stars.distance)
@@ -2519,8 +2524,9 @@ def prepare_for_galstreams_comparison(overwrite=True):
 
             # Interpolate track distance vs phi1
             interp_dist = np.interp(stars_phi1[dist_mask], track_phi1, track_dist)
-
-            chi2[dist_mask] += ((stars_dist - interp_dist) / width_dist)**2
+            
+            # Compute chi2 value for distance
+            chi2[dist_mask] += ((stars_dist - interp_dist) / sigma_dist)**2 - np.log(2 * np.pi) - 2 * np.log(sigma_dist)
 
             del dist_mask, stars_dist, track_dist, interp_dist  # Free memory
             gc.collect()  # Force garbage collection
@@ -2529,6 +2535,7 @@ def prepare_for_galstreams_comparison(overwrite=True):
         if False: #mws.summary.loc[stream_track_name, 'has_vrad']:
             # Width in line-of-sight velocity
             width_vrad = mws.summary.loc[stream_track_name, 'width_vrad']  # This doesn't exist in galstreams yet
+            sigma_vrad = width_vrad / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
 
             # Mask for the stars with line-of-sight velocities
             vrad_mask = np.isfinite(stream_stars.vrad)
@@ -2542,7 +2549,8 @@ def prepare_for_galstreams_comparison(overwrite=True):
             # Interpolate track line-of-sight velocity vs phi1
             interp_vrad = np.interp(stars_phi1[vrad_mask], track_phi1, track_vrad)
 
-            chi2[vrad_mask] += ((stars_vrad - interp_vrad) / width_vrad)**2
+            # Compute chi2 value for line-of-sight velocity
+            chi2[vrad_mask] += ((stars_vrad - interp_vrad) / sigma_vrad)**2 - np.log(2 * np.pi) - 2 * np.log(sigma_vrad)
 
             del vrad_mask, stars_vrad, track_vrad, interp_vrad  # Free memory
             gc.collect()  # Force garbage collection
@@ -2553,8 +2561,8 @@ def prepare_for_galstreams_comparison(overwrite=True):
         # Convert chi2 to probability measure
         probs = np.exp(-0.5 * chi2)
 
-        # Keep only stars with sigma < 3 (i.e. probability > exp(-0.5 * 3^2) ~ 0.011)
-        prob_mask = probs > np.exp(-0.5 * 3.0**2)
+        # Keep only stars with sigma < 2 (i.e. probability > exp(-0.5 * 2**2))
+        prob_mask = probs > np.exp(-0.5 * 2.0**2) / np.sqrt(2 * np.pi)  # Equivalent to being within 2 sigma of the stream in all available dimensions
         if not prob_mask.any():
             continue
         probs = probs[prob_mask]
@@ -2563,18 +2571,30 @@ def prepare_for_galstreams_comparison(overwrite=True):
         gc.collect()  # Force garbage collection
 
         # Assign the stream IDs and probabilities to the members
-        assigned_bool = False
+        unassigned_bool = True
         indices_stream_ids = galstreams_members_streams_ids_gdr3[indices]
         for j in range(galstreams_members_streams_ids_gdr3.shape[1]):
-            if np.all(indices_stream_ids[j] == max_galstream_cluster_ID + 1):
-                galstreams_members_streams_ids_gdr3[indices, j] = i
-                galstreams_members_probs_gdr3[indices, j] = probs
-                assigned_bool = True
+            # Find which members can be assigned to this column
+            unassigned_indices_bool = indices_stream_ids[:, j] == max_galstream_cluster_ID + 1
+
+            # Assign the stream IDs and probabilities to the unassigned members for this column
+            unassigned_indices = indices[unassigned_indices_bool]
+            galstreams_members_streams_ids_gdr3[unassigned_indices, j] = i
+            galstreams_members_probs_gdr3[unassigned_indices, j] = probs[unassigned_indices_bool]
+
+            # Update the arrays to only include those that are still unassigned
+            indices = indices[~unassigned_indices_bool]
+            indices_stream_ids = indices_stream_ids[~unassigned_indices_bool]
+            probs = probs[~unassigned_indices_bool]
+
+            # If all members have been assigned, break
+            if indices_stream_ids.shape[0] == 0:
+                unassigned_bool = False
                 break
         del indices_stream_ids  # Free memory
         gc.collect()  # Force garbage collection
-        
-        if not assigned_bool:
+
+        if unassigned_bool:
             # Add another column to the arrays
             galstreams_members_streams_ids_gdr3 = np.concatenate(
                 (galstreams_members_streams_ids_gdr3, np.full((subsample_mask.size, 1), max_galstream_cluster_ID + 1, dtype=np.int64)),
@@ -2591,6 +2611,7 @@ def prepare_for_galstreams_comparison(overwrite=True):
     del mws, probs, indices  # Free memory
     gc.collect()  # Force garbage collection
     
+    # Get the stream IDs and probabilities for the subsample in this work
     galstreams_members_streams_ids_subsample = galstreams_members_streams_ids_gdr3[subsample_mask]
     galstreams_members_probs_subsample = galstreams_members_probs_gdr3[subsample_mask]
 
@@ -2710,6 +2731,60 @@ def compare_to_galstreams(overwrite=True):
     np.save(file_path_cluster_rpje, RPJE)
     del whichClusters, RPJE, num_astrolink_clusters  # Free memory
     gc.collect()  # Force garbage collection
+
+def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
+    """
+    Plot the results of the comparison between clustering output and the galstreams catalogue.
+    """
+    # Check if plot already exists
+    file_path = os.path.join(FIGURES_PATH, "galstreams_evidence_weighted_comparison_results.png")
+    if os.path.exists(file_path) and not overwrite:
+        print(f"Galstreams evidence-weighted comparison results plot already exists at:\n\t{file_path} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting galstreams evidence-weighted comparison results...")
+
+    # Load the comparison results
+    print("... loading comparison results")
+    RPJE = np.load(os.path.join(CLUSTERING_PATH, "galstreams_rpje.npy"))  # (N_sigmas, N_clusters, 4)
+    num_astrolink_clusters = np.load(os.path.join(CLUSTERING_PATH, "number_of_astrolink_clusters_per_sig.npy"))  # (N_sigmas,)
+
+    # Weight the recovery, purity, and Jaccard index by the evidence
+    print("... weighting the recovery, purity, and Jaccard index by the evidence")
+    RPJE[..., 0] *= RPJE[..., 3]  # Evidence-weighted recovery
+    RPJE[..., 1] *= RPJE[..., 3]  # Evidence-weighted purity
+    RPJE[..., 2] *= RPJE[..., 3]  # Evidence-weighted Jaccard index
+
+    # Make figure
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Plot the recovery, purity, and Jaccard index for each significance level
+    print("... plotting the recovery, purity, and Jaccard index vs significance level for all clusters")    
+    sum_of_evidence_weights = np.sum(RPJE[..., 3], axis=1)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+            np.sum(RPJE[..., 0], axis=1) / sum_of_evidence_weights,
+            color='k', linestyle='dotted', linewidth=1.5,
+            label='Recovery')
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+            np.sum(RPJE[..., 1], axis=1) / sum_of_evidence_weights,
+            color='k', linestyle='dashed', linewidth=1.5,
+            label='Purity')
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+            np.sum(RPJE[..., 2], axis=1) / sum_of_evidence_weights,
+            color='k', linestyle='solid', linewidth=1.5,
+            label='Jaccard index')
+
+    print('... saving figure.\n')
+    ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
+    ax.set_ylim(0, 1)
+    ax.set_xlabel("Significance Level")
+    ax.set_ylabel("Comparison Statistic")
+    ax.legend(loc='upper right')
+    plt.tight_layout()
+    plt.savefig(file_path, dpi=500)
+    plt.close(fig)
+    gc.collect()  # Force garbage collection
+
 
 # === Run script ===
 if __name__ == "__main__":

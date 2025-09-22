@@ -2378,7 +2378,7 @@ def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
 
 
 # === Compare clustering output to galstreams ===
-def prepare_for_galstreams_comparison(overwrite=True):
+def prepare_for_galstreams_comparison(overwrite=False):
     """
     Prepare the data for comparison with the galstreams catalogue.
     """
@@ -2416,6 +2416,41 @@ def prepare_for_galstreams_comparison(overwrite=True):
     with printout_suppressor():  # Suppress the printout from galstreams
         mws = galstreams.MWStreams(print_topcat_friendly_files=False)
 
+    # Manual fixes for missing width_phi2 values from galstreams
+    mws.summary.loc['M30-S20', 'width_phi2'] = 0.10992290189439437 # From galstreams/tracks/track.st.M30.sollima2020.summary.ecsv (not read in automatically for some reason)
+    mws.summary.loc['M5-G19', 'width_phi2'] = 0.00059498941000224  # From galstreams/tracks/track.st.M5.grillmair2019.summary.ecsv (not read in automatically for some reason)
+    mws.summary.loc['NGC5053-L06', 'width_phi2'] = 0.5  # Based on Lauchner et al. (2006) maps and the cluster’s distance (~17.4 kpc), an angular width of ~0.5 deg is used a reasonable proxy.
+    mws.summary.loc['NGC6362-S20', 'width_phi2'] = 0.03279231365173159 # From galstreams/tracks/track.st.NGC6362.sollima2020.summary.ecsv (not read in automatically for some reason)
+    mws.summary.loc['Orphan-K23', 'width_phi2'] = 0.5610732369318953 # From galstreams/tracks/track.st.Orphan-Chenab.ibata2021.summary.ecsv (default track summary file has ~0 deg width)
+    mws.summary.loc['Pal5-PW19', 'width_phi2'] = 0.30188212290570887 # From galstreams/tracks/track.st.Pal5.ibata2024.summary.ecsv (default track summary file has ~0 deg width)
+    mws.summary.loc['Parallel-W18', 'width_phi2'] = 25  # Reasonable value considering Weiss et al. (2018) reported physical dispersions sigma (kpc) from SDSS fits
+    mws.summary.loc['Perpendicular-W18', 'width_phi2'] = 25  # Reasonable value considering Weiss et al. (2018) reported physical dispersions sigma (kpc) from SDSS fits
+
+    # Manual fixes for missing width_pm_phi1_cosphi2 and width_pm_phi2 values from galstreams
+    mws.summary.loc['ACS-R21', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.051429218098668614,0.060361599720383706]  # From galstreams/tracks/track.st.ACS.ramos2021.summary.ecsv (not read in automatically for some reason)
+    mws.summary.loc['Gaia-10-I21', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.25549095266698924,0.21102160186354021]  # From galstreams/tracks/track.st.Gaia-10.ibata2024.summary.ecsv (different from default track summary file which show small values)
+    mws.summary.loc['Gaia-12-I21', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.31870038997481237,0.39533356136581626]  # From galstreams/tracks/track.st.Gaia-12.ibata2024.summary.ecsv (different from default track summary file which show small values)
+    mws.summary.loc['Gaia-6-I21', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.4852100507178606,0.3356251329783215]  # From galstreams/tracks/track.st.Gaia-6.ibata2024.summary.ecsv (different from default track summary file which show small values)
+    mws.summary.loc['Gaia-7-I21', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.3693734621270431,0.30817705138525747]  # From galstreams/tracks/track.st.Gaia-7.ibata2024.summary.ecsv (different from default track summary file which show small values)
+    mws.summary.loc['Hrid-I21', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.8130582153516146,0.5597190294200691]  # From galstreams/tracks/track.st.Hrid.ibata2021.summary.ecsv (not read in automatically for some reason)
+    mws.summary.loc['Jhelum-a-B19', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.08724815957044693,0.17890077278048597]  # From galstreams/tracks/track.st.Jhelum-a.shipp2019.summary.ecsv (different from default track summary file which show small values)
+    mws.summary.loc['Jhelum-b-B19', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.12468187056175481,0.12024080502075932]  # From galstreams/tracks/track.st.Jhelum-b.shipp2019.summary.ecsv (different from default track summary file which show small values)
+    mws.summary.loc['M2-I21', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.11258154325759534,0.09524201623728742]  # From galstreams/tracks/track.st.M2.ibata2024.summary.ecsv (different from default track summary file which show small values)
+    mws.summary.loc['Monoceros-R21', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.024488308491996437,0.025432522875930966]  # From galstreams/tracks/track.st.Monoceros.ramos2021.summary.ecsv (not read in automatically for some reason)
+    mws.summary.loc['NGC1261-I21', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.07311649510540366,0.009119289396829662] # From galstreams/tracks/track.st.NGC1261.ibata2021.summary.ecsv (not read in automatically for some reason)
+    mws.summary.loc['NGC1851-I21', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.15733960159151045,0.26652779597474907]  # From galstreams/tracks/track.st.NGC1851.ibata2024.summary.ecsv (different from default track summary file which show small values)
+    mws.summary.loc['NGC2298-I21', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.3019327576574179,0.28430356991838157]  # From galstreams/tracks/track.st.NGC2298.ibata2024.summary.ecsv (different from default track summary file which show small values)
+    mws.summary.loc['NGC288-I21', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.37797158611441367,0.2383575166183864]  # From galstreams/tracks/track.st.NGC288.ibata2024.summary.ecsv (different from default track summary file which show small values)
+    mws.summary.loc['OmegaCen-I21', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [1.3122549027325625,1.7837014357475944]  # From galstreams/tracks/track.st.OmegaCen-Fimbulthul.ibata2024.summary.ecsv (different from default track summary file which show small values)
+    mws.summary.loc['Orphan-K23', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.26468901721952365,0.3147176316063631]  # From galstreams/tracks/track.st.Orphan-Chenab.ibata2021.summary.ecsv (different from default track summary file which show small values)
+    mws.summary.loc['Pal5-PW19', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.15042483606050822,0.16169990020590352]  # From galstreams/tracks/track.st.Pal5.ibata2024.summary.ecsv (different from default track summary file which show small values)
+    mws.summary.loc['Ravi-S18', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.2, 0.2]  # Heuristic values based on typical proper motion errors
+    mws.summary.loc['SGP-S-Y22', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.24098786032510924,0.42219519260381305]  # From galstreams/tracks/track.st.SGP-S.ibata2024.summary.ecsv (different from default track summary file which show small values)
+    mws.summary.loc['Turbio-S18', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.2, 0.2]  # Heuristic values based on typical proper motion errors
+    mws.summary.loc['Wambelong-S18', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.2, 0.2]  # Heuristic values based on typical proper motion errors
+    mws.summary.loc['Willka_Yaku-S18', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.2, 0.2]  # Heuristic values based on typical proper motion errors
+    mws.summary.loc['Yangtze-Y23', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.2, 0.2]  # Heuristic values based on typical proper motion errors
+
     # Cycle through each stream, find which stars are in its footprint, and then compute stream membership probability with the information available
     max_galstream_cluster_ID = len(mws) - 1
     galstreams_members_streams_ids_gdr3 = np.full((subsample_mask.size, 1), max_galstream_cluster_ID + 1, dtype=np.int64)  # (N,) Initialize with max_galstreams_stream_ID + 1, representing no stream
@@ -2426,9 +2461,9 @@ def prepare_for_galstreams_comparison(overwrite=True):
         width_phi2 = mws.summary.loc[stream_track_name, 'width_phi2']  # Interpret as FWHM in degrees
         sigma_phi2 = width_phi2 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
 
-        # Calculate HEALPix nside given the stream width such that a star at most 4 sigma away from the stream track to be guaranteed to fall into the same pixel as a track point
-        nside_max = 1 / (2 * np.sqrt(3) * 4 * sigma_phi2  * (np.pi/180))
-        level = int(np.log2(nside_max))
+        # Calculate HEALPix nside given the stream width such that a star at most 2 sigma away from the stream track is be guaranteed to fall into the same pixel as a track point
+        nside_max = 1 / (2 * np.sqrt(3) * 2 * sigma_phi2  * (np.pi/180))
+        level = max(int(np.log2(nside_max)), 1)
         nside = 2**level  # Round down to nearest power of 2
 
         # Convert RA/Dec (ICRS) to HEALPix pixel indices
@@ -2477,83 +2512,92 @@ def prepare_for_galstreams_comparison(overwrite=True):
 
         # Proper motions (if available for stream and stars)
         if mws.summary.loc[stream_track_name, 'has_pm']:
-            # Widths in proper motions
-            width_pm1 = mws.summary.loc[stream_track_name, 'width_pm_phi1_cosphi2']
-            sigma_pm1 = width_pm1 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
-            width_pm2 = mws.summary.loc[stream_track_name, 'width_pm_phi2']
-            sigma_pm2 = width_pm2 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
+            try:
+                # Widths in proper motions
+                width_pm1 = mws.summary.loc[stream_track_name, 'width_pm_phi1_cosphi2']
+                sigma_pm1 = width_pm1 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
+                width_pm2 = mws.summary.loc[stream_track_name, 'width_pm_phi2']
+                sigma_pm2 = width_pm2 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
 
-            # Mask for the stars with proper motions
-            pm_mask = np.isfinite(stream_stars.pm_phi1_cosphi2) & np.isfinite(stream_stars.pm_phi2)
+                # Mask for the stars with proper motions
+                pm_mask = np.isfinite(stream_stars.pm_phi1_cosphi2) & np.isfinite(stream_stars.pm_phi2)
 
-            # Extract proper motions of stream stars
-            stars_pm1 = stream_stars[pm_mask].pm_phi1_cosphi2.to_value(u.mas / u.yr)
-            stars_pm2 = stream_stars[pm_mask].pm_phi2.to_value(u.mas / u.yr)
+                # Extract proper motions of stream stars
+                stars_pm1 = stream_stars[pm_mask].pm_phi1_cosphi2.to_value(u.mas / u.yr)
+                stars_pm2 = stream_stars[pm_mask].pm_phi2.to_value(u.mas / u.yr)
 
-            # Extract proper motions of stream track
-            track_pm1 = stream.track.pm_phi1_cosphi2.to_value(u.mas / u.yr)
-            track_pm2 = stream.track.pm_phi2.to_value(u.mas / u.yr)
+                # Extract proper motions of stream track
+                track_pm1 = stream.track.pm_phi1_cosphi2.to_value(u.mas / u.yr)
+                track_pm2 = stream.track.pm_phi2.to_value(u.mas / u.yr)
 
-            # Interpolate track proper motions vs phi1
-            interp_pm1 = np.interp(stars_phi1[pm_mask], track_phi1, track_pm1)
-            interp_pm2 = np.interp(stars_phi1[pm_mask], track_phi1, track_pm2)
+                # Interpolate track proper motions vs phi1
+                interp_pm1 = np.interp(stars_phi1[pm_mask], track_phi1, track_pm1)
+                interp_pm2 = np.interp(stars_phi1[pm_mask], track_phi1, track_pm2)
 
-            # Compute chi2 values for proper motions
-            chi2[pm_mask] += (
-                ((stars_pm1 - interp_pm1) / sigma_pm1)**2  - np.log(2 * np.pi) - 2 * np.log(sigma_pm1) +
-                ((stars_pm2 - interp_pm2) / sigma_pm2)**2  - np.log(2 * np.pi) - 2 * np.log(sigma_pm2)
-            )
+                # Compute chi2 values for proper motions
+                chi2[pm_mask] += (
+                    ((stars_pm1 - interp_pm1) / sigma_pm1)**2  - np.log(2 * np.pi) - 2 * np.log(sigma_pm1) +
+                    ((stars_pm2 - interp_pm2) / sigma_pm2)**2  - np.log(2 * np.pi) - 2 * np.log(sigma_pm2)
+                )
 
-            del pm_mask, stars_pm1, stars_pm2, track_pm1, track_pm2, interp_pm1, interp_pm2  # Free memory
-            gc.collect()  # Force garbage collection
+                del pm_mask, stars_pm1, stars_pm2, track_pm1, track_pm2, interp_pm1, interp_pm2  # Free memory
+                gc.collect()  # Force garbage collection
+            except:
+                pass
 
         # Distance (for if / when this becomes available)
         if False: #mws.summary.loc[stream_track_name, 'has_D']:
-            # Width in distance
-            width_dist = mws.summary.loc[stream_track_name, 'width_dist']  # This doesn't exist in galstreams yet
-            sigma_dist = width_dist / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
+            try:
+                # Width in distance
+                width_dist = mws.summary.loc[stream_track_name, 'width_dist']  # This doesn't exist in galstreams yet
+                sigma_dist = width_dist / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
 
-            # Mask for the stars with distances
-            dist_mask = np.isfinite(stream_stars.distance)
+                # Mask for the stars with distances
+                dist_mask = np.isfinite(stream_stars.distance)
 
-            # Extract distance of stream stars
-            stars_dist = stream_stars[dist_mask].distance.to_value(u.pc)
+                # Extract distance of stream stars
+                stars_dist = stream_stars[dist_mask].distance.to_value(u.pc)
 
-            # Extract distance of stream track
-            track_dist = stream.track.distance.to_value(u.pc)
+                # Extract distance of stream track
+                track_dist = stream.track.distance.to_value(u.pc)
 
-            # Interpolate track distance vs phi1
-            interp_dist = np.interp(stars_phi1[dist_mask], track_phi1, track_dist)
-            
-            # Compute chi2 value for distance
-            chi2[dist_mask] += ((stars_dist - interp_dist) / sigma_dist)**2 - np.log(2 * np.pi) - 2 * np.log(sigma_dist)
+                # Interpolate track distance vs phi1
+                interp_dist = np.interp(stars_phi1[dist_mask], track_phi1, track_dist)
+                
+                # Compute chi2 value for distance
+                chi2[dist_mask] += ((stars_dist - interp_dist) / sigma_dist)**2 - np.log(2 * np.pi) - 2 * np.log(sigma_dist)
 
-            del dist_mask, stars_dist, track_dist, interp_dist  # Free memory
-            gc.collect()  # Force garbage collection
+                del dist_mask, stars_dist, track_dist, interp_dist  # Free memory
+                gc.collect()  # Force garbage collection
+            except:
+                pass
 
         # Line-of-sight velocity (for if / when this becomes available)
         if False: #mws.summary.loc[stream_track_name, 'has_vrad']:
-            # Width in line-of-sight velocity
-            width_vrad = mws.summary.loc[stream_track_name, 'width_vrad']  # This doesn't exist in galstreams yet
-            sigma_vrad = width_vrad / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
+            try:
+                # Width in line-of-sight velocity
+                width_vrad = mws.summary.loc[stream_track_name, 'width_vrad']  # This doesn't exist in galstreams yet
+                sigma_vrad = width_vrad / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
 
-            # Mask for the stars with line-of-sight velocities
-            vrad_mask = np.isfinite(stream_stars.vrad)
+                # Mask for the stars with line-of-sight velocities
+                vrad_mask = np.isfinite(stream_stars.vrad)
 
-            # Extract line-of-sight velocity of stream stars
-            stars_vrad = stream_stars[vrad_mask].vrad.to_value(u.km / u.s)
+                # Extract line-of-sight velocity of stream stars
+                stars_vrad = stream_stars[vrad_mask].vrad.to_value(u.km / u.s)
 
-            # Extract line-of-sight velocity of stream track
-            track_vrad = stream.track.vrad.to_value(u.km / u.s)
+                # Extract line-of-sight velocity of stream track
+                track_vrad = stream.track.vrad.to_value(u.km / u.s)
 
-            # Interpolate track line-of-sight velocity vs phi1
-            interp_vrad = np.interp(stars_phi1[vrad_mask], track_phi1, track_vrad)
+                # Interpolate track line-of-sight velocity vs phi1
+                interp_vrad = np.interp(stars_phi1[vrad_mask], track_phi1, track_vrad)
 
-            # Compute chi2 value for line-of-sight velocity
-            chi2[vrad_mask] += ((stars_vrad - interp_vrad) / sigma_vrad)**2 - np.log(2 * np.pi) - 2 * np.log(sigma_vrad)
+                # Compute chi2 value for line-of-sight velocity
+                chi2[vrad_mask] += ((stars_vrad - interp_vrad) / sigma_vrad)**2 - np.log(2 * np.pi) - 2 * np.log(sigma_vrad)
 
-            del vrad_mask, stars_vrad, track_vrad, interp_vrad  # Free memory
-            gc.collect()  # Force garbage collection
+                del vrad_mask, stars_vrad, track_vrad, interp_vrad  # Free memory
+                gc.collect()  # Force garbage collection
+            except:
+                pass
 
         del stream_stars, stars_phi1, track_phi1  # Free memory
         gc.collect()  # Force garbage collection
@@ -2630,7 +2674,7 @@ def prepare_for_galstreams_comparison(overwrite=True):
                                         minlength=max_galstream_cluster_ID + 1)[:max_galstream_cluster_ID + 1]  # (N_streams,)
 
     # Save the intermediary results
-    print('... saving intermediary results')
+    print('... saving intermediary results.\n')
     np.save(file_path_galstreams_members_streams_ids_subsample, galstreams_members_streams_ids_subsample)
     np.save(file_path_galstreams_members_probs_subsample, galstreams_members_probs_subsample)
     np.save(file_path_galstreams_streams_probability_sums_total, galstreams_streams_probability_sums_total)
@@ -2638,7 +2682,7 @@ def prepare_for_galstreams_comparison(overwrite=True):
     del subsample_mask, galstreams_members_streams_ids_subsample, galstreams_members_probs_subsample, galstreams_streams_probability_sums_total, galstreams_streams_probability_sums_overlap  # Free memory
     gc.collect()  # Force garbage collection
 
-def compare_to_galstreams(overwrite=True):
+def compare_to_galstreams(overwrite=False):
     """
     Compare the clustering output to the galstreams catalogue.
     """
@@ -2662,7 +2706,8 @@ def compare_to_galstreams(overwrite=True):
     galstreams_members_streams_ids_subsample = np.load(os.path.join(CLUSTERING_PATH, "galstreams_members_streams_ids_subsample.npy"))  # (N,)
     galstreams_members_probs_subsample = np.load(os.path.join(CLUSTERING_PATH, "galstreams_members_probs_subsample.npy"))  # (N,)
     galstreams_streams_probability_sums_total = np.load(os.path.join(CLUSTERING_PATH, "galstreams_streams_probability_sums_total.npy"))  # (N_streams,)
-    galstreams_streams_probability_sums_overlap = np.load(os.path.join(CLUSTERING_PATH, "galstreams_streams_probability_sums_overlap.npy"))  #
+    galstreams_streams_probability_sums_overlap = np.load(os.path.join(CLUSTERING_PATH, "galstreams_streams_probability_sums_overlap.npy"))  # (N_streams,)
+    max_galstream_cluster_ID = galstreams_members_streams_ids_subsample.max() - 1
 
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
@@ -2694,8 +2739,8 @@ def compare_to_galstreams(overwrite=True):
                 futures.append(
                     executor.submit(process_astrolink_cluster,
                                     start, end,
-                                    galstream_stream_probability_sums_total,
-                                    galstream_stream_probability_sums_overlap,
+                                    galstreams_streams_probability_sums_total,
+                                    galstreams_streams_probability_sums_overlap,
                                     max_galstream_cluster_ID,
                                     shm_ids.name, shm_probs.name, shm_ordering.name,
                                     shape_ids, shape_probs, shape_ordering,
@@ -2722,7 +2767,7 @@ def compare_to_galstreams(overwrite=True):
     shm_probs.close(); shm_probs.unlink()
     shm_ordering.close(); shm_ordering.unlink()
 
-    del clusterer, ordering, UCC_members_cluster_ids_subsample, UCC_members_probs_subsample, UCC_cluster_probability_sums_total, UCC_cluster_probability_sums_overlap  # Free memory
+    del clusterer, ordering, galstreams_members_streams_ids_subsample, galstreams_members_probs_subsample, galstreams_streams_probability_sums_total, galstreams_streams_probability_sums_overlap  # Free memory
     gc.collect()  # Force garbage collection
 
     # Save the results
@@ -2835,3 +2880,4 @@ if __name__ == "__main__":
     # Compare to galstreams catalogue
     prepare_for_galstreams_comparison()
     compare_to_galstreams()
+    plot_evidence_weighted_galstreams_comparison_results()

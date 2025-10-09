@@ -7,7 +7,8 @@ AstroLink
 
    intro
    howitworks
-   demo
+   simulated_galaxy_demo
+   image_demo
    api
 
 Indices and tables

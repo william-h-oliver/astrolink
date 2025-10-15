@@ -4,16 +4,16 @@ import sys
 
 # Restarts the script with a fresh interpreter state and forces the number of threads to be used.
 # (this shouldn't actually be necessary, but is included for full control in case of a misbehaving environment)
-PARALLEL_WORKERS = min(os.cpu_count(), 48)  # Use up to 48 workers or all available CPUs, whichever is smaller
+MAX_PARALLEL_WORKERS = min(os.cpu_count(), 48)  # Use up to 48 workers or all available CPUs, whichever is smaller
 if "THREAD_CONTROL_INIT" not in os.environ:
-    os.environ["OMP_NUM_THREADS"] = f"{PARALLEL_WORKERS}"
-    os.environ["NUMBA_NUM_THREADS"] = f"{PARALLEL_WORKERS}"
-    os.environ["NUMBA_DEFAULT_NUM_THREADS"] = f"{PARALLEL_WORKERS}"
+    os.environ["OMP_NUM_THREADS"] = f"{MAX_PARALLEL_WORKERS}"
+    os.environ["NUMBA_NUM_THREADS"] = f"{MAX_PARALLEL_WORKERS}"
+    os.environ["NUMBA_DEFAULT_NUM_THREADS"] = f"{MAX_PARALLEL_WORKERS}"
     os.environ["THREAD_CONTROL_INIT"] = "1"
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 from numba import njit, set_num_threads
-set_num_threads(PARALLEL_WORKERS) # For some reason this is necessary to get pykdtree to use the correct number of threads
+set_num_threads(MAX_PARALLEL_WORKERS) # For some reason this is necessary to get pykdtree to use the correct number of threads
 
 # Remaining standard imports
 import gc
@@ -120,7 +120,7 @@ def reduce_gdr3_catalogue_to_numpy_files(overwrite=False):
     print(f"... found {len(file_paths)} source files.")
 
     # Parallel processing
-    with ProcessPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
+    with ProcessPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
         futures = [
             executor.submit(_process_single_file, file_path, column_groups)
             for file_path in file_paths
@@ -1172,7 +1172,7 @@ def apply_astrolink_to_subsample(overwrite=False):
         weights=total_sf_mean,
         k_den=KNN_FOR_ASTROLINK,
         adaptive=0,
-        workers=PARALLEL_WORKERS,
+        workers=MAX_PARALLEL_WORKERS,
         verbose=0
     )
     del cartesian_coordinates, total_sf_mean  # Free memory
@@ -1908,7 +1908,7 @@ def compare_to_Hunt2024(overwrite=False):
         num_astrolink_clusters[k] = clusterer.clusters.shape[0] - 1  # Exclude the background cluster
 
         # Loop over AstroLink clusters in parallel
-        max_workers = min(8, PARALLEL_WORKERS) # Use limited number of workers because this process is memory intensive
+        max_workers = min(8, MAX_PARALLEL_WORKERS) # Use limited number of workers because this process is memory intensive
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for i, (start, end) in enumerate(clusterer.clusters[1:]):
@@ -2242,7 +2242,7 @@ def compare_to_UCC(overwrite=False):
         num_astrolink_clusters[k] = clusterer.clusters.shape[0] - 1  # Exclude the background cluster
 
         # Loop over AstroLink clusters in parallel
-        max_workers = min(4, PARALLEL_WORKERS) # Use limited number of workers because this process is memory intensive
+        max_workers = min(4, MAX_PARALLEL_WORKERS) # Use limited number of workers because this process is memory intensive
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for i, (start, end) in enumerate(clusterer.clusters[1:]):
@@ -2723,7 +2723,7 @@ def compare_to_galstreams(overwrite=False):
     # Calculate the RPJE values for each significance level
     whichClusters = -np.ones((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, galstreams_streams_probability_sums_total.size, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
     RPJE = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, galstreams_streams_probability_sums_total.size, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
-    
+
     # Loop over significance values
     for k, significance in enumerate(SIGMA_THRESHOLDS_FOR_COMPARISONS):
         print(f"... calculating stream-match purities at significance level S={significance:.1f}   ", end = '\r')
@@ -2732,7 +2732,7 @@ def compare_to_galstreams(overwrite=False):
         clusterer.extract_clusters()
 
         # Loop over AstroLink clusters in parallel
-        max_workers = min(4, PARALLEL_WORKERS) # Use limited number of workers because this process is memory intensive
+        max_workers = min(4, MAX_PARALLEL_WORKERS) # Use limited number of workers because this process is memory intensive
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for i, (start, end) in enumerate(clusterer.clusters[1:]):
@@ -2774,7 +2774,7 @@ def compare_to_galstreams(overwrite=False):
     print("... saving comparison results.\n")
     np.save(file_path_best_match_astrolink_clusters, whichClusters)
     np.save(file_path_cluster_rpje, RPJE)
-    del whichClusters, RPJE, num_astrolink_clusters  # Free memory
+    del whichClusters, RPJE  # Free memory
     gc.collect()  # Force garbage collection
 
 def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
@@ -2792,7 +2792,7 @@ def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
     # Load the comparison results
     print("... loading comparison results")
     RPJE = np.load(os.path.join(CLUSTERING_PATH, "galstreams_rpje.npy"))  # (N_sigmas, N_clusters, 4)
-    num_astrolink_clusters = np.load(os.path.join(CLUSTERING_PATH, "number_of_astrolink_clusters_per_sig.npy"))  # (N_sigmas,)
+    #num_astrolink_clusters = np.load(os.path.join(CLUSTERING_PATH, "number_of_astrolink_clusters_per_sig.npy"))  # (N_sigmas,)
 
     # Weight the recovery, purity, and Jaccard index by the evidence
     print("... weighting the recovery, purity, and Jaccard index by the evidence")

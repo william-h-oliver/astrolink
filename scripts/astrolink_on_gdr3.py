@@ -2836,7 +2836,7 @@ def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
 
 
 # Compare clustering output to Vasiliev & Baumgardt (2021)
-def prepare_Vasiliev2021_for_comparison(overwrite=False):
+def prepare_Vasiliev2021_for_comparison(overwrite=True):
     """
     Prepare the Vasiliev & Baumgardt (2021) catalogue for comparison to the clustering output.
     """
@@ -2875,7 +2875,7 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
         # Find all text files inside 'clusters/catalogues/'
         globular_cluster_files = [
             name for name in z.namelist()
-            if name.startswith('clusters/catalogues/') and name.endswith('.txt')
+            if name.startswith('catalogues/') and name.endswith('.txt')
         ]
         
         # Cycle through each cluster and save the star membership probabilities for that cluster
@@ -2884,11 +2884,20 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
         V21_members_clusters_probs_gdr3 = np.zeros((subsample_mask.size, 1), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
         for i, name in enumerate(globular_cluster_files):
             with z.open(name) as f:
-                # Read the text file into a pandas DataFrame
+                text_stream = TextIOWrapper(f, encoding='utf-8')
+
+                # Read until we find the header line (starts with '#')
+                for line in text_stream:
+                    if line.startswith('#'):
+                        # Strip the '#' and whitespace, then split into column names
+                        colnames = line.strip('#').strip().split()
+                        break
+
+                # Now read the remaining lines as data with those column names
                 df = pd.read_csv(
-                    TextIOWrapper(f, encoding='utf-8'),
-                    comment='#',        # skip lines starting with '#'
-                    delim_whitespace=True
+                    text_stream,
+                    sep=r"\s+",
+                    names=colnames
                 )
 
             # Extract only the columns of interest
@@ -2937,7 +2946,7 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
                 # Assign the cluster IDs and probabilities to the members
                 V21_members_clusters_ids_gdr3[indices, -1] = i
                 V21_members_clusters_probs_gdr3[indices, -1] = cluster_member_probs
-    del source_ids, cluster_source_ids, cluster_member_probs, indices  # Free memory
+    del source_ids  # Free memory
     gc.collect()  # Force garbage collection
     
     # Get the cluster IDs and probabilities for the subsample in this work
@@ -2969,7 +2978,7 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
     del V21_members_clusters_ids_subsample, V21_members_clusters_probs_subsample, V21_clusters_probability_sums_total, V21_clusters_probability_sums_overlap  # Free memory
     gc.collect()  # Force garbage collection
 
-def compare_to_Vasiliev2021(overwrite=False):
+def compare_to_Vasiliev2021(overwrite=True):
     """
     Compare the clustering output to the Vasiliev & Baumgardt (2021) catalogue.
     """
@@ -3064,7 +3073,7 @@ def compare_to_Vasiliev2021(overwrite=False):
     del whichClusters, RPJE  # Free memory
     gc.collect()  # Force garbage collection
 
-def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=False):
+def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=True):
     """
     Plot the results of the comparison between clustering output and the Vasiliev & Baumgardt (2021) catalogue.
     """
@@ -3086,6 +3095,12 @@ def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=False):
     RPJE[..., 0] *= RPJE[..., 3]  # Evidence-weighted recovery
     RPJE[..., 1] *= RPJE[..., 3]  # Evidence-weighted purity
     RPJE[..., 2] *= RPJE[..., 3]  # Evidence-weighted Jaccard index
+
+    print('### RPJE shape', RPJE.shape)
+    print('### Evidence min, max, and sum:')
+    print(np.min(RPJE[..., 3], axis=1))
+    print(np.max(RPJE[..., 3], axis=1))
+    print(np.sum(RPJE[..., 3], axis=1))
 
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))

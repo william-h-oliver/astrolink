@@ -1989,35 +1989,40 @@ def plot_evidence_weighted_Hunt2024_comparison_results(overwrite=False):
     fig, ax = plt.subplots(figsize=(6, 6))
 
     # Plot the recovery, purity, and Jaccard index for each significance level
-    print("... plotting the recovery, purity, and Jaccard index vs significance level for all clusters")
+    print("... plotting the cluster-match statistics vs significance level for all clusters")
     mask = (H24_cluster_types != 'r') * (H24_cluster_types != 'd')
     sum_of_evidence_weights = np.sum(RPJE[:, mask, 3], axis=1)
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
             np.sum(RPJE[:, mask, 0], axis=1) / sum_of_evidence_weights,
             color='k', linestyle='dotted', linewidth=1.5,
-            label='Recovery (o,m,g)')
+            label='R (o,m,g)')
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
             np.sum(RPJE[:, mask, 1], axis=1) / sum_of_evidence_weights,
             color='k', linestyle='dashed', linewidth=1.5,
-            label='Purity (o,m,g)')
+            label='P (o,m,g)')
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
             np.sum(RPJE[:, mask, 2], axis=1) / sum_of_evidence_weights,
+            color='k', linestyle='dashdot', linewidth=1.5,
+            label='J (o,m,g)')
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+            np.sum((RPJE[:, mask, 2] >= 0.5), axis=1) / mask.sum(),
             color='k', linestyle='solid', linewidth=1.5,
-            label='Jaccard index (o,m,g)')
-
-    idx = np.argmax(np.sum(RPJE[..., 2], axis=1) / sum_of_evidence_weights)
-    print(f'... best fit S={SIGMA_THRESHOLDS_FOR_COMPARISONS[idx]:.1f} with {num_astrolink_clusters[idx]} clusters')
+            label=r'$N(J \geq 0.5)/N_\mathrm{total}$ (o,m,g)')
 
     # Plot the recovery, purity, and Jaccard index for each significance level for each cluster type
-    print("... plotting the recovery, purity, and Jaccard index vs significance level for each cluster type")
+    print("... plotting the cluster-match statistics vs significance level for each cluster type")
     cluster_type_and_colour = dict(zip(['o', 'm', 'g', 'd', 'r'], ['C0', 'C2', 'C1', 'C4', 'C3']))
     for cluster_type, type_colour in cluster_type_and_colour.items():
         mask = H24_cluster_types == cluster_type
         sum_of_evidence_weights = np.sum(RPJE[:, mask, 3], axis=1)
         ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
                 np.sum(RPJE[:, mask, 2], axis=1) / sum_of_evidence_weights,
+                color=type_colour, linestyle='dashdot', linewidth=0.75, alpha=0.75,
+                label=f"J ({cluster_type})")
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+                np.sum((RPJE[:, mask, 2] >= 0.5), axis=1) / mask.sum(),
                 color=type_colour, linestyle='solid', linewidth=0.75, alpha=0.75,
-                label=f"Jaccard index ({cluster_type})")
+                label=r'$N(J \geq 0.5)/N_\mathrm{total}$' +  f" ({cluster_type})")
 
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
     ax.set_ylim(0, 1)
@@ -2330,27 +2335,27 @@ def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
     fig, ax = plt.subplots(figsize=(6, 6))
 
     # Plot the recovery, purity, and Jaccard index for each significance level
-    print("... plotting the recovery, purity, and Jaccard index vs significance level for all clusters")    
+    print("... plotting the cluster-match statistics vs significance level for all clusters")    
     sum_of_evidence_weights = np.sum(RPJE[..., 3], axis=1)
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
             np.sum(RPJE[..., 0], axis=1) / sum_of_evidence_weights,
             color='k', linestyle='dotted', linewidth=1.5,
-            label='Recovery (all)')
+            label='R (all)')
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
             np.sum(RPJE[..., 1], axis=1) / sum_of_evidence_weights,
             color='k', linestyle='dashed', linewidth=1.5,
-            label='Purity (all)')
+            label='P (all)')
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
             np.sum(RPJE[..., 2], axis=1) / sum_of_evidence_weights,
+            color='k', linestyle='dashdot', linewidth=1.5,
+            label='J (all)')
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+            np.sum((RPJE[..., 2] >= 0.5), axis=1) / RPJE.shape[1],
             color='k', linestyle='solid', linewidth=1.5,
-            label='Jaccard index (all)')
-
-
-    idx = np.argmax(np.sum(RPJE[..., 2], axis=1) / sum_of_evidence_weights)
-    print(f'... best fit S={SIGMA_THRESHOLDS_FOR_COMPARISONS[idx]:.1f} with {num_astrolink_clusters[idx]} clusters')
+            label=r'$N(J \geq 0.5)/N_\mathrm{total}$ (all)')
 
     # Plot the recovery, purity, and Jaccard index for each significance level for each cluster type
-    print("... plotting the recovery, purity, and Jaccard index vs significance level for different quality ranges")
+    print("... plotting the cluster-match statistics vs significance level for different quality ranges")
     cluster_class_lists = [
         ['AA', 'AB', 'BA'],
         ['AC', 'BB', 'CA'],
@@ -2367,8 +2372,12 @@ def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
         sum_of_evidence_weights = np.sum(RPJE[:, mask, 3], axis=1)
         ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
                 np.sum(RPJE[:, mask, 2], axis=1) / sum_of_evidence_weights,
+                color=colour, linestyle='dashdot', linewidth=0.75, alpha=0.75,
+                label='J (' + ','.join(class_list) + ')')
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+                np.sum((RPJE[:, mask, 2] >= 0.5), axis=1) / mask.sum(),
                 color=colour, linestyle='solid', linewidth=0.75, alpha=0.75,
-                label='Jaccard index (' + ','.join(class_list) + ')')
+                label=r'$N(J \geq 0.5)/N_\mathrm{total}$ (' + ','.join(class_list) + ')')
 
     print('... saving figure.\n')
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
@@ -2808,20 +2817,24 @@ def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
     fig, ax = plt.subplots(figsize=(6, 6))
 
     # Plot the recovery, purity, and Jaccard index for each significance level
-    print("... plotting the recovery, purity, and Jaccard index vs significance level for all clusters")    
+    print("... plotting the cluster-match statistics vs significance level for all clusters")    
     sum_of_evidence_weights = np.sum(RPJE[..., 3], axis=1)
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
             np.sum(RPJE[..., 0], axis=1) / sum_of_evidence_weights,
             color='k', linestyle='dotted', linewidth=1.5,
-            label='Recovery')
+            label='R')
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
             np.sum(RPJE[..., 1], axis=1) / sum_of_evidence_weights,
             color='k', linestyle='dashed', linewidth=1.5,
-            label='Purity')
+            label='P')
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
             np.sum(RPJE[..., 2], axis=1) / sum_of_evidence_weights,
+            color='k', linestyle='dashdot', linewidth=1.5,
+            label='J')
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+            np.sum((RPJE[..., 2] >= 0.5), axis=1) / RPJE.shape[1],
             color='k', linestyle='solid', linewidth=1.5,
-            label='Jaccard index')
+            label=r'$N(J \geq 0.5)/N_\mathrm{total}$')
 
     print('... saving figure.\n')
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
@@ -2836,7 +2849,7 @@ def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
 
 
 # Compare clustering output to Vasiliev & Baumgardt (2021)
-def prepare_Vasiliev2021_for_comparison(overwrite=True):
+def prepare_Vasiliev2021_for_comparison(overwrite=False):
     """
     Prepare the Vasiliev & Baumgardt (2021) catalogue for comparison to the clustering output.
     """
@@ -2897,7 +2910,8 @@ def prepare_Vasiliev2021_for_comparison(overwrite=True):
                 df = pd.read_csv(
                     text_stream,
                     sep=r"\s+",
-                    names=colnames
+                    names=colnames,
+                    engine="python"  # optional: allows regex separator, ensures compatibility
                 )
 
             # Extract only the columns of interest
@@ -2978,7 +2992,7 @@ def prepare_Vasiliev2021_for_comparison(overwrite=True):
     del V21_members_clusters_ids_subsample, V21_members_clusters_probs_subsample, V21_clusters_probability_sums_total, V21_clusters_probability_sums_overlap  # Free memory
     gc.collect()  # Force garbage collection
 
-def compare_to_Vasiliev2021(overwrite=True):
+def compare_to_Vasiliev2021(overwrite=False):
     """
     Compare the clustering output to the Vasiliev & Baumgardt (2021) catalogue.
     """
@@ -3073,12 +3087,12 @@ def compare_to_Vasiliev2021(overwrite=True):
     del whichClusters, RPJE  # Free memory
     gc.collect()  # Force garbage collection
 
-def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=True):
+def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=False):
     """
     Plot the results of the comparison between clustering output and the Vasiliev & Baumgardt (2021) catalogue.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "vasiliev2021_evidence_weighted_comparison_results.png")
+    file_path = os.path.join(FIGURES_PATH, "Vasiliev2021_evidence_weighted_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
         print(f"Vasiliev & Baumgardt (2021) evidence-weighted comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -3096,30 +3110,30 @@ def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=True):
     RPJE[..., 1] *= RPJE[..., 3]  # Evidence-weighted purity
     RPJE[..., 2] *= RPJE[..., 3]  # Evidence-weighted Jaccard index
 
-    print('### RPJE shape', RPJE.shape)
-    print('### Evidence min, max, and sum:')
-    print(np.min(RPJE[..., 3], axis=1))
-    print(np.max(RPJE[..., 3], axis=1))
-    print(np.sum(RPJE[..., 3], axis=1))
-
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
 
     # Plot the recovery, purity, and Jaccard index for each significance level
-    print("... plotting the recovery, purity, and Jaccard index vs significance level for all clusters")    
+    print("... plotting the cluster-match statistics vs significance level for all clusters")
     sum_of_evidence_weights = np.sum(RPJE[..., 3], axis=1)
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
             np.sum(RPJE[..., 0], axis=1) / sum_of_evidence_weights,
             color='k', linestyle='dotted', linewidth=1.5,
-            label='Recovery')
+            label='R')
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
             np.sum(RPJE[..., 1], axis=1) / sum_of_evidence_weights,
             color='k', linestyle='dashed', linewidth=1.5,
-            label='Purity')
+            label='P')
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
             np.sum(RPJE[..., 2], axis=1) / sum_of_evidence_weights,
+            color='k', linestyle='dashdot', linewidth=1.5,
+            label='J')
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
+            np.sum((RPJE[..., 2] >= 0.5), axis=1) / RPJE.shape[1],
             color='k', linestyle='solid', linewidth=1.5,
-            label='Jaccard index')
+            label=r'$N(J \geq 0.5)/N_\mathrm{total}$')
+
+    print(np.round(RPJE[SIGMA_THRESHOLDS_FOR_COMPARISONS == 4], 2))
     
     print('... saving figure.\n')
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
@@ -3187,4 +3201,4 @@ if __name__ == "__main__":
     # Compare to Vasiliev & Baumgardt (2021)
     prepare_Vasiliev2021_for_comparison()
     compare_to_Vasiliev2021()
-    plot_evidence_weighted_Vasiliev2021_comparison_results()
+    plot_evidence_weighted_Vasiliev2021_comparison_results(True)

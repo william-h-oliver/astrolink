@@ -1608,7 +1608,7 @@ def process_astrolink_cluster(start, end,
     if ids_valid.size == 0:
         return None  # No valid clusters to compare
 
-    # Get number of members in the AstroLink cluster when adjusted for the intersection with Hunt+2024 clusters
+    # Get number of members in the AstroLink cluster when adjusted for the intersection with catalogue clusters
     N_i = end - start - np.sum(xmatched_cluster_IDs[:, 0] == max_cluster_ID + 1)
 
     # If there are clusters to compare to, get valid probabilities
@@ -1644,19 +1644,27 @@ def calculate_rpje_for_astrolink_cluster_matches(
         end
     ):
     # Allocate small arrays to store the results
-    RPJE = np.zeros((unique_ids.size, 4), dtype=np.float32)
+    RPJE = np.zeros((unique_ids.size, 2, 4), dtype=np.float32)
 
-    # Probability mass of the clusters
-    Prob_sums = cluster_probability_sums_overlap[unique_ids]
+    # Probability mass of the clusters under the assumption that the catalogue clusters are found from a subsample of the union of the clusters themselves 
+    Prob_sums_overlap = cluster_probability_sums_overlap[unique_ids]
+    union_in_overlap = N_i + Prob_sums_overlap - M_sums
 
-    # Pre-calculate a term to be used twice
-    union_in_overlap = N_i + Prob_sums - M_sums
+    # Probability mass of the clusters under the assumption that the catalogue clusters are found from the full catalogue
+    Prob_sums_total = cluster_probability_sums_total[unique_ids]
+    union_full = N_i + Prob_sums_total - M_sums
 
-    # Calculate and store the recovery, purity, Jaccard index, and evidence values
-    RPJE[:, 0] = M_sums / Prob_sums
-    RPJE[:, 1] = M_sums / N_i
-    RPJE[:, 2] = M_sums / union_in_overlap
-    RPJE[:, 3] = union_in_overlap / (end - start + cluster_probability_sums_total[unique_ids] - M_sums)
+    # Calculate and store the recovery, purity, Jaccard index, and evidence values under full catalogue assumption (minimum values)
+    RPJE[:, 0, 0] = M_sums / Prob_sums_total
+    RPJE[:, 0, 1] = M_sums / N_i
+    RPJE[:, 0, 2] = M_sums / union_full
+    RPJE[:, 0, 3] = union_full / (end - start + Prob_sums_total - M_sums)
+
+    # Calculate and store the recovery, purity, Jaccard index, and evidence values under union of clusters assumption (maximum values)
+    RPJE[:, 1, 0] = M_sums / Prob_sums_overlap 
+    RPJE[:, 1, 1] = M_sums / N_i    # Stays the same because the subsample used for AstroLink clustering is fixed
+    RPJE[:, 1, 2] = M_sums / union_in_overlap
+    RPJE[:, 1, 3] = union_in_overlap / (end - start + Prob_sums_total - M_sums)
 
     return RPJE
 
@@ -1813,7 +1821,7 @@ def compare_to_Hunt2024(overwrite=False):
     # Check if comparison results already exist
     file_path_cluster_rpje = os.path.join(CLUSTERING_PATH, "hunt24_rpje.npy")
     file_path_best_match_astrolink_clusters = os.path.join(CLUSTERING_PATH, "hunt24_best_match_astrolink_clusters.npy")
-    file_path_number_of_astrolink_clusters_per_sig = os.path.join(CLUSTERING_PATH, "hunt24_number_of_astrolink_clusters_per_sig.npy")
+    file_path_number_of_astrolink_clusters_per_sig = os.path.join(CLUSTERING_PATH, "number_of_astrolink_clusters_per_sig.npy")
     if (os.path.exists(file_path_cluster_rpje) and
         os.path.exists(file_path_best_match_astrolink_clusters) and
         os.path.exists(file_path_number_of_astrolink_clusters_per_sig)) and not overwrite:
@@ -1898,7 +1906,7 @@ def compare_to_Hunt2024(overwrite=False):
     
     # Calculate the RPJE values for each significance level
     whichClusters = -np.ones((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, H24_cluster_probability_sums_total.size, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
-    RPJE = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, H24_cluster_probability_sums_total.size, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
+    RPJE = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, H24_cluster_probability_sums_total.size, 2, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
     num_astrolink_clusters = np.zeros(SIGMA_THRESHOLDS_FOR_COMPARISONS.size, dtype=np.int64)  # Number of AstroLink clusters for each significance level
     
     # Loop over significance values
@@ -1936,7 +1944,7 @@ def compare_to_Hunt2024(overwrite=False):
                 start, end, unique_ids, RPJE_cluster = result
 
                 # Merge results back into global arrays
-                better_matches = RPJE_cluster[:, 2] > RPJE[k, unique_ids, 2]
+                better_matches = RPJE_cluster[:, 0, 2] > RPJE[k, unique_ids, 0, 2] # Jaccard index comparison under the full catalogue assumption
                 which_better_matches = unique_ids[better_matches]
                 whichClusters[k, which_better_matches] = start, end
                 RPJE[k, which_better_matches] = RPJE_cluster[better_matches]
@@ -1960,7 +1968,9 @@ def compare_to_Hunt2024(overwrite=False):
 
 def plot_evidence_weighted_Hunt2024_comparison_results(overwrite=False):
     """
-    Plot the results of the comparison between clustering output and Hunt & Reffert (2024).
+    Plot the results of the comparison between clustering output and Hunt & Reffert (2024),
+    showing evidence-weighted recovery, purity, and Jaccard index under both subsample
+    assumptions ('full' and 'union'), with hatched regions indicating bounds.
     """
     # Check if plot already exists
     file_path = os.path.join(FIGURES_PATH, "Hunt2024_evidence_weighted_comparison_results.png")
@@ -1970,72 +1980,99 @@ def plot_evidence_weighted_Hunt2024_comparison_results(overwrite=False):
         return
     print("Plotting Hunt & Reffert (2024) evidence-weighted comparison results...")
 
-    # Load the comparison results
+    # Load comparison results
     print("... loading comparison results")
-    RPJE = np.load(os.path.join(CLUSTERING_PATH, "hunt24_rpje.npy"))  # (N_sigmas, N_clusters, 4)
-    num_astrolink_clusters = np.load(os.path.join(CLUSTERING_PATH, "hunt24_number_of_astrolink_clusters_per_sig.npy"))  # (N_sigmas,)
+    RPJE = np.load(os.path.join(CLUSTERING_PATH, "hunt24_rpje.npy"))  # (N_sigmas, N_clusters, 2, 4)
 
-    # Load the Hunt & Reffert (2024) cluster types
+    # Load Hunt & Reffert (2024) cluster types
     print("... loading Hunt & Reffert (2024) cluster types")
-    H24_cluster_types = np.load(os.path.join(CLUSTERING_PATH, "hunt24_clusters_types.npy"), allow_pickle=True)  # (N_clusters,)
-
-    # Weight the recovery, purity, and Jaccard index by the evidence
-    print("... weighting the recovery, purity, and Jaccard index by the evidence")
-    RPJE[..., 0] *= RPJE[..., 3]  # Evidence-weighted recovery
-    RPJE[..., 1] *= RPJE[..., 3]  # Evidence-weighted purity
-    RPJE[..., 2] *= RPJE[..., 3]  # Evidence-weighted Jaccard index
+    H24_cluster_types = np.load(
+        os.path.join(CLUSTERING_PATH, "hunt24_clusters_types.npy"), allow_pickle=True
+    )  # (N_clusters,)
 
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
 
-    # Plot the recovery, purity, and Jaccard index for each significance level
-    print("... plotting the cluster-match statistics vs significance level for all clusters")
-    mask = (H24_cluster_types != 'r') * (H24_cluster_types != 'd')
-    sum_of_evidence_weights = np.sum(RPJE[:, mask, 3], axis=1)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum(RPJE[:, mask, 0], axis=1) / sum_of_evidence_weights,
-            color='k', linestyle='dotted', linewidth=1.5,
-            label='R (o,m,g)')
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum(RPJE[:, mask, 1], axis=1) / sum_of_evidence_weights,
-            color='k', linestyle='dashed', linewidth=1.5,
-            label='P (o,m,g)')
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum(RPJE[:, mask, 2], axis=1) / sum_of_evidence_weights,
-            color='k', linestyle='dashdot', linewidth=1.5,
-            label='J (o,m,g)')
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum((RPJE[:, mask, 2] >= 0.5), axis=1) / mask.sum(),
-            color='k', linestyle='solid', linewidth=1.5,
-            label=r'$N(J \geq 0.5)/N_\mathrm{total}$ (o,m,g)')
+    # ========== COMBINED (o,m,g) CLUSTERS ==========
+    print("... plotting (o,m,g) combined statistics vs significance level")
 
-    # Plot the recovery, purity, and Jaccard index for each significance level for each cluster type
-    print("... plotting the cluster-match statistics vs significance level for each cluster type")
+    mask = (H24_cluster_types != 'r') & (H24_cluster_types != 'd')
+
+    # Extract per-statistic and per-assumption arrays
+    R_full,  R_union  = RPJE[:, mask, 0, 0], RPJE[:, mask, 1, 0]
+    P_full,  P_union  = RPJE[:, mask, 0, 1], RPJE[:, mask, 1, 1]
+    J_full,  J_union  = RPJE[:, mask, 0, 2], RPJE[:, mask, 1, 2]
+    E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
+
+    # Evidence-weighted means
+    Rbar_full  = np.sum(R_full * E_full, axis=1) / np.sum(E_full, axis=1)
+    Rbar_union = np.sum(R_union * E_union, axis=1) / np.sum(E_union, axis=1)
+    Pbar_full  = np.sum(P_full * E_full, axis=1) / np.sum(E_full, axis=1)
+    Pbar_union = np.sum(P_union * E_union, axis=1) / np.sum(E_union, axis=1)
+    Jbar_full  = np.sum(J_full * E_full, axis=1) / np.sum(E_full, axis=1)
+    Jbar_union = np.sum(J_union * E_union, axis=1) / np.sum(E_union, axis=1)
+
+    # Recovery
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
+            color='k', linestyle='dashed', linewidth=1.5, label='R (o,m,g)', zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full,
+            color='k', linestyle='dashed', linewidth=1.5, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full, Rbar_union,
+                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+
+    # Purity
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_union,
+            color='k', linestyle='dotted', linewidth=1.5, label='P (o,m,g)', zorder=3)
+    #ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
+    #        color='k', linestyle='dotted', linewidth=1.5, zorder=3)
+    #ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
+    #                facecolor='none', hatch='.', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+
+    # Jaccard
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
+            color='k', linestyle='solid', linewidth=1.5, label='J (o,m,g)', zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
+            color='k', linestyle='solid', linewidth=1.5, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
+                    color='k', alpha=0.3, zorder=3)
+
+    # ========== INDIVIDUAL CLUSTER TYPES ==========
+    print("... plotting per-cluster-type statistics")
     cluster_type_and_colour = dict(zip(['o', 'm', 'g', 'd', 'r'], ['C0', 'C2', 'C1', 'C4', 'C3']))
+
     for cluster_type, type_colour in cluster_type_and_colour.items():
         mask = H24_cluster_types == cluster_type
-        sum_of_evidence_weights = np.sum(RPJE[:, mask, 3], axis=1)
-        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-                np.sum(RPJE[:, mask, 2], axis=1) / sum_of_evidence_weights,
-                color=type_colour, linestyle='dashdot', linewidth=0.75, alpha=0.75,
-                label=f"J ({cluster_type})")
-        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-                np.sum((RPJE[:, mask, 2] >= 0.5), axis=1) / mask.sum(),
-                color=type_colour, linestyle='solid', linewidth=0.75, alpha=0.75,
-                label=r'$N(J \geq 0.5)/N_\mathrm{total}$' +  f" ({cluster_type})")
+        if not np.any(mask):
+            continue
 
+        E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
+        J_full,  J_union  = RPJE[:, mask, 0, 2], RPJE[:, mask, 1, 2]
+
+        # Weighted means
+        Jbar_full  = np.sum(J_full * E_full, axis=1) / np.sum(E_full, axis=1)
+        Jbar_union = np.sum(J_union * E_union, axis=1) / np.sum(E_union, axis=1)
+
+        # Plot both bounds + hatched region
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
+                color=type_colour, linestyle='solid', linewidth=0.75, alpha=0.8,
+                label=f"J ({cluster_type})", zorder=2)
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
+                color=type_colour, linestyle='solid', linewidth=0.75, alpha=0.8, zorder=2)
+        ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
+                        color=type_colour, alpha=0.3, zorder=2)
+
+    # ========== Final formatting ==========
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
     ax.set_ylim(0, 1)
     ax.set_xlabel("Significance Level")
     ax.set_ylabel("Comparison Statistic")
     ax.legend(loc='lower left')
-    
-    # Save figure
-    print('... saving figure.\n')
+
+    print("... saving figure.\n")
     plt.tight_layout()
     plt.savefig(file_path, dpi=500)
     plt.close(fig)
-    gc.collect()  # Free memory
+    gc.collect()
 
 
 # === Compare clustering output to the Unified Cluster Catalogue ===
@@ -2146,7 +2183,7 @@ def compare_to_UCC(overwrite=False):
     # Check if comparison results already exist
     file_path_cluster_rpje = os.path.join(CLUSTERING_PATH, "ucc_rpje.npy")
     file_path_best_match_astrolink_clusters = os.path.join(CLUSTERING_PATH, "ucc_best_match_astrolink_clusters.npy")
-    file_path_number_of_astrolink_clusters_per_sig = os.path.join(CLUSTERING_PATH, "ucc_number_of_astrolink_clusters_per_sig.npy")
+    file_path_number_of_astrolink_clusters_per_sig = os.path.join(CLUSTERING_PATH, "number_of_astrolink_clusters_per_sig.npy")
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_cluster_rpje) and
@@ -2237,7 +2274,7 @@ def compare_to_UCC(overwrite=False):
     
     # Calculate the RPJE values for each significance level
     whichClusters = -np.ones((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, UCC_cluster_probability_sums_total.size, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
-    RPJE = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, UCC_cluster_probability_sums_total.size, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
+    RPJE = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, UCC_cluster_probability_sums_total.size, 2, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
     num_astrolink_clusters = np.zeros(SIGMA_THRESHOLDS_FOR_COMPARISONS.size, dtype=np.int64)  # Number of AstroLink clusters for each significance level
     
     # Loop over significance values
@@ -2275,7 +2312,7 @@ def compare_to_UCC(overwrite=False):
                 start, end, unique_ids, RPJE_cluster = result
 
                 # Merge results back into global arrays
-                better_matches = RPJE_cluster[:, 2] > RPJE[k, unique_ids, 2]
+                better_matches = RPJE_cluster[:, 0, 2] > RPJE[k, unique_ids, 0, 2] # Jaccard index comparison under the full catalogue assumption
                 which_better_matches = unique_ids[better_matches]
                 whichClusters[k, which_better_matches] = start, end
                 RPJE[k, which_better_matches] = RPJE_cluster[better_matches]
@@ -2299,7 +2336,9 @@ def compare_to_UCC(overwrite=False):
 
 def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
     """
-    Plot the results of the comparison between clustering output and the Unified Cluster Catalogue.
+    Plot the results of the comparison between clustering output and the Unified Cluster Catalogue (UCC),
+    showing evidence-weighted recovery, purity, and Jaccard index under both subsample assumptions
+    ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
     file_path = os.path.join(FIGURES_PATH, "UCC_evidence_weighted_comparison_results.png")
@@ -2309,12 +2348,11 @@ def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
         return
     print("Plotting Unified Cluster Catalogue evidence-weighted comparison results...")
 
-    # Load the comparison results
+    # Load comparison results
     print("... loading comparison results")
-    RPJE = np.load(os.path.join(CLUSTERING_PATH, "ucc_rpje.npy"))  # (N_sigmas, N_clusters, 4)
-    num_astrolink_clusters = np.load(os.path.join(CLUSTERING_PATH, "ucc_number_of_astrolink_clusters_per_sig.npy"))  # (N_sigmas,)
+    RPJE = np.load(os.path.join(CLUSTERING_PATH, "ucc_rpje.npy"))  # (N_sigmas, N_clusters, 2, 4)
 
-    # Load the Unified Cluster Catalogue cluster types
+    # Load UCC cluster metadata
     print("... loading Unified Cluster Catalogue cluster names and quality classes")
     UCC_clusters_names = np.load(os.path.join(CLUSTERING_PATH, "ucc_clusters_names.npy"))
     UCC_clusters_quality_class = np.load(os.path.join(CLUSTERING_PATH, "ucc_clusters_quality_class.npy"))
@@ -2324,38 +2362,53 @@ def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
     UCC_clusters_names = UCC_clusters_names[reorder]
     UCC_clusters_quality_class = UCC_clusters_quality_class[reorder]
 
-    # Weight the recovery, purity, and Jaccard index by the evidence
-    print("... weighting the recovery, purity, and Jaccard index by the evidence")
-    #RPJE[..., 3] **= 2
-    RPJE[..., 0] *= RPJE[..., 3]  # Evidence-weighted recovery
-    RPJE[..., 1] *= RPJE[..., 3]  # Evidence-weighted purity
-    RPJE[..., 2] *= RPJE[..., 3]  # Evidence-weighted Jaccard index
-
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
 
-    # Plot the recovery, purity, and Jaccard index for each significance level
-    print("... plotting the cluster-match statistics vs significance level for all clusters")    
-    sum_of_evidence_weights = np.sum(RPJE[..., 3], axis=1)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum(RPJE[..., 0], axis=1) / sum_of_evidence_weights,
-            color='k', linestyle='dotted', linewidth=1.5,
-            label='R (all)')
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum(RPJE[..., 1], axis=1) / sum_of_evidence_weights,
-            color='k', linestyle='dashed', linewidth=1.5,
-            label='P (all)')
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum(RPJE[..., 2], axis=1) / sum_of_evidence_weights,
-            color='k', linestyle='dashdot', linewidth=1.5,
-            label='J (all)')
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum((RPJE[..., 2] >= 0.5), axis=1) / RPJE.shape[1],
-            color='k', linestyle='solid', linewidth=1.5,
-            label=r'$N(J \geq 0.5)/N_\mathrm{total}$ (all)')
+    # ========== ALL CLUSTERS ==========
+    print("... plotting overall cluster-match statistics vs significance level")
 
-    # Plot the recovery, purity, and Jaccard index for each significance level for each cluster type
-    print("... plotting the cluster-match statistics vs significance level for different quality ranges")
+    # Extract per-assumption and per-statistic arrays
+    R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
+    P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
+    J_full,  J_union  = RPJE[:, :, 0, 2], RPJE[:, :, 1, 2]
+    E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
+
+    # Evidence-weighted means
+    Rbar_full  = np.sum(R_full * E_full, axis=1) / np.sum(E_full, axis=1)
+    Rbar_union = np.sum(R_union * E_union, axis=1) / np.sum(E_union, axis=1)
+    Pbar_full  = np.sum(P_full * E_full, axis=1) / np.sum(E_full, axis=1)
+    Pbar_union = np.sum(P_union * E_union, axis=1) / np.sum(E_union, axis=1)
+    Jbar_full  = np.sum(J_full * E_full, axis=1) / np.sum(E_full, axis=1)
+    Jbar_union = np.sum(J_union * E_union, axis=1) / np.sum(E_union, axis=1)
+
+    # Recovery
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
+            color='k', linestyle='dashed', linewidth=1.5, label='R (all)', zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full,
+            color='k', linestyle='dashed', linewidth=1.5, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full, Rbar_union,
+                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+
+    # Purity
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_union,
+            color='k', linestyle='dotted', linewidth=1.5, label='P (all)', zorder=3)
+    #ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
+    #        color='k', linestyle='dotted', linewidth=1.5, zorder=3)
+    #ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
+    #                facecolor='none', hatch='.', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+
+    # Jaccard
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
+            color='k', linestyle='solid', linewidth=1.5, label='J (all)', zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
+            color='k', linestyle='solid', linewidth=1.5, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
+                    color='k', alpha=0.3, zorder=3)
+
+    # ========== QUALITY CLASS GROUPS ==========
+    print("... plotting statistics vs significance level for UCC quality ranges")
+
     cluster_class_lists = [
         ['AA', 'AB', 'BA'],
         ['AC', 'BB', 'CA'],
@@ -2365,20 +2418,32 @@ def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
     ]
     cmap = plt.get_cmap('coolwarm')
     cluster_class_colours = [cmap(i / (len(cluster_class_lists) - 1)) for i in range(len(cluster_class_lists))]
-    for class_list, colour in zip(cluster_class_lists, cluster_class_colours):
-        mask = np.zeros(RPJE.shape[1], dtype=np.bool_)
-        for quality_class in class_list:
-            mask[UCC_clusters_quality_class == quality_class] = True
-        sum_of_evidence_weights = np.sum(RPJE[:, mask, 3], axis=1)
-        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-                np.sum(RPJE[:, mask, 2], axis=1) / sum_of_evidence_weights,
-                color=colour, linestyle='dashdot', linewidth=0.75, alpha=0.75,
-                label='J (' + ','.join(class_list) + ')')
-        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-                np.sum((RPJE[:, mask, 2] >= 0.5), axis=1) / mask.sum(),
-                color=colour, linestyle='solid', linewidth=0.75, alpha=0.75,
-                label=r'$N(J \geq 0.5)/N_\mathrm{total}$ (' + ','.join(class_list) + ')')
 
+    for class_list, colour in zip(cluster_class_lists, cluster_class_colours):
+        mask = np.zeros(RPJE.shape[1], dtype=bool)
+        for qclass in class_list:
+            mask |= (UCC_clusters_quality_class == qclass)
+        if not np.any(mask):
+            continue
+
+        # Extract Jaccard + evidence per assumption
+        E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
+        J_full,  J_union  = RPJE[:, mask, 0, 2], RPJE[:, mask, 1, 2]
+
+        # Weighted means
+        Jbar_full  = np.sum(J_full * E_full, axis=1) / np.sum(E_full, axis=1)
+        Jbar_union = np.sum(J_union * E_union, axis=1) / np.sum(E_union, axis=1)
+
+        # Plot both bounds + hatched region
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
+                color=colour, linestyle='solid', linewidth=0.75, alpha=0.8,
+                label='J (' + ','.join(class_list) + ')', zorder=2)
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
+                color=colour, linestyle='solid', linewidth=0.75, alpha=0.8, zorder=2)
+        ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
+                        color=colour, alpha=0.3, zorder=2)
+
+    # ========== Final formatting ==========
     print('... saving figure.\n')
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
     ax.set_ylim(0, 1)
@@ -2388,6 +2453,7 @@ def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
     plt.tight_layout()
     plt.savefig(file_path, dpi=500)
     plt.close(fig)
+    gc.collect()
 
 
 # === Compare clustering output to galstreams ===
@@ -2702,14 +2768,17 @@ def compare_to_galstreams(overwrite=False):
     # Check if comparison results already exist
     file_path_best_match_astrolink_clusters = os.path.join(CLUSTERING_PATH, "galstreams_best_match_astrolink_clusters.npy")
     file_path_cluster_rpje = os.path.join(CLUSTERING_PATH, "galstreams_rpje.npy")
+    file_path_number_of_astrolink_clusters_per_sig = os.path.join(CLUSTERING_PATH, "number_of_astrolink_clusters_per_sig.npy")
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_best_match_astrolink_clusters) and
-                  os.path.exists(file_path_cluster_rpje))
+                  os.path.exists(file_path_cluster_rpje) and
+                  os.path.exists(file_path_number_of_astrolink_clusters_per_sig))
     if all_exist and not overwrite:
         print("Galstreams comparison results already exist at:")
-        print(f"\t{file_path_best_match_astrolink_clusters} , and")
-        print(f"\t{file_path_cluster_rpje} .")
+        print(f"\t{file_path_best_match_astrolink_clusters} ,")
+        print(f"\t{file_path_cluster_rpje} , and")
+        print(f"\t{file_path_number_of_astrolink_clusters_per_sig} .")
         print("Use overwrite=True to force recomputation.\n")
         return
     print("Comparing clustering output to the galstreams catalogue...")
@@ -2735,7 +2804,8 @@ def compare_to_galstreams(overwrite=False):
 
     # Calculate the RPJE values for each significance level
     whichClusters = -np.ones((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, galstreams_streams_probability_sums_total.size, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
-    RPJE = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, galstreams_streams_probability_sums_total.size, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
+    RPJE = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, galstreams_streams_probability_sums_total.size, 2, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
+    num_astrolink_clusters = np.zeros(SIGMA_THRESHOLDS_FOR_COMPARISONS.size, dtype=np.int64)  # Number of AstroLink clusters for each significance level
 
     # Loop over significance values
     for k, significance in enumerate(SIGMA_THRESHOLDS_FOR_COMPARISONS):
@@ -2743,6 +2813,9 @@ def compare_to_galstreams(overwrite=False):
         # Extract clusters at the current significance level
         clusterer.S = significance
         clusterer.extract_clusters()
+
+        # Track the number of clusters at the current significance level
+        num_astrolink_clusters[k] = len(clusterer.clusters) - 1  # Exclude the first cluster
 
         # Loop over AstroLink clusters in parallel
         max_workers = min(4, MAX_PARALLEL_WORKERS) # Use limited number of workers because this process is memory intensive
@@ -2769,7 +2842,7 @@ def compare_to_galstreams(overwrite=False):
                 start, end, unique_ids, RPJE_cluster = result
 
                 # Merge results back into global arrays
-                better_matches = RPJE_cluster[:, 2] > RPJE[k, unique_ids, 2]
+                better_matches = RPJE_cluster[:, 0, 2] > RPJE[k, unique_ids, 0, 2] # Jaccard index comparison under the full catalogue assumption
                 which_better_matches = unique_ids[better_matches]
                 whichClusters[k, which_better_matches] = start, end
                 RPJE[k, which_better_matches] = RPJE_cluster[better_matches]
@@ -2787,12 +2860,15 @@ def compare_to_galstreams(overwrite=False):
     print("... saving comparison results.\n")
     np.save(file_path_best_match_astrolink_clusters, whichClusters)
     np.save(file_path_cluster_rpje, RPJE)
-    del whichClusters, RPJE  # Free memory
+    np.save(file_path_number_of_astrolink_clusters_per_sig, num_astrolink_clusters)
+    del whichClusters, RPJE, num_astrolink_clusters  # Free memory
     gc.collect()  # Force garbage collection
 
 def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
     """
-    Plot the results of the comparison between clustering output and the galstreams catalogue.
+    Plot the results of the comparison between clustering output and the galstreams catalogue,
+    showing evidence-weighted recovery, purity, and Jaccard index under both subsample assumptions
+    ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
     file_path = os.path.join(FIGURES_PATH, "galstreams_evidence_weighted_comparison_results.png")
@@ -2800,43 +2876,54 @@ def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
         print(f"Galstreams evidence-weighted comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
         return
-    print("Plotting galstreams evidence-weighted comparison results...")
+    print("Plotting Galstreams evidence-weighted comparison results...")
 
-    # Load the comparison results
+    # Load comparison results
     print("... loading comparison results")
-    RPJE = np.load(os.path.join(CLUSTERING_PATH, "galstreams_rpje.npy"))  # (N_sigmas, N_clusters, 4)
-    #num_astrolink_clusters = np.load(os.path.join(CLUSTERING_PATH, "number_of_astrolink_clusters_per_sig.npy"))  # (N_sigmas,)
+    RPJE = np.load(os.path.join(CLUSTERING_PATH, "galstreams_rpje.npy"))  # (N_sigmas, N_clusters, 2, 4)
 
-    # Weight the recovery, purity, and Jaccard index by the evidence
-    print("... weighting the recovery, purity, and Jaccard index by the evidence")
-    RPJE[..., 0] *= RPJE[..., 3]  # Evidence-weighted recovery
-    RPJE[..., 1] *= RPJE[..., 3]  # Evidence-weighted purity
-    RPJE[..., 2] *= RPJE[..., 3]  # Evidence-weighted Jaccard index
+    # Extract per-assumption and per-statistic arrays
+    R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
+    P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
+    J_full,  J_union  = RPJE[:, :, 0, 2], RPJE[:, :, 1, 2]
+    E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
+
+    # Evidence-weighted averages
+    Rbar_full  = np.sum(R_full * E_full, axis=1) / np.sum(E_full, axis=1)
+    Rbar_union = np.sum(R_union * E_union, axis=1) / np.sum(E_union, axis=1)
+    Pbar_full  = np.sum(P_full * E_full, axis=1) / np.sum(E_full, axis=1)
+    Pbar_union = np.sum(P_union * E_union, axis=1) / np.sum(E_union, axis=1)
+    Jbar_full  = np.sum(J_full * E_full, axis=1) / np.sum(E_full, axis=1)
+    Jbar_union = np.sum(J_union * E_union, axis=1) / np.sum(E_union, axis=1)
 
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
 
-    # Plot the recovery, purity, and Jaccard index for each significance level
-    print("... plotting the cluster-match statistics vs significance level for all clusters")    
-    sum_of_evidence_weights = np.sum(RPJE[..., 3], axis=1)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum(RPJE[..., 0], axis=1) / sum_of_evidence_weights,
-            color='k', linestyle='dotted', linewidth=1.5,
-            label='R')
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum(RPJE[..., 1], axis=1) / sum_of_evidence_weights,
-            color='k', linestyle='dashed', linewidth=1.5,
-            label='P')
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum(RPJE[..., 2], axis=1) / sum_of_evidence_weights,
-            color='k', linestyle='dashdot', linewidth=1.5,
-            label='J')
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum((RPJE[..., 2] >= 0.5), axis=1) / RPJE.shape[1],
-            color='k', linestyle='solid', linewidth=1.5,
-            label=r'$N(J \geq 0.5)/N_\mathrm{total}$')
+    # Recovery
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
+            color='k', linestyle='dashed', linewidth=1.5, label='R', zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full,
+            color='k', linestyle='dashed', linewidth=1.5, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full, Rbar_union,
+                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
 
-    print('... saving figure.\n')
+    # Purity
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_union,
+            color='k', linestyle='dotted', linewidth=1.5, label='P', zorder=3)
+    #ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
+    #        color='k', linestyle='dotted', linewidth=1.5, zorder=3)
+    #ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
+    #                facecolor='none', hatch='.', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+
+    # Jaccard
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
+            color='k', linestyle='solid', linewidth=1.5, label='J', zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
+            color='k', linestyle='solid', linewidth=1.5, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
+                    color='k', alpha=0.3, zorder=3)
+
+    # Final formatting
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
     ax.set_ylim(0, 1)
     ax.set_xlabel("Significance Level")
@@ -2845,7 +2932,7 @@ def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
     plt.tight_layout()
     plt.savefig(file_path, dpi=500)
     plt.close(fig)
-    gc.collect()  # Force garbage collection
+    gc.collect()
 
 
 # Compare clustering output to Vasiliev & Baumgardt (2021)
@@ -2999,14 +3086,17 @@ def compare_to_Vasiliev2021(overwrite=False):
     # Check if comparison results already exist
     file_path_best_match_astrolink_clusters = os.path.join(CLUSTERING_PATH, "vasiliev2021_best_match_astrolink_clusters.npy")
     file_path_cluster_rpje = os.path.join(CLUSTERING_PATH, "vasiliev2021_rpje.npy")
+    file_path_number_of_astrolink_clusters_per_sig = os.path.join(CLUSTERING_PATH, "number_of_astrolink_clusters_per_sig.npy")
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_best_match_astrolink_clusters) and
-                  os.path.exists(file_path_cluster_rpje))
+                  os.path.exists(file_path_cluster_rpje) and
+                  os.path.exists(file_path_number_of_astrolink_clusters_per_sig))
     if all_exist and not overwrite:
         print("Vasiliev & Baumgardt (2021) comparison results already exist at:")
-        print(f"\t{file_path_best_match_astrolink_clusters} , and")
-        print(f"\t{file_path_cluster_rpje} .")
+        print(f"\t{file_path_best_match_astrolink_clusters} ,")
+        print(f"\t{file_path_cluster_rpje} , and")
+        print(f"\t{file_path_number_of_astrolink_clusters_per_sig} .")
         print("Use overwrite=True to force recomputation.\n")
         return
     print("Comparing clustering output to the Vasiliev & Baumgardt (2021) catalogue...")
@@ -3032,7 +3122,8 @@ def compare_to_Vasiliev2021(overwrite=False):
 
     # Calculate the RPJE values for each significance level
     whichClusters = -np.ones((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, V21_clusters_probability_sums_total.size, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
-    RPJE = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, V21_clusters_probability_sums_total.size, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
+    RPJE = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, V21_clusters_probability_sums_total.size, 2, 4), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
+    num_astrolink_clusters = np.zeros(SIGMA_THRESHOLDS_FOR_COMPARISONS.size, dtype=np.int64)  # Number of AstroLink clusters for each significance level
 
     # Loop over significance values
     for k, significance in enumerate(SIGMA_THRESHOLDS_FOR_COMPARISONS):
@@ -3040,6 +3131,9 @@ def compare_to_Vasiliev2021(overwrite=False):
         # Extract clusters at the current significance level
         clusterer.S = significance
         clusterer.extract_clusters()
+
+        # Track the number of clusters at the current significance level
+        num_astrolink_clusters[k] = len(clusterer.clusters) - 1  # Exclude the first cluster
 
         # Loop over AstroLink clusters in parallel
         max_workers = min(4, MAX_PARALLEL_WORKERS) # Use limited number of workers because this process is memory intensive
@@ -3066,7 +3160,7 @@ def compare_to_Vasiliev2021(overwrite=False):
                 start, end, unique_ids, RPJE_cluster = result
 
                 # Merge results back into global arrays
-                better_matches = RPJE_cluster[:, 2] > RPJE[k, unique_ids, 2]
+                better_matches = RPJE_cluster[:, 0, 2] > RPJE[k, unique_ids, 0, 2] # Jaccard index comparison under the full catalogue assumption
                 which_better_matches = unique_ids[better_matches]
                 whichClusters[k, which_better_matches] = start, end
                 RPJE[k, which_better_matches] = RPJE_cluster[better_matches]
@@ -3084,12 +3178,15 @@ def compare_to_Vasiliev2021(overwrite=False):
     print("... saving comparison results.\n")
     np.save(file_path_best_match_astrolink_clusters, whichClusters)
     np.save(file_path_cluster_rpje, RPJE)
-    del whichClusters, RPJE  # Free memory
+    np.save(file_path_number_of_astrolink_clusters_per_sig, num_astrolink_clusters)
+    del whichClusters, RPJE, num_astrolink_clusters  # Free memory
     gc.collect()  # Force garbage collection
 
 def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=False):
     """
-    Plot the results of the comparison between clustering output and the Vasiliev & Baumgardt (2021) catalogue.
+    Plot the results of the comparison between clustering output and the Vasiliev & Baumgardt (2021) catalogue,
+    showing evidence-weighted recovery, purity, and Jaccard index under both subsample assumptions
+    ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
     file_path = os.path.join(FIGURES_PATH, "Vasiliev2021_evidence_weighted_comparison_results.png")
@@ -3099,43 +3196,52 @@ def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=False):
         return
     print("Plotting Vasiliev & Baumgardt (2021) evidence-weighted comparison results...")
 
-    # Load the comparison results
+    # Load comparison results
     print("... loading comparison results")
-    RPJE = np.load(os.path.join(CLUSTERING_PATH, "vasiliev2021_rpje.npy"))  # (N_sigmas, N_clusters, 4)
-    #num_astrolink_clusters = np.load(os.path.join(CLUSTERING_PATH, "number_of_astrolink_clusters_per_sig.npy"))  # (N_sigmas,)
+    RPJE = np.load(os.path.join(CLUSTERING_PATH, "vasiliev2021_rpje.npy"))  # (N_sigmas, N_clusters, 2, 4)
 
-    # Weight the recovery, purity, and Jaccard index by the evidence
-    print("... weighting the recovery, purity, and Jaccard index by the evidence")
-    RPJE[..., 0] *= RPJE[..., 3]  # Evidence-weighted recovery
-    RPJE[..., 1] *= RPJE[..., 3]  # Evidence-weighted purity
-    RPJE[..., 2] *= RPJE[..., 3]  # Evidence-weighted Jaccard index
+    # Extract per-assumption and per-statistic arrays
+    R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
+    P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
+    J_full,  J_union  = RPJE[:, :, 0, 2], RPJE[:, :, 1, 2]
+    E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
+
+    # Evidence-weighted averages
+    Rbar_full  = np.sum(R_full * E_full, axis=1) / np.sum(E_full, axis=1)
+    Rbar_union = np.sum(R_union * E_union, axis=1) / np.sum(E_union, axis=1)
+    Pbar_full  = np.sum(P_full * E_full, axis=1) / np.sum(E_full, axis=1)
+    Pbar_union = np.sum(P_union * E_union, axis=1) / np.sum(E_union, axis=1)
+    Jbar_full  = np.sum(J_full * E_full, axis=1) / np.sum(E_full, axis=1)
+    Jbar_union = np.sum(J_union * E_union, axis=1) / np.sum(E_union, axis=1)
 
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
 
-    # Plot the recovery, purity, and Jaccard index for each significance level
-    print("... plotting the cluster-match statistics vs significance level for all clusters")
-    sum_of_evidence_weights = np.sum(RPJE[..., 3], axis=1)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum(RPJE[..., 0], axis=1) / sum_of_evidence_weights,
-            color='k', linestyle='dotted', linewidth=1.5,
-            label='R')
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum(RPJE[..., 1], axis=1) / sum_of_evidence_weights,
-            color='k', linestyle='dashed', linewidth=1.5,
-            label='P')
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum(RPJE[..., 2], axis=1) / sum_of_evidence_weights,
-            color='k', linestyle='dashdot', linewidth=1.5,
-            label='J')
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, 
-            np.sum((RPJE[..., 2] >= 0.5), axis=1) / RPJE.shape[1],
-            color='k', linestyle='solid', linewidth=1.5,
-            label=r'$N(J \geq 0.5)/N_\mathrm{total}$')
+    # Recovery
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
+            color='k', linestyle='dashed', linewidth=1.5, label='R', zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full,
+            color='k', linestyle='dashed', linewidth=1.5, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full, Rbar_union,
+                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
 
-    print(np.round(RPJE[SIGMA_THRESHOLDS_FOR_COMPARISONS == 4], 2))
-    
-    print('... saving figure.\n')
+    # Purity
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_union,
+            color='k', linestyle='dotted', linewidth=1.5, label='P', zorder=3)
+    #ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
+    #        color='k', linestyle='dotted', linewidth=1.5, zorder=3)
+    #ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
+    #                facecolor='none', hatch='.', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+
+    # Jaccard
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
+            color='k', linestyle='solid', linewidth=1.5, label='J', zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
+            color='k', linestyle='solid', linewidth=1.5, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
+                    color='k', alpha=0.3, zorder=3)
+
+    # Final formatting
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
     ax.set_ylim(0, 1)
     ax.set_xlabel("Significance Level")
@@ -3144,7 +3250,7 @@ def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=False):
     plt.tight_layout()
     plt.savefig(file_path, dpi=500)
     plt.close(fig)
-    gc.collect()  # Force garbage collection
+    gc.collect()
 
 
 # === Run script ===
@@ -3186,17 +3292,17 @@ if __name__ == "__main__":
     # Compare to Hunt & Reffert (2024)
     prepare_Hunt2024_for_comparison()
     compare_to_Hunt2024()
-    plot_evidence_weighted_Hunt2024_comparison_results()
+    plot_evidence_weighted_Hunt2024_comparison_results(True)
 
     # Compare to Unified Cluster Catalogue
     prepare_UCC_for_comparison()
     compare_to_UCC()
-    plot_evidence_weighted_UCC_comparison_results()
+    plot_evidence_weighted_UCC_comparison_results(True)
 
     # Compare to galstreams catalogue
     prepare_galstreams_for_comparison()
     compare_to_galstreams()
-    plot_evidence_weighted_galstreams_comparison_results()
+    plot_evidence_weighted_galstreams_comparison_results(True)
 
     # Compare to Vasiliev & Baumgardt (2021)
     prepare_Vasiliev2021_for_comparison()

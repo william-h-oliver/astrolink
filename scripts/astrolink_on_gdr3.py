@@ -1674,6 +1674,7 @@ def printout_suppressor():
         with contextlib.redirect_stdout(fnull), contextlib.redirect_stderr(fnull):
             yield
             
+
 # === Compare clustering output to Hunt & Reffert (2024) ===
 def prepare_Hunt2024_for_comparison(overwrite=False):
     """
@@ -1819,13 +1820,22 @@ def compare_to_Hunt2024(overwrite=False):
     Compare the clustering output to the Hunt & Reffert (2024).
     """
     # Check if comparison results already exist
+    file_path_H24_cluster_probability_sums_total = os.path.join(CLUSTERING_PATH, "hunt24_cluster_probability_sums_total.npy")
+    file_path_H24_cluster_probability_sums_overlap = os.path.join(CLUSTERING_PATH, "hunt24_cluster_probability_sums_overlap.npy")
     file_path_cluster_rpje = os.path.join(CLUSTERING_PATH, "hunt24_rpje.npy")
     file_path_best_match_astrolink_clusters = os.path.join(CLUSTERING_PATH, "hunt24_best_match_astrolink_clusters.npy")
     file_path_number_of_astrolink_clusters_per_sig = os.path.join(CLUSTERING_PATH, "number_of_astrolink_clusters_per_sig.npy")
-    if (os.path.exists(file_path_cluster_rpje) and
-        os.path.exists(file_path_best_match_astrolink_clusters) and
-        os.path.exists(file_path_number_of_astrolink_clusters_per_sig)) and not overwrite:
+    
+    # Skip processing if all merged output files already exist
+    all_exist = (os.path.exists(file_path_H24_cluster_probability_sums_total) and
+                 os.path.exists(file_path_H24_cluster_probability_sums_overlap) and
+                 os.path.exists(file_path_cluster_rpje) and
+                 os.path.exists(file_path_best_match_astrolink_clusters) and
+                 os.path.exists(file_path_number_of_astrolink_clusters_per_sig))
+    if all_exist and not overwrite:
         print("Hunt & Reffert (2024) comparison results already exist at:")
+        print(f"\t{file_path_H24_cluster_probability_sums_total} ,")
+        print(f"\t{file_path_H24_cluster_probability_sums_overlap} ,")
         print(f"\t{file_path_cluster_rpje} ,")
         print(f"\t{file_path_best_match_astrolink_clusters} , and")
         print(f"\t{file_path_number_of_astrolink_clusters_per_sig} .")
@@ -1923,17 +1933,18 @@ def compare_to_Hunt2024(overwrite=False):
         max_workers = min(8, MAX_PARALLEL_WORKERS) # Use limited number of workers because this process is memory intensive
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = []
-            for i, (start, end) in enumerate(clusterer.clusters[1:]):
-                futures.append(
-                    executor.submit(process_astrolink_cluster,
-                                    start, end,
-                                    H24_cluster_probability_sums_total,
-                                    H24_cluster_probability_sums_overlap,
-                                    max_H24_cluster_ID,
-                                    shm_ids.name, shm_probs.name, shm_ordering.name,
-                                    shape_ids, shape_probs, shape_ordering,
-                                    dtype_ids, dtype_probs, dtype_ordering)
-                )
+            for i, ((start, end), cluster_id) in enumerate(zip(clusterer.clusters, clusterer.ids)):
+                if i == clusterer.ids.size - 1 or not clusterer.ids[i + 1].startswith(cluster_id + '-'):
+                    futures.append(
+                        executor.submit(process_astrolink_cluster,
+                                        start, end,
+                                        H24_cluster_probability_sums_total,
+                                        H24_cluster_probability_sums_overlap,
+                                        max_H24_cluster_ID,
+                                        shm_ids.name, shm_probs.name, shm_ordering.name,
+                                        shape_ids, shape_probs, shape_ordering,
+                                        dtype_ids, dtype_probs, dtype_ordering)
+                    )
 
             for f in as_completed(futures):
                 result = f.result()
@@ -1955,15 +1966,17 @@ def compare_to_Hunt2024(overwrite=False):
     shm_probs.close(); shm_probs.unlink()
     shm_ordering.close(); shm_ordering.unlink()
     
-    del clusterer, ordering, H24_members_cluster_ids_subsample, H24_members_probs_subsample, H24_cluster_probability_sums_total, H24_cluster_probability_sums_overlap  # Free memory
+    del clusterer, ordering, H24_members_cluster_ids_subsample, H24_members_probs_subsample  # Free memory
     gc.collect()  # Force garbage collection
 
     # Save the results
     print("... saving comparison results.\n")
+    np.save(file_path_H24_cluster_probability_sums_total, H24_cluster_probability_sums_total)
+    np.save(file_path_H24_cluster_probability_sums_overlap, H24_cluster_probability_sums_overlap)
     np.save(file_path_best_match_astrolink_clusters, whichClusters)
     np.save(file_path_cluster_rpje, RPJE)
     np.save(file_path_number_of_astrolink_clusters_per_sig, num_astrolink_clusters)
-    del whichClusters, RPJE, num_astrolink_clusters  # Free memory
+    del H24_cluster_probability_sums_total, H24_cluster_probability_sums_overlap, whichClusters, RPJE, num_astrolink_clusters  # Free memory
     gc.collect()  # Force garbage collection
 
 def plot_evidence_weighted_Hunt2024_comparison_results(overwrite=False):
@@ -1983,12 +1996,15 @@ def plot_evidence_weighted_Hunt2024_comparison_results(overwrite=False):
     # Load comparison results
     print("... loading comparison results")
     RPJE = np.load(os.path.join(CLUSTERING_PATH, "hunt24_rpje.npy"))  # (N_sigmas, N_clusters, 2, 4)
+    H24_cluster_probability_sums_total = np.load(os.path.join(CLUSTERING_PATH, "hunt24_cluster_probability_sums_total.npy"))  # (N_clusters,)
+    H24_cluster_probability_sums_overlap = np.load(os.path.join(CLUSTERING_PATH, "hunt24_cluster_probability_sums_overlap.npy"))  # (N_clusters,)
+    coverage = H24_cluster_probability_sums_overlap / H24_cluster_probability_sums_total  # (N_clusters,)
+    del H24_cluster_probability_sums_total, H24_cluster_probability_sums_overlap  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Load Hunt & Reffert (2024) cluster types
     print("... loading Hunt & Reffert (2024) cluster types")
-    H24_cluster_types = np.load(
-        os.path.join(CLUSTERING_PATH, "hunt24_clusters_types.npy"), allow_pickle=True
-    )  # (N_clusters,)
+    H24_cluster_types = np.load(os.path.join(CLUSTERING_PATH, "hunt24_clusters_types.npy"), allow_pickle=True)  # (N_clusters,)
 
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -2002,15 +2018,16 @@ def plot_evidence_weighted_Hunt2024_comparison_results(overwrite=False):
     R_full,  R_union  = RPJE[:, mask, 0, 0], RPJE[:, mask, 1, 0]
     P_full,  P_union  = RPJE[:, mask, 0, 1], RPJE[:, mask, 1, 1]
     J_full,  J_union  = RPJE[:, mask, 0, 2], RPJE[:, mask, 1, 2]
-    E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
+    #E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
+    C = coverage[mask]  # (N_clusters,)
 
     # Evidence-weighted means
-    Rbar_full  = np.sum(R_full * E_full, axis=1) / np.sum(E_full, axis=1)
-    Rbar_union = np.sum(R_union * E_union, axis=1) / np.sum(E_union, axis=1)
-    Pbar_full  = np.sum(P_full * E_full, axis=1) / np.sum(E_full, axis=1)
-    Pbar_union = np.sum(P_union * E_union, axis=1) / np.sum(E_union, axis=1)
-    Jbar_full  = np.sum(J_full * E_full, axis=1) / np.sum(E_full, axis=1)
-    Jbar_union = np.sum(J_union * E_union, axis=1) / np.sum(E_union, axis=1)
+    Rbar_full  = np.sum(R_full * C, axis=1) / np.sum(C)
+    Rbar_union = np.sum(R_union * C, axis=1) / np.sum(C)
+    Pbar_full  = np.sum(P_full * C, axis=1) / np.sum(C)
+    Pbar_union = np.sum(P_union * C, axis=1) / np.sum(C)
+    Jbar_full  = np.sum(J_full * C, axis=1) / np.sum(C)
+    Jbar_union = np.sum(J_union * C, axis=1) / np.sum(C)
 
     # Recovery
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
@@ -2023,10 +2040,10 @@ def plot_evidence_weighted_Hunt2024_comparison_results(overwrite=False):
     # Purity
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_union,
             color='k', linestyle='dotted', linewidth=1.5, label='P (o,m,g)', zorder=3)
-    #ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
-    #        color='k', linestyle='dotted', linewidth=1.5, zorder=3)
-    #ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
-    #                facecolor='none', hatch='.', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
+            color='k', linestyle='dotted', linewidth=1.5, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
+                    facecolor='none', hatch='\\', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
 
     # Jaccard
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
@@ -2045,12 +2062,13 @@ def plot_evidence_weighted_Hunt2024_comparison_results(overwrite=False):
         if not np.any(mask):
             continue
 
-        E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
+        #E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
         J_full,  J_union  = RPJE[:, mask, 0, 2], RPJE[:, mask, 1, 2]
+        C = coverage[mask]  # (N_clusters,)
 
         # Weighted means
-        Jbar_full  = np.sum(J_full * E_full, axis=1) / np.sum(E_full, axis=1)
-        Jbar_union = np.sum(J_union * E_union, axis=1) / np.sum(E_union, axis=1)
+        Jbar_full  = np.sum(J_full * C, axis=1) / np.sum(C)
+        Jbar_union = np.sum(J_union * C, axis=1) / np.sum(C)
 
         # Plot both bounds + hatched region
         ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
@@ -2066,7 +2084,7 @@ def plot_evidence_weighted_Hunt2024_comparison_results(overwrite=False):
     ax.set_ylim(0, 1)
     ax.set_xlabel("Significance Level")
     ax.set_ylabel("Comparison Statistic")
-    ax.legend(loc='lower left')
+    ax.legend()
 
     print("... saving figure.\n")
     plt.tight_layout()
@@ -2181,6 +2199,8 @@ def compare_to_UCC(overwrite=False):
     Compare the clustering output to the Unified Cluster Catalogue.
     """
     # Check if comparison results already exist
+    file_path_cluster_probability_sums_total = os.path.join(CLUSTERING_PATH, "ucc_cluster_probability_sums_total.npy")
+    file_path_cluster_probability_sums_overlap = os.path.join(CLUSTERING_PATH, "ucc_cluster_probability_sums_overlap.npy")
     file_path_cluster_rpje = os.path.join(CLUSTERING_PATH, "ucc_rpje.npy")
     file_path_best_match_astrolink_clusters = os.path.join(CLUSTERING_PATH, "ucc_best_match_astrolink_clusters.npy")
     file_path_number_of_astrolink_clusters_per_sig = os.path.join(CLUSTERING_PATH, "number_of_astrolink_clusters_per_sig.npy")
@@ -2291,8 +2311,9 @@ def compare_to_UCC(overwrite=False):
         max_workers = min(4, MAX_PARALLEL_WORKERS) # Use limited number of workers because this process is memory intensive
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = []
-            for i, (start, end) in enumerate(clusterer.clusters[1:]):
-                futures.append(
+            for i, ((start, end), cluster_id) in enumerate(zip(clusterer.clusters, clusterer.ids)):
+                if i == clusterer.ids.size - 1 or not clusterer.ids[i + 1].startswith(cluster_id + '-'):
+                    futures.append(
                     executor.submit(process_astrolink_cluster,
                                     start, end,
                                     UCC_cluster_probability_sums_total,
@@ -2301,7 +2322,7 @@ def compare_to_UCC(overwrite=False):
                                     shm_ids.name, shm_probs.name, shm_ordering.name,
                                     shape_ids, shape_probs, shape_ordering,
                                     dtype_ids, dtype_probs, dtype_ordering)
-                )
+                    )
 
             for f in as_completed(futures):
                 result = f.result()
@@ -2323,15 +2344,17 @@ def compare_to_UCC(overwrite=False):
     shm_probs.close(); shm_probs.unlink()
     shm_ordering.close(); shm_ordering.unlink()
 
-    del clusterer, ordering, UCC_members_cluster_ids_subsample, UCC_members_probs_subsample, UCC_cluster_probability_sums_total, UCC_cluster_probability_sums_overlap  # Free memory
+    del clusterer, ordering, UCC_members_cluster_ids_subsample, UCC_members_probs_subsample  # Free memory
     gc.collect()  # Force garbage collection
 
     # Save the results
     print("... saving comparison results.\n")
+    np.save(file_path_cluster_probability_sums_total, UCC_cluster_probability_sums_total)
+    np.save(file_path_cluster_probability_sums_overlap, UCC_cluster_probability_sums_overlap)
     np.save(file_path_best_match_astrolink_clusters, whichClusters)
     np.save(file_path_cluster_rpje, RPJE)
     np.save(file_path_number_of_astrolink_clusters_per_sig, num_astrolink_clusters)
-    del whichClusters, RPJE, num_astrolink_clusters  # Free memory
+    del UCC_cluster_probability_sums_total, UCC_cluster_probability_sums_overlap, whichClusters, RPJE, num_astrolink_clusters  # Free memory
     gc.collect()  # Force garbage collection
 
 def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
@@ -2351,6 +2374,11 @@ def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
     # Load comparison results
     print("... loading comparison results")
     RPJE = np.load(os.path.join(CLUSTERING_PATH, "ucc_rpje.npy"))  # (N_sigmas, N_clusters, 2, 4)
+    UCC_cluster_probability_sums_total = np.load(os.path.join(CLUSTERING_PATH, "ucc_cluster_probability_sums_total.npy"))  # (N_clusters,)
+    UCC_cluster_probability_sums_overlap = np.load(os.path.join(CLUSTERING_PATH, "ucc_cluster_probability_sums_overlap.npy"))  # (N_clusters,)
+    coverage = UCC_cluster_probability_sums_overlap / UCC_cluster_probability_sums_total  # (N_clusters,)
+    del UCC_cluster_probability_sums_total, UCC_cluster_probability_sums_overlap  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Load UCC cluster metadata
     print("... loading Unified Cluster Catalogue cluster names and quality classes")
@@ -2372,15 +2400,15 @@ def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
     R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
     P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
     J_full,  J_union  = RPJE[:, :, 0, 2], RPJE[:, :, 1, 2]
-    E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
+    #E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
 
     # Evidence-weighted means
-    Rbar_full  = np.sum(R_full * E_full, axis=1) / np.sum(E_full, axis=1)
-    Rbar_union = np.sum(R_union * E_union, axis=1) / np.sum(E_union, axis=1)
-    Pbar_full  = np.sum(P_full * E_full, axis=1) / np.sum(E_full, axis=1)
-    Pbar_union = np.sum(P_union * E_union, axis=1) / np.sum(E_union, axis=1)
-    Jbar_full  = np.sum(J_full * E_full, axis=1) / np.sum(E_full, axis=1)
-    Jbar_union = np.sum(J_union * E_union, axis=1) / np.sum(E_union, axis=1)
+    Rbar_full  = np.sum(R_full * coverage, axis=1) / np.sum(coverage)
+    Rbar_union = np.sum(R_union * coverage, axis=1) / np.sum(coverage)
+    Pbar_full  = np.sum(P_full * coverage, axis=1) / np.sum(coverage)
+    Pbar_union = np.sum(P_union * coverage, axis=1) / np.sum(coverage)
+    Jbar_full  = np.sum(J_full * coverage, axis=1) / np.sum(coverage)
+    Jbar_union = np.sum(J_union * coverage, axis=1) / np.sum(coverage)
 
     # Recovery
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
@@ -2393,10 +2421,10 @@ def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
     # Purity
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_union,
             color='k', linestyle='dotted', linewidth=1.5, label='P (all)', zorder=3)
-    #ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
-    #        color='k', linestyle='dotted', linewidth=1.5, zorder=3)
-    #ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
-    #                facecolor='none', hatch='.', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
+            color='k', linestyle='dotted', linewidth=1.5, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
+                    facecolor='none', hatch='\\', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
 
     # Jaccard
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
@@ -2427,12 +2455,13 @@ def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
             continue
 
         # Extract Jaccard + evidence per assumption
-        E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
+        #E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
         J_full,  J_union  = RPJE[:, mask, 0, 2], RPJE[:, mask, 1, 2]
+        C = coverage[mask]  # (N_clusters,)
 
         # Weighted means
-        Jbar_full  = np.sum(J_full * E_full, axis=1) / np.sum(E_full, axis=1)
-        Jbar_union = np.sum(J_union * E_union, axis=1) / np.sum(E_union, axis=1)
+        Jbar_full  = np.sum(J_full * C, axis=1) / np.sum(C)
+        Jbar_union = np.sum(J_union * C, axis=1) / np.sum(C)
 
         # Plot both bounds + hatched region
         ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
@@ -2449,7 +2478,7 @@ def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
     ax.set_ylim(0, 1)
     ax.set_xlabel("Significance Level")
     ax.set_ylabel("Comparison Statistic")
-    ax.legend(loc='upper right')
+    ax.legend()
     plt.tight_layout()
     plt.savefig(file_path, dpi=500)
     plt.close(fig)
@@ -2821,8 +2850,9 @@ def compare_to_galstreams(overwrite=False):
         max_workers = min(4, MAX_PARALLEL_WORKERS) # Use limited number of workers because this process is memory intensive
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = []
-            for i, (start, end) in enumerate(clusterer.clusters[1:]):
-                futures.append(
+            for i, ((start, end), cluster_id) in enumerate(zip(clusterer.clusters, clusterer.ids)):
+                if i == clusterer.ids.size - 1 or not clusterer.ids[i + 1].startswith(cluster_id + '-'):
+                    futures.append(
                     executor.submit(process_astrolink_cluster,
                                     start, end,
                                     galstreams_streams_probability_sums_total,
@@ -2831,7 +2861,7 @@ def compare_to_galstreams(overwrite=False):
                                     shm_ids.name, shm_probs.name, shm_ordering.name,
                                     shape_ids, shape_probs, shape_ordering,
                                     dtype_ids, dtype_probs, dtype_ordering)
-                )
+                    )
 
             for f in as_completed(futures):
                 result = f.result()
@@ -2881,20 +2911,25 @@ def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
     # Load comparison results
     print("... loading comparison results")
     RPJE = np.load(os.path.join(CLUSTERING_PATH, "galstreams_rpje.npy"))  # (N_sigmas, N_clusters, 2, 4)
+    galstreams_streams_probability_sums_total = np.load(os.path.join(CLUSTERING_PATH, "galstreams_streams_probability_sums_total.npy"))  # (N_streams,)
+    galstreams_streams_probability_sums_overlap = np.load(os.path.join(CLUSTERING_PATH, "galstreams_streams_probability_sums_overlap.npy"))  # (N_streams,)
+    coverage = galstreams_streams_probability_sums_overlap / galstreams_streams_probability_sums_total  # (N_streams,)
+    del galstreams_streams_probability_sums_total, galstreams_streams_probability_sums_overlap  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Extract per-assumption and per-statistic arrays
     R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
     P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
     J_full,  J_union  = RPJE[:, :, 0, 2], RPJE[:, :, 1, 2]
-    E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
+    #E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
 
     # Evidence-weighted averages
-    Rbar_full  = np.sum(R_full * E_full, axis=1) / np.sum(E_full, axis=1)
-    Rbar_union = np.sum(R_union * E_union, axis=1) / np.sum(E_union, axis=1)
-    Pbar_full  = np.sum(P_full * E_full, axis=1) / np.sum(E_full, axis=1)
-    Pbar_union = np.sum(P_union * E_union, axis=1) / np.sum(E_union, axis=1)
-    Jbar_full  = np.sum(J_full * E_full, axis=1) / np.sum(E_full, axis=1)
-    Jbar_union = np.sum(J_union * E_union, axis=1) / np.sum(E_union, axis=1)
+    Rbar_full  = np.sum(R_full * coverage, axis=1) / np.sum(coverage)
+    Rbar_union = np.sum(R_union * coverage, axis=1) / np.sum(coverage)
+    Pbar_full  = np.sum(P_full * coverage, axis=1) / np.sum(coverage)
+    Pbar_union = np.sum(P_union * coverage, axis=1) / np.sum(coverage)
+    Jbar_full  = np.sum(J_full * coverage, axis=1) / np.sum(coverage)
+    Jbar_union = np.sum(J_union * coverage, axis=1) / np.sum(coverage)
 
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -2910,10 +2945,10 @@ def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
     # Purity
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_union,
             color='k', linestyle='dotted', linewidth=1.5, label='P', zorder=3)
-    #ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
-    #        color='k', linestyle='dotted', linewidth=1.5, zorder=3)
-    #ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
-    #                facecolor='none', hatch='.', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
+            color='k', linestyle='dotted', linewidth=1.5, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
+                    facecolor='none', hatch='\\', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
 
     # Jaccard
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
@@ -2928,7 +2963,7 @@ def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
     ax.set_ylim(0, 1)
     ax.set_xlabel("Significance Level")
     ax.set_ylabel("Comparison Statistic")
-    ax.legend(loc='upper right')
+    ax.legend()
     plt.tight_layout()
     plt.savefig(file_path, dpi=500)
     plt.close(fig)
@@ -3139,8 +3174,9 @@ def compare_to_Vasiliev2021(overwrite=False):
         max_workers = min(4, MAX_PARALLEL_WORKERS) # Use limited number of workers because this process is memory intensive
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = []
-            for i, (start, end) in enumerate(clusterer.clusters[1:]):
-                futures.append(
+            for i, ((start, end), cluster_id) in enumerate(zip(clusterer.clusters, clusterer.ids)):
+                if i == clusterer.ids.size - 1 or not clusterer.ids[i + 1].startswith(cluster_id + '-'):
+                    futures.append(
                     executor.submit(process_astrolink_cluster,
                                     start, end,
                                     V21_clusters_probability_sums_total,
@@ -3149,7 +3185,7 @@ def compare_to_Vasiliev2021(overwrite=False):
                                     shm_ids.name, shm_probs.name, shm_ordering.name,
                                     shape_ids, shape_probs, shape_ordering,
                                     dtype_ids, dtype_probs, dtype_ordering)
-                )
+                    )
 
             for f in as_completed(futures):
                 result = f.result()
@@ -3199,20 +3235,25 @@ def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=False):
     # Load comparison results
     print("... loading comparison results")
     RPJE = np.load(os.path.join(CLUSTERING_PATH, "vasiliev2021_rpje.npy"))  # (N_sigmas, N_clusters, 2, 4)
+    V21_clusters_probability_sums_total = np.load(os.path.join(CLUSTERING_PATH, "vasiliev21_clusters_probability_sums_total.npy"))  # (N_clusters,)
+    V21_clusters_probability_sums_overlap = np.load(os.path.join(CLUSTERING_PATH, "vasiliev21_clusters_probability_sums_overlap.npy"))  # (N_clusters,)
+    coverage = V21_clusters_probability_sums_overlap / V21_clusters_probability_sums_total  # (N_clusters,)
+    del V21_clusters_probability_sums_total, V21_clusters_probability_sums_overlap  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Extract per-assumption and per-statistic arrays
     R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
     P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
     J_full,  J_union  = RPJE[:, :, 0, 2], RPJE[:, :, 1, 2]
-    E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
+    #E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
 
     # Evidence-weighted averages
-    Rbar_full  = np.sum(R_full * E_full, axis=1) / np.sum(E_full, axis=1)
-    Rbar_union = np.sum(R_union * E_union, axis=1) / np.sum(E_union, axis=1)
-    Pbar_full  = np.sum(P_full * E_full, axis=1) / np.sum(E_full, axis=1)
-    Pbar_union = np.sum(P_union * E_union, axis=1) / np.sum(E_union, axis=1)
-    Jbar_full  = np.sum(J_full * E_full, axis=1) / np.sum(E_full, axis=1)
-    Jbar_union = np.sum(J_union * E_union, axis=1) / np.sum(E_union, axis=1)
+    Rbar_full  = np.sum(R_full * coverage, axis=1) / np.sum(coverage)
+    Rbar_union = np.sum(R_union * coverage, axis=1) / np.sum(coverage)
+    Pbar_full  = np.sum(P_full * coverage, axis=1) / np.sum(coverage)
+    Pbar_union = np.sum(P_union * coverage, axis=1) / np.sum(coverage)
+    Jbar_full  = np.sum(J_full * coverage, axis=1) / np.sum(coverage)
+    Jbar_union = np.sum(J_union * coverage, axis=1) / np.sum(coverage)
 
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -3228,10 +3269,10 @@ def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=False):
     # Purity
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_union,
             color='k', linestyle='dotted', linewidth=1.5, label='P', zorder=3)
-    #ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
-    #        color='k', linestyle='dotted', linewidth=1.5, zorder=3)
-    #ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
-    #                facecolor='none', hatch='.', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
+            color='k', linestyle='dotted', linewidth=1.5, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
+                    facecolor='none', hatch='\\', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
 
     # Jaccard
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
@@ -3246,7 +3287,7 @@ def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=False):
     ax.set_ylim(0, 1)
     ax.set_xlabel("Significance Level")
     ax.set_ylabel("Comparison Statistic")
-    ax.legend(loc='upper right')
+    ax.legend()
     plt.tight_layout()
     plt.savefig(file_path, dpi=500)
     plt.close(fig)
@@ -3296,7 +3337,7 @@ if __name__ == "__main__":
 
     # Compare to Unified Cluster Catalogue
     prepare_UCC_for_comparison()
-    compare_to_UCC()
+    compare_to_UCC(True)
     plot_evidence_weighted_UCC_comparison_results(True)
 
     # Compare to galstreams catalogue

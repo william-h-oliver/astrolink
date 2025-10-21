@@ -64,9 +64,9 @@ OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output file
 
 # Auto-defined paths
 REDUCED_CATALOGUE_PATH = os.path.join(OUTPUT_PATH, "catalogue_files/")  # Path to reduced catalogue numpy files
-SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files_test800/")  # Path to numpy files of subsample from full catalogue
-CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files_test800/")  # Path to AstroLink output files
-FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_test800/")  # Path to figures
+SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files_correct_invS_weighting/")  # Path to numpy files of subsample from full catalogue
+CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files_correct_invS_weighting/")  # Path to AstroLink output files
+FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_correct_invS_weighting/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200  # GB for max memory usage by k nearest neighbour retrieval 
@@ -543,12 +543,12 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy")) # (n,)
 
     # EXPERIMENTAL: Load contracted uncertainties to define threshold for removing more stars with high uncertainties
-    sigma_pos = np.load(os.path.join(OUTPUT_PATH, "subsample_files/contracted_position_uncertainties.npy"))
-    sigma_vel = np.load(os.path.join(OUTPUT_PATH, "subsample_files/contracted_velocity_uncertainties.npy"))
-    sigma_pos /= np.median(sigma_pos)
-    sigma_vel /= np.median(sigma_vel)
-    total_uncertainty_squared = sigma_pos**2 + sigma_vel**2
-    threshold = np.percentile(total_uncertainty_squared, 100 * 8/11)
+    #sigma_pos = np.load(os.path.join(OUTPUT_PATH, "subsample_files/contracted_position_uncertainties.npy"))
+    #sigma_vel = np.load(os.path.join(OUTPUT_PATH, "subsample_files/contracted_velocity_uncertainties.npy"))
+    #sigma_pos /= np.median(sigma_pos)
+    #sigma_vel /= np.median(sigma_vel)
+    #total_uncertainty_squared = sigma_pos**2 + sigma_vel**2
+    #threshold = np.percentile(total_uncertainty_squared, 100 * 6/11)
 
     # Create boolean mask for S_Gaia > threshold, ruwe < threshold, and valid astrometric data
     subsample_mask = selection_function > SURVEY_SF_LOWER_LIMIT
@@ -558,9 +558,9 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     subsample_mask &= np.isfinite(G_band_magnitudes)
     
     # EXPERIMENTAL: Further subsample to remove stars with high uncertainties
-    subsample_where = np.where(subsample_mask)[0][total_uncertainty_squared < threshold]
-    subsample_mask[:] = False
-    subsample_mask[subsample_where] = True
+    #subsample_where = np.where(subsample_mask)[0][total_uncertainty_squared < threshold]
+    #subsample_mask[:] = False
+    #subsample_mask[subsample_where] = True
 
     # Save mask
     np.save(mask_path, subsample_mask)
@@ -1181,12 +1181,19 @@ def apply_astrolink_to_subsample(overwrite=False):
     del subsample_mask  # Free memory
     gc.collect()  # Force garbage collection
 
+    # EXPERIMENTAL: Weight by the inverse of the uncertainty volume in position-velocity space
+    #sigma_pos = np.load(os.path.join(OUTPUT_PATH, "subsample_files/contracted_position_uncertainties.npy"))
+    #sigma_vel = np.load(os.path.join(OUTPUT_PATH, "subsample_files/contracted_velocity_uncertainties.npy"))
+    #sigma_pos /= np.median(sigma_pos)
+    #sigma_vel /= np.median(sigma_vel)
+    #total_uncertainty_volume = (sigma_pos * sigma_vel)**3  # (N,)
+
     # Initialize AstroLink
     print("... initializing AstroLink object")
     clusterer = AstroLink(
         P=cartesian_coordinates,
         d_intrinsic=5,
-        weights=total_sf_mean,
+        weights=1/total_sf_mean,
         k_den=KNN_FOR_ASTROLINK,
         adaptive=0,
         workers=MAX_PARALLEL_WORKERS,
@@ -2310,7 +2317,7 @@ def compare_to_UCC(overwrite=False):
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for i, ((start, end), cluster_id) in enumerate(zip(clusterer.clusters, clusterer.ids)):
-                if i > 0: #i == clusterer.ids.size - 1 or not clusterer.ids[i + 1].startswith(cluster_id + '-'):
+                if i == clusterer.ids.size - 1 or not clusterer.ids[i + 1].startswith(cluster_id + '-'):
                     futures.append(
                     executor.submit(process_astrolink_cluster,
                                     start, end,
@@ -2845,7 +2852,7 @@ def compare_to_galstreams(overwrite=False):
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for i, ((start, end), cluster_id) in enumerate(zip(clusterer.clusters, clusterer.ids)):
-                if i > 0: #i == clusterer.ids.size - 1 or not clusterer.ids[i + 1].startswith(cluster_id + '-'):
+                if i == clusterer.ids.size - 1 or not clusterer.ids[i + 1].startswith(cluster_id + '-'):
                     futures.append(
                     executor.submit(process_astrolink_cluster,
                                     start, end,
@@ -3163,7 +3170,7 @@ def compare_to_Vasiliev2021(overwrite=False):
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for i, ((start, end), cluster_id) in enumerate(zip(clusterer.clusters, clusterer.ids)):
-                if i > 0: #i == clusterer.ids.size - 1 or not clusterer.ids[i + 1].startswith(cluster_id + '-'):
+                if i == clusterer.ids.size - 1 or not clusterer.ids[i + 1].startswith(cluster_id + '-'):
                     futures.append(
                     executor.submit(process_astrolink_cluster,
                                     start, end,
@@ -3298,27 +3305,27 @@ if __name__ == "__main__":
     plot_limiting_g_band_magnitude_on_sky()
 
     # Construct subsample and subsample selection function
-    construct_subsample_from_full_catalogue()
-    calculate_subsample_selection_function()
+    construct_subsample_from_full_catalogue(True)
+    calculate_subsample_selection_function(True)
 
     # Calculate total selection function for subsample
-    calculate_total_selection_function_for_subsample()
-    plot_total_selection_function_for_subsample()
+    calculate_total_selection_function_for_subsample(True)
+    plot_total_selection_function_for_subsample(True)
     
     # Construct input data to be passed to AstroLink
-    calculate_distance_contraction_for_subsample()
-    calculate_contracted_data_and_errors_for_subsample()
-    construct_cartesian_coordinates_for_subsample()
+    calculate_distance_contraction_for_subsample(True)
+    calculate_contracted_data_and_errors_for_subsample(True)
+    construct_cartesian_coordinates_for_subsample(True)
 
     # Apply AstroLink to subsample and plot of cluster properties
-    apply_astrolink_to_subsample()
-    plot_prominence_model_fit()
-    plot_number_of_clusters_vs_significance()
-    plot_cluster_labels_on_sky()
-    plot_cluster_proper_motions_on_sky()
+    apply_astrolink_to_subsample(True)
+    plot_prominence_model_fit(True)
+    plot_number_of_clusters_vs_significance(True)
+    plot_cluster_labels_on_sky(True)
+    plot_cluster_proper_motions_on_sky(True)
 
     # Compare to Hunt & Reffert (2024)
-    prepare_Hunt2024_for_comparison()
+    prepare_Hunt2024_for_comparison(True)
     compare_to_Hunt2024(True)
     plot_evidence_weighted_Hunt2024_comparison_results(True)
 

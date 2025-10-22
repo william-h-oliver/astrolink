@@ -31,8 +31,8 @@ dependencies = [
     "numba",
     "pykdtree",
     "scipy",
-    "scikit-learn",
     "matplotlib",
+    "psutil"
 ]
 
 [project.optional-dependencies]

@@ -17,8 +17,7 @@ from pykdtree.kdtree import KDTree
 from scipy.optimize import minimize
 from scipy.special import beta as beta_fun
 from scipy.stats import norm, beta
-from sklearn import get_config
-from sklearn.utils import gen_batches
+from psutil import virtual_memory
 
 
 class AstroLink:
@@ -82,6 +81,10 @@ class AstroLink:
         The verbosity of the AstroLink class. If `verbose` is set to 0, then
         AstroLink will not report any of its activity. Increasing `verbose` will
         make AstroLink report more of its activity.
+    working_memory : `float` or `int`, default = None
+        The amount of working memory (in bytes) to use for computations. If
+        `working_memory` is set to None, then this will be set to half of the
+        available memory.
 
     Attributes
     ----------
@@ -129,7 +132,7 @@ class AstroLink:
         the `prominences`.
     """
 
-    def __init__(self, P, d_intrinsic = None, weights = None, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = 8, verbose = 0):
+    def __init__(self, P, d_intrinsic = None, weights = None, k_den = 20, adaptive = 1, S = 'auto', k_link = 'auto', h_style = 1, workers = 8, verbose = 0, working_memory = None):
         # Input Data
         check_P = isinstance(P, np.ndarray) and len(P.shape) == 2
         assert check_P, "Input data 'P' needs to be a 2D numpy array!"
@@ -173,7 +176,12 @@ class AstroLink:
         os.environ["OMP_NUM_THREADS"] = f"{min(workers, os.cpu_count())}" if workers != -1 else f"{os.cpu_count()}"
         set_num_threads(min(workers, os.cpu_count()))
         self.workers = workers
+        
         self.verbose = verbose
+        
+        check_working_memory = working_memory is None or (isinstance(working_memory, (int, float)) and working_memory > 0)
+        assert check_working_memory, "Parameter 'working_memory' must be None or a positive number!"
+        self.working_memory = working_memory
 
     def _printFunction(self, message, returnLine = True, urgent = False):
         if self.verbose or urgent:
@@ -270,20 +278,23 @@ class AstroLink:
         nbrs = KDTree(self.P_transform)
 
         # Chunking for memory efficiency
-        working_memory = get_config()["working_memory"]
-        chunk_n_rows = max(min(int(working_memory * (2**20) // (16*self.k_den)), self.n_samples), 1)
+        if self.working_memory is None: working_memory = 0.5 * virtual_memory().available # in bytes
+        else: working_memory = self.working_memory
+        chunk_n_rows = max(min(int(working_memory // (16*self.k_den)), self.n_samples), 1)
 
-        # Estimate densities and find kNN in a memory efficient way
-        for sl in gen_batches(self.n_samples, chunk_n_rows):
+        # Estimate densities and find kNN in a memory efficient way using batches
+        for start in range(0, self.n_samples, chunk_n_rows):
+            end = min(start + chunk_n_rows, self.n_samples)
+
             # k-nearest neighbours query
-            sqr_distances, indices = nbrs.query(self.P_transform[sl], k = self.k_den, sqr_dists = True)
+            sqr_distances, indices = nbrs.query(self.P_transform[start:end], k = self.k_den, sqr_dists = True)
 
             # Compute logRho for this slice
-            if self.weights is None: self.logRho[sl] = self._compute_logRho_njit(sqr_distances, self.k_den, self.d_intrinsic)
-            else: self.logRho[sl] = self._compute_weighted_logRho_njit(sqr_distances, self.weights[indices], self.d_intrinsic)
+            if self.weights is None: self.logRho[start:end] = self._compute_logRho_njit(sqr_distances, self.k_den, self.d_intrinsic)
+            else: self.logRho[start:end] = self._compute_weighted_logRho_njit(sqr_distances, self.weights[indices], self.d_intrinsic)
 
             # Keep only the k_link nearest neighbours
-            self.kNN[sl] = indices[:, :self.k_link]
+            self.kNN[start:end] = indices[:, :self.k_link]
         del self.P_transform
 
         # Normalise logRho

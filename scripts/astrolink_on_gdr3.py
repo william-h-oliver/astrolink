@@ -34,7 +34,6 @@ from scipy.optimize import minimize_scalar
 from scipy.stats import norm, beta
 from scipy.special import gamma, digamma
 from pykdtree.kdtree import KDTree
-from sklearn.utils import gen_batches
 
 # Astro-specific imports
 from astropy.table import Table # Works using v6.1.2, but v7.1.0 seems to try and convert 'null' values to float before using fill_values
@@ -64,9 +63,9 @@ OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output file
 
 # Auto-defined paths
 REDUCED_CATALOGUE_PATH = os.path.join(OUTPUT_PATH, "catalogue_files/")  # Path to reduced catalogue numpy files
-SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files_correct_invS_weighting/")  # Path to numpy files of subsample from full catalogue
-CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files_correct_invS_weighting/")  # Path to AstroLink output files
-FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_correct_invS_weighting/")  # Path to figures
+SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files/")  # Path to numpy files of subsample from full catalogue
+CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to AstroLink output files
+FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_photogeo_Sk32_kden16_Scap16/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200  # GB for max memory usage by k nearest neighbour retrieval 
@@ -74,9 +73,9 @@ WORKING_MEMORY = 200  # GB for max memory usage by k nearest neighbour retrieval
 # Pipeline constants
 KNN_FOR_SELECTION_FUNCTION = 32 # Number of nearest neighbors for selection function calculations
 SURVEY_SF_LOWER_LIMIT = 0.99 # Empirical survey selection function lower limit for subsample stars
-SUBSAMPLE_RUWE_THRESHOLD = 1.2 # RUWE threshold for subsample stars
+RUWE_UPPER_LIMIT = 1.2 # RUWE threshold for subsample stars
 HEALPIX_LEVEL = 12 # HEALPix level for on-sky plotting
-KNN_FOR_ASTROLINK = 10 # Number of nearest neighbors for AstroLink
+KNN_FOR_ASTROLINK = 16 # Number of nearest neighbors for AstroLink
 SIGMA_THRESHOLDS_FOR_COMPARISONS = np.linspace(2, 10, 81)  # Significance levels from 2 to 10 to be used when comparing to existing cluster catalogues
 
 
@@ -193,10 +192,10 @@ def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
     # Define column groups for reduction
     column_groups = {
         'source_ids': ['source_id'],
-        'r_med_geo': ['r_med_geo'],
-        'r_lo_high_geo': ['r_lo_geo', 'r_hi_geo'],
-        #'r_med_photogeo': ['r_med_photogeo'],
-        #'r_lo_high_photogeo': ['r_lo_photogeo', 'r_hi_photogeo']
+        #'r_med_geo': ['r_med_geo'],
+        #'r_lo_high_geo': ['r_lo_geo', 'r_hi_geo'],
+        'r_med_photogeo': ['r_med_photogeo'],
+        'r_lo_high_photogeo': ['r_lo_photogeo', 'r_hi_photogeo']
     }
 
     file_paths = [
@@ -341,20 +340,20 @@ def calculate_empirical_survey_selection_function(overwrite=False):
     tree = KDTree(xyz_stars[valid_for_kNN])
 
     # Batching for memory efficiency
-    chunk_n_rows = min(int(WORKING_MEMORY * (2**20) // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
-    batches = list(gen_batches(n, chunk_n_rows))
-    num_batches = len(batches)
+    chunk_n_rows = min(int(WORKING_MEMORY * (2**30) // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
 
     # Compute m10 for each star as median G of neighbors with <11 transits
-    for i, sl in enumerate(batches):
-        print(f"... computing m10 values for each star -- batch {i + 1} of {num_batches}   ", end='\r')
+    for start in range(0, n, chunk_n_rows):
+        end = min(start + chunk_n_rows, n)
+
+        print(f"... computing m10 values for each star -- batch {start // chunk_n_rows + 1} of {n // chunk_n_rows + 1}   ", end='\r')
         # k-nearest neighbours query
-        sqr_dists, idx = tree.query(xyz_stars[sl], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
+        sqr_dists, idx = tree.query(xyz_stars[start:end], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
         del sqr_dists  # Free memory
         gc.collect()  # Force garbage collection
 
         # Median G-band magnitude of neighbors
-        m10_stars[sl] = np.median(G_band_magnitudes[valid_for_kNN[idx]], axis=1)
+        m10_stars[start:end] = np.median(G_band_magnitudes[valid_for_kNN[idx]], axis=1)
         del idx  # Free memory
         gc.collect()  # Force garbage collection
 
@@ -399,22 +398,22 @@ def calculate_empirical_survey_selection_function(overwrite=False):
 
     # Update chunking for HEALPix
     print("... updating chunk size for HEALPix pixels")
-    chunk_n_rows = min(int(WORKING_MEMORY * (2**20) // (16 * KNN_FOR_SELECTION_FUNCTION)), npix)
-    batches = list(gen_batches(npix, chunk_n_rows))
-    num_batches = len(batches)
+    chunk_n_rows = min(int(WORKING_MEMORY * (2**30) // (16 * KNN_FOR_SELECTION_FUNCTION)), npix)
 
     # Initialize m10 array for HEALPix pixels
     print("... initializing m10 array for HEALPix pixels")
     m10_healpix = np.empty(npix)
 
     # Compute m10 for each HEALPix pixel as median G of neighbors with <11 transits
-    for i, sl in enumerate(batches):
-        print(f"... computing m10 values for HEALPix pixels -- batch {i + 1} of {num_batches}     ", end='\r')
+    for start in range(0, n, chunk_n_rows):
+        end = min(start + chunk_n_rows, n)
+
+        print(f"... computing m10 values for HEALPix pixels -- batch {start // chunk_n_rows + 1} of {n // chunk_n_rows + 1}     ", end='\r')
         # k-nearest neighbours query
-        _, idx = tree.query(xyz_healpix[sl], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
+        _, idx = tree.query(xyz_healpix[start:end], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
 
         # Median G-band magnitude of neighbors
-        m10_healpix[sl] = np.median(G_band_magnitudes[valid_for_kNN[idx]], axis=1)
+        m10_healpix[start:end] = np.median(G_band_magnitudes[valid_for_kNN[idx]], axis=1)
 
         # Delete temporary variables to free memory
         del _, idx
@@ -537,7 +536,8 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     # Load selection function and galactic coordinates
     selection_function = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "empirical_survey_selection_function.npy"))  # (n,)
     galactic_coords = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (n, 2) in degrees
-    r_med_geo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_geo.npy"))  # (n,)
+    #r_med_geo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_geo.npy"))  # (n,)
+    r_med_photogeo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_photogeo.npy"))  # (n,)
     proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))  # (n, 2) in mas/yr
     ruwe = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_ruwe.npy"))  # (n,)
     G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy")) # (n,)
@@ -552,15 +552,15 @@ def construct_subsample_from_full_catalogue(overwrite=False):
 
     # Create boolean mask for S_Gaia > threshold, ruwe < threshold, and valid astrometric data
     subsample_mask = selection_function > SURVEY_SF_LOWER_LIMIT
-    subsample_mask &= ruwe < SUBSAMPLE_RUWE_THRESHOLD
-    subsample_mask &= np.isfinite(r_med_geo)
+    subsample_mask &= ruwe < RUWE_UPPER_LIMIT
+    #subsample_mask &= np.isfinite(r_med_geo)
+    subsample_mask &= np.isfinite(r_med_photogeo)
     subsample_mask &= np.isfinite(proper_motions).all(axis=1)
     subsample_mask &= np.isfinite(G_band_magnitudes)
     
     # EXPERIMENTAL: Further subsample to remove stars with high uncertainties
-    #subsample_where = np.where(subsample_mask)[0][total_uncertainty_squared < threshold]
-    #subsample_mask[:] = False
-    #subsample_mask[subsample_where] = True
+    #subsample_where = np.where(subsample_mask)[0][total_uncertainty_squared > threshold]
+    #subsample_mask[subsample_where] = False
 
     # Save mask
     np.save(mask_path, subsample_mask)
@@ -630,18 +630,18 @@ def calculate_subsample_selection_function(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Batching for memory efficiency
-    chunk_n_rows = min(int(WORKING_MEMORY * (2**20) // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
-    batches = list(gen_batches(n, chunk_n_rows))
-    num_batches = len(batches)
+    chunk_n_rows = min(int(WORKING_MEMORY * (2**30) // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
 
     # Compute subsample selection function for each star as fraction of neighbourhood in subsample
-    for i, sl in enumerate(batches):
-        print(f"... computing subsample selection function for each star -- batch {i + 1} of {num_batches}   ", end='\r')
+    for start in range(0, n, chunk_n_rows):
+        end = min(start + chunk_n_rows, n)
+
+        print(f"... computing subsample selection function for each star -- batch {start // chunk_n_rows + 1} of {n // chunk_n_rows + 1}   ", end='\r')
         # k-nearest neighbours query
-        _, idx = tree.query(comp_stars[sl], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
+        _, idx = tree.query(comp_stars[start:end], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
 
         # Fraction of neighbours in subsample
-        subsample_sf[valid_gmag[sl]] = subsample_mask[valid_gmag[idx]].sum(axis=1) / KNN_FOR_SELECTION_FUNCTION
+        subsample_sf[valid_gmag[start:end]] = subsample_mask[valid_gmag[idx]].sum(axis=1) / KNN_FOR_SELECTION_FUNCTION
 
         # Delete temporary variables to free memory
         del _, idx
@@ -726,9 +726,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     tree = KDTree(xyz_stars) # Build KDTree with all stars with valid G-band magnitudes
 
     # Batching for memory efficiency
-    chunk_n_rows = min(int(WORKING_MEMORY * (2**20) // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
-    batches = list(gen_batches(n, chunk_n_rows))
-    num_batches = len(batches)
+    chunk_n_rows = min(int(WORKING_MEMORY * (2**30) // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
 
     # Initialize total selection function array for stars in the subsample
     print("... initializing total selection function arrays for stars in the subsample")
@@ -739,17 +737,19 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     valid_gmag = np.where(valid_gmag)[0]  # Indices of stars with valid G-band magnitudes
 
     # Compute total selection function for each star in the subsample
-    for i, sl in enumerate(batches):
-        print(f"... computing total selection function for each star in subsample -- batch {i + 1} of {num_batches}   ", end='\r')
+    for start in range(0, n, chunk_n_rows):
+        end = min(start + chunk_n_rows, n)
+
+        print(f"... computing total selection function for each star in subsample -- batch {start // chunk_n_rows + 1} of {n // chunk_n_rows + 1}   ", end='\r')
         # k-nearest neighbours query
-        sqr_dists, idx = tree.query(xyz_stars[sl], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
+        sqr_dists, idx = tree.query(xyz_stars[start:end], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
         del sqr_dists  # Free memory
         gc.collect()  # Force garbage collection
 
         # Total selection function is the posterior distribution Beta(n_sub + 1, n_mw - n_sub + 1)
         nsub_batch = subsample_sf[idx].sum(axis=1)
         nmw_batch = inverse_survey_sf[idx].sum(axis=1)
-        valid_slice = valid_gmag[sl]
+        valid_slice = valid_gmag[start:end]
         nsub[valid_slice] = nsub_batch
         nmw[valid_slice] = nmw_batch
         total_sf_mean[valid_slice] = (nsub_batch + 1) / (nmw_batch + 2)  # Mean of selection function for stars in subsample
@@ -800,9 +800,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
 
     # Update chunking for HEALPix
     print("... updating chunk size for HEALPix pixels")
-    chunk_n_rows = min(int(WORKING_MEMORY * (2**20) // (16 * KNN_FOR_SELECTION_FUNCTION)), npix)
-    batches = list(gen_batches(npix, chunk_n_rows))
-    num_batches = len(batches)
+    chunk_n_rows = min(int(WORKING_MEMORY * (2**30) // (16 * KNN_FOR_SELECTION_FUNCTION)), npix)
 
     # Initialize arrays for HEALPix pixels
     print("... initializing total selection function arrays for HEALPix pixels")
@@ -810,16 +808,18 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     total_sf_var_healpix = np.empty(npix)
 
     # Compute m10 for each HEALPix pixel as median G of neighbors with <11 transits
-    for i, sl in enumerate(batches):
-        print(f"... computing total selection function for HEALPix pixels -- batch {i + 1} of {num_batches}   ", end='\r')
+    for start in range(0, npix, chunk_n_rows):
+        end = min(start + chunk_n_rows, npix)
+
+        print(f"... computing total selection function for HEALPix pixels -- batch {start // chunk_n_rows + 1} of {npix // chunk_n_rows + 1}   ", end='\r')
         # k-nearest neighbours query
-        _, idx = tree.query(xyz_healpix[sl], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
+        _, idx = tree.query(xyz_healpix[start:end], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
 
         # Total selection function is the posterior distribution Beta(n_sub + 1, n_mw - n_sub + 1)
         nsub_healpix_batch = subsample_sf[idx].sum(axis=1)
         nmw_healpix_batch = inverse_survey_sf[idx].sum(axis=1)
-        total_sf_mean_healpix[sl] = (nsub_healpix_batch + 1) / (nmw_healpix_batch + 2)  # Mean of selection function for HEALPix pixels
-        total_sf_var_healpix[sl] = (nsub_healpix_batch + 1) * (nmw_healpix_batch - nsub_healpix_batch + 1) / ((nmw_healpix_batch + 2)**2 * (nmw_healpix_batch + 3))  # Variance of selection function for HEALPix pixels
+        total_sf_mean_healpix[start:end] = (nsub_healpix_batch + 1) / (nmw_healpix_batch + 2)  # Mean of selection function for HEALPix pixels
+        total_sf_var_healpix[start:end] = (nsub_healpix_batch + 1) * (nmw_healpix_batch - nsub_healpix_batch + 1) / ((nmw_healpix_batch + 2)**2 * (nmw_healpix_batch + 3))  # Variance of selection function for HEALPix pixels
 
         # Delete temporary variables to free memory
         del _, idx, nsub_healpix_batch, nmw_healpix_batch
@@ -924,25 +924,34 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     # Load required arrays
     print("... loading required arrays")
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (n,)
-    r = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_geo.npy"))[subsample_mask]  # (n,) in pc
-    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_geo.npy"))[subsample_mask].T  # each (n,) in pc
+    r = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_photogeo.npy"))[subsample_mask]  # (n,) in pc
+    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_photogeo.npy"))[subsample_mask].T  # each (n,) in pc
     ra, dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask].T  # each (n,) in degrees
     dra, ddec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask, :2].T  # each (n,) in degrees
     
-    dr = (high - lo) / 2
+    # Calculate variances in spherical coordinates
+    drSqr = (high - lo)**2 / 4
     variances = np.column_stack([
-        dr**2,  # Variance in LOS
+        drSqr,  # Variance in LOS
         (np.cos(np.deg2rad(dec)) * np.deg2rad(dra))**2,  # Variance in RA
         np.deg2rad(ddec)**2 # Variance in Dec
     ])
-    del subsample_mask, lo, high, dr, ra, dec, dra, ddec  # Free memory
+    zero_variances = drSqr == 0
+    variances[zero_variances, 0] = variances[zero_variances, 1:].sum(axis=1) / 2  # Prevent zero variance in distance
+    del subsample_mask, lo, high, drSqr, ra, dec, dra, ddec  # Free memory
     gc.collect()  # Force garbage collection
+
+    # Define loss wrapper for minimization so that the current r_half and loss can be printed
+    def loss_wrapper(r_half, variances, r):
+        loss = average_sym_kl_contracted(r_half, variances, r)
+        print("\t... r_{1/2}:" + f"{r_half:10.4f} | loss: {loss:10.6f}")
+        return loss
 
     # Fit model using a grid search for r_{1/2}
     print("... fitting r_{1/2} to get globally isotropic spatial uncertainties")
     bounds = (1, 1000)  # Initial guess for r_{1/2} in pc
     result = minimize_scalar(
-        lambda r_half: average_sym_kl_contracted(r_half, variances, r),
+        lambda r_half: loss_wrapper(r_half, variances, r),
         bounds=bounds,
         method='bounded',
         options={'xatol': 1.0}      # stop when r_half is within 1 pc
@@ -1012,8 +1021,6 @@ def average_sym_kl_contracted(r_half, variances, r):
     # Average symmetrized KL divergence
     avg_kl_sym = np.mean(np.sqrt(tr * tr_inv)) - 3
 
-    print("\t... r_{1/2}:", r_half, "\t| loss:", avg_kl_sym)
-
     return avg_kl_sym
 
 def calculate_contracted_data_and_errors_for_subsample(overwrite=False):
@@ -1080,7 +1087,7 @@ def calculate_contracted_data_and_errors_for_subsample(overwrite=False):
     astrometric_errors = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask]  # (N, 5)
     sigma_ra, sigma_dec = np.deg2rad(astrometric_errors[:, :2]).T  # shape (N, 2) in radians
     sigma_mu_ra, sigma_mu_dec = astrometric_errors[:, 2:].T  # shape (N, 2) in radians
-    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_geo.npy"))[subsample_mask].T  # each (N,) in pc
+    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_photogeo.npy"))[subsample_mask].T  # each (N,) in pc
     sigma_r = (high - lo) / 2  # shape (N,) in pc
     del subsample_mask, astrometric_errors  # Free memory
     gc.collect()  # Force garbage collection
@@ -2525,7 +2532,8 @@ def prepare_galstreams_for_comparison(overwrite=False):
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, 'subsample_mask.npy'))  # (N_gdr3,)
     ra, dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy")).T  # Each (N_gdr3,) in degrees
     mu_ra, mu_dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy")).T  # Each (N_gdr3,) in mas/yr
-    r_med_geo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_geo.npy"))  # (N_gdr3,) in pc
+    #r_med_geo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_geo.npy"))  # (N_gdr3,) in pc
+    r_med_photogeo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_photogeo.npy"))  # (N_gdr3,) in pc
 
     # Get MWStreams object from galstreams
     print('... creating MWStreams object')
@@ -2601,7 +2609,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
             dec=dec[in_footprint_mask] * u.deg,
             pm_ra_cosdec=mu_ra[in_footprint_mask] * np.cos(np.deg2rad(dec[in_footprint_mask])) * u.mas / u.yr,
             pm_dec=mu_dec[in_footprint_mask] * u.mas / u.yr,
-            distance=r_med_geo[in_footprint_mask] * u.pc,
+            distance=r_med_photogeo[in_footprint_mask] * u.pc,
             frame='icrs'
         )
 
@@ -2933,6 +2941,8 @@ def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
     Jbar_full  = np.sum(J_full * coverage, axis=1) / np.sum(coverage)
     Jbar_union = np.sum(J_union * coverage, axis=1) / np.sum(coverage)
 
+    print("... plotting combined statistics vs significance level")
+
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
 
@@ -2961,6 +2971,7 @@ def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
                     color='k', alpha=0.3, zorder=3)
 
     # Final formatting
+    print("... saving figure.\n")
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
     ax.set_ylim(0, 1)
     ax.set_xlabel("Significance Level")
@@ -2972,7 +2983,7 @@ def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
     gc.collect()
 
 
-# Compare clustering output to Vasiliev & Baumgardt (2021)
+# === Compare clustering output to Vasiliev & Baumgardt (2021) ===
 def prepare_Vasiliev2021_for_comparison(overwrite=False):
     """
     Prepare the Vasiliev & Baumgardt (2021) catalogue for comparison to the clustering output.
@@ -3249,6 +3260,8 @@ def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=False):
     Jbar_full  = np.sum(J_full * coverage, axis=1) / np.sum(coverage)
     Jbar_union = np.sum(J_union * coverage, axis=1) / np.sum(coverage)
 
+    print("... plotting combined statistics vs significance level")
+
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
 
@@ -3277,6 +3290,7 @@ def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=False):
                     color='k', alpha=0.3, zorder=3)
 
     # Final formatting
+    print("... saving figure.\n")
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
     ax.set_ylim(0, 1)
     ax.set_xlabel("Significance Level")
@@ -3305,17 +3319,17 @@ if __name__ == "__main__":
     plot_limiting_g_band_magnitude_on_sky()
 
     # Construct subsample and subsample selection function
-    construct_subsample_from_full_catalogue(True)
-    calculate_subsample_selection_function(True)
+    construct_subsample_from_full_catalogue()
+    calculate_subsample_selection_function()
 
     # Calculate total selection function for subsample
     calculate_total_selection_function_for_subsample(True)
     plot_total_selection_function_for_subsample(True)
     
     # Construct input data to be passed to AstroLink
-    calculate_distance_contraction_for_subsample(True)
-    calculate_contracted_data_and_errors_for_subsample(True)
-    construct_cartesian_coordinates_for_subsample(True)
+    calculate_distance_contraction_for_subsample()
+    calculate_contracted_data_and_errors_for_subsample()
+    construct_cartesian_coordinates_for_subsample()
 
     # Apply AstroLink to subsample and plot of cluster properties
     apply_astrolink_to_subsample(True)
@@ -3325,21 +3339,21 @@ if __name__ == "__main__":
     plot_cluster_proper_motions_on_sky(True)
 
     # Compare to Hunt & Reffert (2024)
-    prepare_Hunt2024_for_comparison(True)
+    prepare_Hunt2024_for_comparison()
     compare_to_Hunt2024(True)
     plot_evidence_weighted_Hunt2024_comparison_results(True)
 
     # Compare to Unified Cluster Catalogue
-    prepare_UCC_for_comparison(True)
+    prepare_UCC_for_comparison()
     compare_to_UCC(True)
     plot_evidence_weighted_UCC_comparison_results(True)
 
     # Compare to galstreams catalogue
-    prepare_galstreams_for_comparison(True)
+    prepare_galstreams_for_comparison()
     compare_to_galstreams(True)
     plot_evidence_weighted_galstreams_comparison_results(True)
 
     # Compare to Vasiliev & Baumgardt (2021)
-    prepare_Vasiliev2021_for_comparison(True)
+    prepare_Vasiliev2021_for_comparison()
     compare_to_Vasiliev2021(True)
     plot_evidence_weighted_Vasiliev2021_comparison_results(True)

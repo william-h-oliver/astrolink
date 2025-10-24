@@ -65,7 +65,7 @@ OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output file
 REDUCED_CATALOGUE_PATH = os.path.join(OUTPUT_PATH, "catalogue_files/")  # Path to reduced catalogue numpy files
 SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files/")  # Path to numpy files of subsample from full catalogue
 CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to AstroLink output files
-FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_photogeo_Sk32_kden16_Scap16/")  # Path to figures
+FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200  # GB for max memory usage by k nearest neighbour retrieval 
@@ -839,20 +839,22 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
 
 def plot_total_selection_function_for_subsample(overwrite=False):
     """
-    Plot the limiting G-band magnitude across the sky using HEALPix.
+    Plot the mean and standard error of the total selection function across the sky using HEALPix.
     """
-    # Check if plots already exists
+    # Check if plots already exist
     file_total_sf_mean_path = os.path.join(FIGURES_PATH, "total_selection_function_mean.png")
-    file_total_sf_var_path = os.path.join(FIGURES_PATH, "total_selection_function_var.png")
-    if os.path.exists(file_total_sf_mean_path) and os.path.exists(file_total_sf_var_path) and not overwrite:
-        print(f"Total selection function mean and variance plots already exist at:")
-        print(f"\t{file_total_sf_mean_path} and")
-        print(f"\t{file_total_sf_var_path} .")
+    file_total_sf_se_path = os.path.join(FIGURES_PATH, "total_selection_function_stderr.png")
+    file_total_sf_se_over_mean_path = os.path.join(FIGURES_PATH, "total_selection_function_stderr_over_mean.png")
+    if os.path.exists(file_total_sf_mean_path) and os.path.exists(file_total_sf_se_path) and not overwrite:
+        print(f"Total selection function mean and standard error plots already exist at:")
+        print(f"\t{file_total_sf_mean_path} ,")
+        print(f"\t{file_total_sf_se_path} , and")
+        print(f"\t{file_total_sf_se_over_mean_path} .")
         print("Use overwrite=True to force replotting.\n")
         return
     print("Plotting total selection function on the sky...")
 
-    # Load total selection function for HEALPix pixels
+    # Load total selection function data
     total_sf_mean = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_mean_healpix.npy"))  # (npix,)
     total_sf_var = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_var_healpix.npy"))  # (npix,)
 
@@ -875,30 +877,70 @@ def plot_total_selection_function_for_subsample(overwrite=False):
     plt.savefig(file_total_sf_mean_path, dpi=300)
     plt.close()
     gc.collect()  # Free memory
-    
+
     print(f"... saved mollview plot to {file_total_sf_mean_path}")
 
-    # Create a Mollweide projection plot of the total selection function variance
+    # Compute standard error (sqrt of variance)
+    total_sf_se = np.sqrt(total_sf_var)
+    del total_sf_var  # Free memory
+    gc.collect()  # Force garbage collection
+
+    lower_limit_se_scale = 10**np.floor(np.log10(total_sf_se.min()))
+    lower_limit_se = lower_limit_se_scale * np.floor(total_sf_se.min() / lower_limit_se_scale)
+    upper_limit_se_scale = 10**np.ceil(np.log10(total_sf_se.max()))
+    upper_limit_se = upper_limit_se_scale * np.ceil(total_sf_se.max() / upper_limit_se_scale)
+
+    # Create a Mollweide projection plot of the total selection function standard error
     plt.figure(figsize=(12, 6))
     projview(
-        total_sf_var,
+        total_sf_se,
         coord=["G"],
         nest=True,
-        unit=r"Total selection function variance, $\mathrm{Var}[S_{\mathrm{total}}]$",
+        unit=r"Total selection function standard error, $\sqrt{\mathrm{Var}[S_{\mathrm{total}}]}$",
         cb_orientation="horizontal",
-        #min=0,
-        #max=1,
+        min=lower_limit_se,
+        max=upper_limit_se,
         cmap="magma",
         projection_type="mollweide",
     )
 
     # Save the figure
     plt.tight_layout()
-    plt.savefig(file_total_sf_var_path, dpi=300)
+    plt.savefig(file_total_sf_se_path, dpi=300)
+    plt.close()
+    gc.collect()
+
+    print(f"... saved mollview plot to {file_total_sf_se_path}")
+
+    # Compute standard error over mean
+    stderr_over_mean = total_sf_se / total_sf_mean
+    del total_sf_se, total_sf_mean  # Free memory
+    gc.collect()  # Force garbage collection
+
+    lower_limit_se_over_mean_scale = 10**np.floor(np.log10(stderr_over_mean.min()))
+    lower_limit_se_over_mean = lower_limit_se_over_mean_scale * np.floor(stderr_over_mean.min() / lower_limit_se_over_mean_scale)
+
+    # Create a Mollweide projection plot of the total selection function standard error over mean
+    plt.figure(figsize=(12, 6))
+    projview(
+        stderr_over_mean,
+        coord=["G"],
+        nest=True,
+        unit=r"Total selection function fractional error, $\sqrt{\mathrm{Var}[S_{\mathrm{total}}]} / \mathbb{E}[S_{\mathrm{total}}]$",
+        cb_orientation="horizontal",
+        min=lower_limit_se_over_mean,
+        max=1,
+        cmap="magma",
+        projection_type="mollweide",
+    )
+
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(file_total_sf_se_over_mean_path, dpi=300)
     plt.close()
     gc.collect()  # Free memory
-    
-    print(f"... saved mollview plot to {file_total_sf_var_path}.\n")
+
+    print(f"... saved mollview plot to {file_total_sf_se_over_mean_path}.\n")
 
 
 # === Construct input data to be passed to AstroLink ===
@@ -928,6 +970,9 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_photogeo.npy"))[subsample_mask].T  # each (n,) in pc
     ra, dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask].T  # each (n,) in degrees
     dra, ddec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask, :2].T  # each (n,) in degrees
+    total_sf_mean = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_mean.npy"))[subsample_mask]  # (N,)
+    del subsample_mask  # Free memory
+    gc.collect()  # Force garbage collection
     
     # Calculate variances in spherical coordinates
     drSqr = (high - lo)**2 / 4
@@ -938,12 +983,15 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     ])
     zero_variances = drSqr == 0
     variances[zero_variances, 0] = variances[zero_variances, 1:].sum(axis=1) / 2  # Prevent zero variance in distance
-    del subsample_mask, lo, high, drSqr, ra, dec, dra, ddec  # Free memory
+
+    # Weights for each star in the average
+    weights = 1 / total_sf_mean
+    del lo, high, drSqr, ra, dec, dra, ddec, total_sf_mean  # Free memory
     gc.collect()  # Force garbage collection
 
     # Define loss wrapper for minimization so that the current r_half and loss can be printed
-    def loss_wrapper(r_half, variances, r):
-        loss = average_sym_kl_contracted(r_half, variances, r)
+    def loss_wrapper(r_half, variances, r, weights):
+        loss = weighted_average_sym_kl_contracted(r_half, variances, r, weights)
         print("\t... r_{1/2}:" + f"{r_half:10.4f} | loss: {loss:10.6f}")
         return loss
 
@@ -951,7 +999,7 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     print("... fitting r_{1/2} to get globally isotropic spatial uncertainties")
     bounds = (1, 1000)  # Initial guess for r_{1/2} in pc
     result = minimize_scalar(
-        lambda r_half: loss_wrapper(r_half, variances, r),
+        lambda r_half: loss_wrapper(r_half, variances, r, weights),
         bounds=bounds,
         method='bounded',
         options={'xatol': 1.0}      # stop when r_half is within 1 pc
@@ -981,20 +1029,22 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     gc.collect()  # Force garbage collection
 
 @njit()
-def average_sym_kl_contracted(r_half, variances, r):
+def weighted_average_sym_kl_contracted(r_half, variances, r, weights):
     """
-    Compute the average symmetrized KL divergence between propagated Gaia-like
-    spherical coordinate uncertainties and an optimal isotropic Gaussian under
-    a contracted distance metric f(r) = r_half * arctan(r / r_half).
+    Compute the weighted average symmetrized KL divergence between propagated 
+    spherical coordinate uncertainties and an optimal isotropic Gaussian under a 
+    contracted distance metric f(r) = r_half * arctan(r / r_half).
 
     Parameters:
         r_half : float
             Contraction scale parameter r_{1/2} (in pc).
         variances : np.ndarray of shape (N, 3)
-            Each row contains uncertainties: (delta_r^2, delta_l*^2, delta_b^2)
-            where delta_l* = cos(b) * delta_l in radians.
+            Each row contains uncertainties: (delta_r^2, delta_ra*^2, delta_dec^2)
+            where delta_ra* = cos(dec) * delta_ra in radians.
         r : np.ndarray of shape (N,)
             Radial distances (in pc) for each source.
+        weights : np.ndarray of shape (N,)
+            Weights for each source in the average.
 
     Returns:
         alpha_opt : float
@@ -1003,23 +1053,24 @@ def average_sym_kl_contracted(r_half, variances, r):
             Average symmetrized KL divergence in contracted space.
     """
     # Unpack uncertainties of observables
-    var_r, var_lstar, var_b = variances.T
+    var_r, var_ra_star, var_dec = variances.T
 
     # Contracted distance and its derivative
     f_r = r_half * np.arctan(r / r_half)
-    f_prime = (r_half**2) / (r_half**2 + r**2)
+    r_half_squared = r_half**2
+    f_prime = r_half_squared / (r_half_squared + r**2)
 
     # First-order propagated variances (diagonal)
-    var_los = f_prime**2 * var_r              # LOS direction
-    var_p1 = f_r**2 * var_lstar              # horizontal tangential
-    var_p2 = f_r**2 * var_b                  # vertical tangential
+    var_los = f_prime**2 * var_r               # LOS direction
+    var_tan1 = f_r**2 * var_ra_star            # horizontal tangential
+    var_tan2 = f_r**2 * var_dec                # vertical tangential
 
     # Combine into diagonal covariance matrix for each source
-    tr = var_los + var_p1 + var_p2
-    tr_inv = 1.0 / var_los + 1.0 / var_p1 + 1.0 / var_p2
+    tr = var_los + var_tan1 + var_tan2
+    tr_inv = 1.0 / var_los + 1.0 / var_tan1 + 1.0 / var_tan2
 
-    # Average symmetrized KL divergence
-    avg_kl_sym = np.mean(np.sqrt(tr * tr_inv)) - 3
+    # Weighted symmetrized KL divergence
+    avg_kl_sym = np.average(np.sqrt(tr * tr_inv), weights=weights) - 3.0
 
     return avg_kl_sym
 
@@ -1187,13 +1238,6 @@ def apply_astrolink_to_subsample(overwrite=False):
     total_sf_mean = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_mean.npy"))[subsample_mask]  # (N,)
     del subsample_mask  # Free memory
     gc.collect()  # Force garbage collection
-
-    # EXPERIMENTAL: Weight by the inverse of the uncertainty volume in position-velocity space
-    #sigma_pos = np.load(os.path.join(OUTPUT_PATH, "subsample_files/contracted_position_uncertainties.npy"))
-    #sigma_vel = np.load(os.path.join(OUTPUT_PATH, "subsample_files/contracted_velocity_uncertainties.npy"))
-    #sigma_pos /= np.median(sigma_pos)
-    #sigma_vel /= np.median(sigma_vel)
-    #total_uncertainty_volume = (sigma_pos * sigma_vel)**3  # (N,)
 
     # Initialize AstroLink
     print("... initializing AstroLink object")
@@ -3317,19 +3361,19 @@ if __name__ == "__main__":
     # Calculate empirical selection function
     calculate_empirical_survey_selection_function()
     plot_limiting_g_band_magnitude_on_sky()
-
+    
     # Construct subsample and subsample selection function
     construct_subsample_from_full_catalogue()
     calculate_subsample_selection_function()
 
     # Calculate total selection function for subsample
-    calculate_total_selection_function_for_subsample(True)
+    calculate_total_selection_function_for_subsample()
     plot_total_selection_function_for_subsample(True)
-    
+    """
     # Construct input data to be passed to AstroLink
     calculate_distance_contraction_for_subsample()
     calculate_contracted_data_and_errors_for_subsample()
-    construct_cartesian_coordinates_for_subsample()
+    construct_cartesian_coordinates_for_subsample(True)
 
     # Apply AstroLink to subsample and plot of cluster properties
     apply_astrolink_to_subsample(True)
@@ -3339,21 +3383,22 @@ if __name__ == "__main__":
     plot_cluster_proper_motions_on_sky(True)
 
     # Compare to Hunt & Reffert (2024)
-    prepare_Hunt2024_for_comparison()
+    prepare_Hunt2024_for_comparison(True)
     compare_to_Hunt2024(True)
     plot_evidence_weighted_Hunt2024_comparison_results(True)
 
     # Compare to Unified Cluster Catalogue
-    prepare_UCC_for_comparison()
+    prepare_UCC_for_comparison(True)
     compare_to_UCC(True)
     plot_evidence_weighted_UCC_comparison_results(True)
 
     # Compare to galstreams catalogue
-    prepare_galstreams_for_comparison()
+    prepare_galstreams_for_comparison(True)
     compare_to_galstreams(True)
     plot_evidence_weighted_galstreams_comparison_results(True)
 
     # Compare to Vasiliev & Baumgardt (2021)
-    prepare_Vasiliev2021_for_comparison()
+    prepare_Vasiliev2021_for_comparison(True)
     compare_to_Vasiliev2021(True)
     plot_evidence_weighted_Vasiliev2021_comparison_results(True)
+    """

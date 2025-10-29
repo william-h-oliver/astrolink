@@ -65,7 +65,7 @@ OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output file
 REDUCED_CATALOGUE_PATH = os.path.join(OUTPUT_PATH, "catalogue_files/")  # Path to reduced catalogue numpy files
 SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files/")  # Path to numpy files of subsample from full catalogue
 CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to AstroLink output files
-FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_with_g_band_lower_limit/")  # Path to figures
+FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200  # GB for max memory usage by k nearest neighbour retrieval 
@@ -77,7 +77,6 @@ WORKING_MEMORY = 200  # GB for max memory usage by k nearest neighbour retrieval
 #STOCHASTIC_RUN = False # Whether to sample stochastic values from their uncertainties / posterior
 KNN_FOR_SELECTION_FUNCTION = 32 # Number of nearest neighbors for selection function calculations
 SURVEY_SF_LOWER_LIMIT = 0.99 # Empirical survey selection function lower limit for subsample stars
-G_BAND_LOWER_LIMIT = 20.5 # G-band magnitude absolute lower limit for subsample stars
 RUWE_UPPER_LIMIT = 1.2 # RUWE threshold for subsample stars
 HEALPIX_LEVEL = 12 # HEALPix level for on-sky plotting
 KNN_FOR_ASTROLINK = 16 # Number of nearest neighbors for AstroLink
@@ -85,7 +84,7 @@ SIGMA_THRESHOLDS_FOR_COMPARISONS = np.linspace(2, 10, 81)  # Significance levels
 
 
 # === Reduce GDR3 and Bailer-Jones GEDR3 catalogues to numpy files ===
-def reduce_gdr3_catalogue_to_numpy_files(overwrite=False):
+def prepare_gdr3_catalogue(overwrite=False):
     """
     Reduce raw Gaia catalogue CSV files to grouped numpy arrays.
     """
@@ -131,7 +130,7 @@ def reduce_gdr3_catalogue_to_numpy_files(overwrite=False):
     # Parallel processing
     with ProcessPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
         futures = [
-            executor.submit(_process_single_file, index, file_path, column_groups)
+            executor.submit(_process_single_gdr3_source_file, index, file_path, column_groups)
             for index, file_path in enumerate(file_paths)
         ]
         for future in futures:
@@ -156,7 +155,7 @@ def reduce_gdr3_catalogue_to_numpy_files(overwrite=False):
             os.remove(f)
     print("... reduction complete. All column groups saved as .npy files.\n")
 
-def _process_single_file(index, file_path, column_groups):
+def _process_single_gdr3_source_file(index, file_path, column_groups):
     """Process a single GaiaSource CSV file into group-wise .npy files."""
     # Extract chunk name from filename
     chunk_name = os.path.basename(file_path).replace('GaiaSource_', '').replace('.csv.gz', '')
@@ -189,7 +188,7 @@ def _process_single_file(index, file_path, column_groups):
 
     return True
 
-def reduce_bailerjones_gedr3_distances_to_numpy_files(overwrite=False):
+def prepare_bailerjones_gedr3_distances(overwrite=False):
     """
     Reads the Bailer-Jones et al. 2021 GEDR3 distances dump file, converts 
     columns to numpy arrays. Then re-index Bailer-Jones arrays to match 
@@ -560,8 +559,7 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     subsample_mask &= ruwe < RUWE_UPPER_LIMIT
     subsample_mask &= np.isfinite(r_med_photogeo)
     subsample_mask &= np.isfinite(proper_motions).all(axis=1)
-    #subsample_mask &= np.isfinite(g_mag)  # Valid G-band magnitude
-    subsample_mask &= g_mag < G_BAND_LOWER_LIMIT
+    subsample_mask &= np.isfinite(g_mag)  # Valid G-band magnitude
 
     # EXPERIMENTAL: Further subsample to remove stars with high uncertainties
     #subsample_where = np.where(subsample_mask)[0][total_uncertainty_squared > threshold]
@@ -1018,7 +1016,7 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
         options={'xatol': 1.0}      # stop when r_half is within 1 pc
     )
     r_half = result.x  # Best fit characteristic scale r_{1/2} in pc
-    print("... best fit r_{1/2} = " + f"{r_half:.3f} pc, with loss = {result.fun:.3f}")
+    print("... best fit r_{1/2} = " + f"{r_half:10.4f} pc, with loss = {result.fun:10.6f}")
 
     # Save the best fit r_{1/2}
     print("... saving best fit r_{1/2} " + f"to {file_path_r_half} (shape: {r_half.shape})")
@@ -1213,14 +1211,14 @@ def construct_data_space_for_subsample(overwrite=False):
     delta_vel = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocity_uncertainties.npy"))  # (N,)
 
     # Calculate scaling factor for positions
-    alpha_pos = np.median(delta_pos)  # Calculate scaling factor
-    print(f"... scaling factor for positions: {alpha_pos:.3f}")
-    positions /= alpha_pos  # Scale positions
+    norm_pos = np.median(delta_pos)  # Calculate scaling factor
+    print(f"... scaling factor for positions: {norm_pos:.3f}")
+    positions /= norm_pos  # Scale positions
 
     # Calculate scaling factor for velocities
-    alpha_vel = np.median(delta_vel)  # Calculate scaling factor
-    print(f"... scaling factor for velocities: {alpha_vel:.3f}")
-    velocities /= alpha_vel  # Scale velocities
+    norm_vel = np.median(delta_vel)  # Calculate scaling factor
+    print(f"... scaling factor for velocities: {norm_vel:.3f}")
+    velocities /= norm_vel  # Scale velocities
 
     # Construct data space for clustering
     print("... constructing data space")
@@ -3242,20 +3240,19 @@ def prepare_Battaglia2021_for_comparison(overwrite=False):
     # Save the names of the dwarf galaxies
     print("... saving dwarf galaxy names")
     B21_members_dwarfgalaxies_names = df_pmem["Galaxy"].to_numpy()  # Dwarf galaxy names
-    _, inv, idx = np.unique(B21_members_dwarfgalaxies_names, return_inverse=True, return_index=True)
-    B21_dwarfgalaxies_names = B21_members_dwarfgalaxies_names[np.sort(idx)]
+    _, indices, inverse = np.unique(B21_members_dwarfgalaxies_names, return_index=True, return_inverse=True)
+    B21_dwarfgalaxies_names = B21_members_dwarfgalaxies_names[np.sort(indices)]  # Unique dwarf galaxy names in the original order
     np.save(file_path_dwarfgalaxies_names, B21_dwarfgalaxies_names)
     del B21_members_dwarfgalaxies_names, _, B21_dwarfgalaxies_names  # Free memory
     gc.collect()  # Force garbage collection
 
     # Get the dwarf galaxy IDs, GDR3 source IDs, and membership probabilities
     print("... getting member information")
-    mapping = np.zeros_like(inv) # Adjust inverse indices to match new order
-    mapping[np.argsort(idx)] = np.arange(len(idx))
-    B21_members_dwarfgalaxy_ids = mapping[inv] # Cluster IDs
+    B21_members_dwarfgalaxy_ids = np.argsort(np.argsort(indices))[inverse]  # Cluster IDs per member
     B21_members_source_ids = df_pmem['GaiaEDR3'].to_numpy()  # Source IDs of the members
-    B21_members_probs = df_pmem["Pmem"].to_numpy()  # Membership probabilities
-    del df_pmem, inv, idx, mapping  # Free memory
+    B21_members_probs = df_pmem["Pmemb"].to_numpy()  # Membership probabilities
+    B21_members_probs[~np.isfinite(B21_members_probs)] = 0.0  # Set non-finite probabilities to 0
+    del df_pmem, inverse, indices  # Free memory
     gc.collect()  # Force garbage collection
 
     # Load Gaia DR3 source_ids
@@ -3277,8 +3274,8 @@ def prepare_Battaglia2021_for_comparison(overwrite=False):
     # Get Battaglia+2021 dwarf galaxy IDs for this subsample (multiple columns since stars can be in multiple Battaglia+2021 dwarf galaxies)
     print("... getting Battaglia+2024 dwarf galaxy IDs and membership probabilities for the subsample in this work")
     max_appearances = np.unique(B21_members_source_ids, return_counts=True)[1].max()
-    max_B21_cluster_ID = B21_members_dwarfgalaxy_ids.max()
-    B21_members_dwarfgalaxy_ids_gdr3 = np.full((B21_members_mask.size, max_appearances), max_B21_cluster_ID + 1, dtype=np.int64)  # (N,) Initialize with max_B21_cluster_ID + 1, representing no cluster
+    max_B21_dwarfgalaxy_ID = B21_members_dwarfgalaxy_ids.max()
+    B21_members_dwarfgalaxy_ids_gdr3 = np.full((B21_members_mask.size, max_appearances), max_B21_dwarfgalaxy_ID + 1, dtype=np.int64)  # (N,) Initialize with max_B21_dwarfgalaxy_ID + 1, representing no cluster
     B21_members_dwarfgalaxy_probs_gdr3 = np.zeros((B21_members_mask.size, max_appearances), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
     B21_members_mask_where = np.where(B21_members_mask)[0]  # Use indices of members in the full catalogue from now on to do efficient slicing/indexing
     del B21_members_mask  # Free memory
@@ -3316,10 +3313,10 @@ def prepare_Battaglia2021_for_comparison(overwrite=False):
 
     # Pre-compute the total sum of probabilities for each Battaglia+2021 dwarf galaxy
     print("... pre-computing the total sum of probabilities for each Battaglia+2021 dwarf galaxy")
-    B21_dwarfgalaxies_probability_sums_total = np.bincount(B21_members_dwarfgalaxy_ids_gdr3.ravel(), 
-                                        weights=B21_members_dwarfgalaxy_probs_gdr3.ravel(),
+    B21_dwarfgalaxies_probability_sums_total = np.bincount(B21_members_dwarfgalaxy_ids.ravel(), 
+                                        weights=B21_members_probs.ravel(),
                                         minlength=max_B21_dwarfgalaxy_ID + 1)  # (N_dwarfgalaxies,)
-    del B21_members_dwarfgalaxy_ids_gdr3, B21_members_dwarfgalaxy_probs_gdr3  # Free memory
+    del B21_members_dwarfgalaxy_ids, B21_members_probs  # Free memory
     gc.collect()  # Force garbage collection
 
     # Pre-compute the sum of probabilities for each Battaglia+2021 dwarf galaxy in the overlap with the subsample
@@ -3342,8 +3339,8 @@ def compare_to_Battaglia2021(overwrite=False):
     Compare the clustering output to the Battaglia et al. (2021) catalogue.
     """
     # Check if comparison results already exist
-    file_path_best_match_astrolink_clusters = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/batt21_best_match_astrolink_clusters.npy")
-    file_path_cluster_rpje = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/batt21_rpje.npy")
+    file_path_best_match_astrolink_clusters = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_best_match_astrolink_clusters.npy")
+    file_path_cluster_rpje = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_rpje.npy")
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_cluster_rpje) and
@@ -3396,18 +3393,24 @@ def plot_evidence_weighted_Battaglia2021_comparison_results(overwrite=False):
 
     # Load comparison results
     print("... loading comparison results")
-    RPJE = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia2021_rpje.npy"))  # (N_sigmas, N_dwarfgalaxies, 2, 4)
+    RPJE = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_rpje.npy"))  # (N_sigmas, N_dwarfgalaxies, 2, 4)
     B21_dwarfgalaxies_probability_sums_total = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_total.npy"))  # (N_dwarfgalaxies,)
     B21_dwarfgalaxies_probability_sums_overlap = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_overlap.npy"))  # (N_dwarfgalaxies,)
+    print(np.sum(B21_dwarfgalaxies_probability_sums_overlap == 0), np.sum(B21_dwarfgalaxies_probability_sums_total == 0))
     coverage = B21_dwarfgalaxies_probability_sums_overlap / B21_dwarfgalaxies_probability_sums_total  # (N_dwarfgalaxies,)
-    del B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_overlap  # Free memory
-    gc.collect()  # Force garbage collection
+    #del B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_overlap  # Free memory
+    #gc.collect()  # Force garbage collection
 
     # Extract per-assumption and per-statistic arrays
     R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
     P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
     J_full,  J_union  = RPJE[:, :, 0, 2], RPJE[:, :, 1, 2]
     #E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
+
+    notfinite = ~np.isfinite(coverage)
+    #coverage[notfinite] = 0.0
+    print(B21_dwarfgalaxies_probability_sums_overlap[notfinite])
+    print(B21_dwarfgalaxies_probability_sums_total[notfinite])
 
     # Evidence-weighted averages
     Rbar_full  = np.sum(R_full * coverage, axis=1) / np.sum(coverage)
@@ -3467,9 +3470,9 @@ if __name__ == "__main__":
     os.makedirs(CLUSTERING_PATH, exist_ok=True)
     os.makedirs(FIGURES_PATH, exist_ok=True)
 
-    # Reduce raw Gaia catalogue to numpy files
-    reduce_gdr3_catalogue_to_numpy_files()
-    reduce_bailerjones_gedr3_distances_to_numpy_files()
+    # Reduce raw catalogue files to numpy files
+    prepare_gdr3_catalogue()
+    prepare_bailerjones_gedr3_distances()
 
     # Calculate empirical selection function
     calculate_empirical_survey_selection_function()
@@ -3486,34 +3489,34 @@ if __name__ == "__main__":
     # Construct input data to be passed to AstroLink
     calculate_distance_contraction_for_subsample()
     calculate_contracted_data_and_errors_for_subsample()
-    construct_data_space_for_subsample(True)
+    construct_data_space_for_subsample()
 
     # Apply AstroLink to subsample and plot of cluster properties
-    apply_astrolink_to_subsample(True)
-    plot_prominence_model_fit(True)
-    plot_number_of_clusters_vs_significance(True)
-    plot_cluster_labels_on_sky(True)
-    plot_cluster_proper_motions_on_sky(True)
+    apply_astrolink_to_subsample()
+    plot_prominence_model_fit()
+    plot_number_of_clusters_vs_significance()
+    plot_cluster_labels_on_sky()
+    plot_cluster_proper_motions_on_sky()
 
     # Compare to Hunt & Reffert (2024)
-    prepare_Hunt2024_for_comparison(True)
-    compare_to_Hunt2024(True)
-    plot_evidence_weighted_Hunt2024_comparison_results(True)
+    prepare_Hunt2024_for_comparison()
+    compare_to_Hunt2024()
+    plot_evidence_weighted_Hunt2024_comparison_results()
 
     # Compare to Unified Cluster Catalogue
-    prepare_UCC_for_comparison(True)
-    compare_to_UCC(True)
-    plot_evidence_weighted_UCC_comparison_results(True)
+    prepare_UCC_for_comparison()
+    compare_to_UCC()
+    plot_evidence_weighted_UCC_comparison_results()
 
     # Compare to galstreams catalogue
-    prepare_galstreams_for_comparison(True)
-    compare_to_galstreams(True)
-    plot_evidence_weighted_galstreams_comparison_results(True)
+    prepare_galstreams_for_comparison()
+    compare_to_galstreams()
+    plot_evidence_weighted_galstreams_comparison_results()
 
     # Compare to Vasiliev & Baumgardt (2021)
-    prepare_Vasiliev2021_for_comparison(True)
-    compare_to_Vasiliev2021(True)
-    plot_evidence_weighted_Vasiliev2021_comparison_results(True)
+    prepare_Vasiliev2021_for_comparison()
+    compare_to_Vasiliev2021()
+    plot_evidence_weighted_Vasiliev2021_comparison_results()
 
     # Compare to Battaglia et al. (2021)
     prepare_Battaglia2021_for_comparison(True)

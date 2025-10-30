@@ -1322,20 +1322,120 @@ def plot_prominence_model_fit(overwrite=False):
     
     # Plot the prominence model fit
     fig, ax = plt.subplots(figsize=(8, 6))
-    h, _, _, _, _ = prominenceModel(clusterer, ax=ax, cutoffKwargs={'alpha': 0.0})
 
-    # Add vertical lines at various significance levels
-    #offset = 0.02 * (ax.get_xlim()[1] - ax.get_xlim()[0])  # small offset to the left
-    for i, sig, in enumerate(np.linspace(3, 5, 5)):
-        prom = beta.isf(norm.sf(sig), clusterer.pFit[0], clusterer.pFit[1])  # Inverse survival function for beta distribution
-        ax.axvline(x=prom, color=f"C{i}", linestyle='--', linewidth=2)
-        ax.text(prom, 0.75 * h.max(), f"S = {sig:.1f}",
-            color=f"C{i}", fontsize=10, rotation=90, ha='right', va='top')
+    # Plot prominences histogram
+    subgroup_proms = clusterer.prominences[:, 1]
+    bw = 2*np.subtract(*np.percentile(subgroup_proms, [75, 25]))*subgroup_proms.size**(-1/3) # Freedman-Diaconis rule
+    h, bins, patches = ax.hist(
+        subgroup_proms,
+        bins=np.arange(np.ceil(subgroup_proms.max()/bw).astype(np.int64) + 1)*bw,
+        density=True,
+        histtype='stepfilled',
+        facecolor=np.array([mcolors.to_rgba('k', alpha = 0.2)]),
+        edgecolor='k',
+        lw=1
+    )
+
+    # Plot fitted prominence model
+    xs = np.linspace(0, clusterer.prominences[:, 1].max(), 10**4)
+    ys = beta.pdf(xs, clusterer.pFit[0], clusterer.pFit[1])
+    line, = ax.plot(
+        xs,
+        ys,
+        c='C0',
+        lw=2,
+        alpha=0.8,
+        label='Noise model fit'
+    )
+
+    # Axis limits
+    ax.set_xlim(0, min(ax.get_xlim()[1], 1))
+    ax.set_ylim(0, ax.get_ylim()[1])
+
+    # Add labels
+    ax.set_xlabel(r'Prominences, $p_{g_\leq}$')
+    ax.set_ylabel('Probability Density')
+
+    # Add secondary x-axis showing significance levels
+    def prom_to_sigma(prom):
+        """Convert prominence -> significance."""
+        prom = np.clip(prom, 1e-10, np.inf)  # avoid 0 or negative
+        sf = beta.sf(prom, clusterer.pFit[0], clusterer.pFit[1])
+        sf = np.clip(sf, 1e-300, 1 - 1e-16)  # avoid 0 or 1
+        return norm.isf(sf)
+
+    def sigma_to_prom(sigma):
+        """Convert significance -> prominence."""
+        sigma = np.clip(sigma, -10, 50)  # keep finite range
+        sf = norm.sf(sigma)
+        sf = np.clip(sf, 1e-300, 1 - 1e-16)
+        return beta.isf(sf, clusterer.pFit[0], clusterer.pFit[1])
+
+    secax = ax.secondary_xaxis('top', functions=(prom_to_sigma, sigma_to_prom))
+    secax.set_xlabel(r"Significance ($S$)")
+
+    # Define tick positions
+    sigma_ticks = np.arange(-4, 11)
+    sigma_ticklabels = [f"{s:d}" for s in sigma_ticks]
+
+    # Add the special leftmost tick corresponding to prominence = 0.0
+    # (use sigma = -np.inf for labeling, but use prom=0.0 for placement)
+    prom_zero = 0.0
+    sigma_prom_zero = prom_to_sigma(1e-10)  # for position; ~very negative
+    all_ticks = np.concatenate(([sigma_prom_zero], sigma_ticks))
+    all_labels = [r"$-\infty$"] + ['']*4 + sigma_ticklabels[4:]
+
+    # Apply ticks and labels
+    secax.set_xticks(all_ticks)
+    secax.set_xticklabels(all_labels)
+    secax.set_xlim(ax.get_xlim())
+
+    # Overlay number of clusters at each significance threshold
+    num_clusters = []
+    for significance in SIGMA_THRESHOLDS_FOR_COMPARISONS:
+        clusterer.S = significance
+        clusterer.extract_clusters()
+        num_clusters.append(len(clusterer.clusters) - 1)  # Exclude the background cluster
+
+    # Plot number of clusters as a function of significance
+    ax2 = ax.twinx()  # create secondary y-axis on the right
+    ax2.set_yscale('log')
+
+    # Convert significance values to prominence for consistent x-axis alignment
+    prominences = [sigma_to_prom(s) for s in SIGMA_THRESHOLDS_FOR_COMPARISONS]
+
+    # Plot curve (using the same x-scale as the main histogram)
+    ax2.plot(
+        prominences,
+        num_clusters,
+        color='C1',
+        lw=2,
+        alpha=0.8,
+        label="Number of clusters"
+    )
+
+    # Label the right-hand axis
+    ax2.set_ylabel(r"Number of clusters, $N(S)$")#, color='C1')
+    #ax2.tick_params(axis='y', labelcolor='C1')
+    minN, maxN = min(num_clusters), max(num_clusters)
+    min_ylim, maxN_logunit = 10**np.floor(np.log10(minN)), 10**np.floor(np.log10(maxN))
+    max_ylim = np.ceil(maxN / maxN_logunit) * maxN_logunit
+    ax2.set_ylim(min_ylim, max_ylim)
+
+    # Combine legends from both axes into one
+    lines_1, labels_1 = ax.get_legend_handles_labels()
+    lines_2, labels_2 = ax2.get_legend_handles_labels()
+    all_lines = lines_1 + lines_2
+    all_labels = labels_1 + labels_2
+    ax.legend(all_lines, all_labels, loc='upper right', frameon=False)
 
     # Convert y-axis to logarithmic scale
-    ax.set_xlim(0, beta.isf(norm.sf(7), clusterer.pFit[0], clusterer.pFit[1]))
+    ax.set_xlim(0, beta.isf(norm.sf(SIGMA_THRESHOLDS_FOR_COMPARISONS[-1]), clusterer.pFit[0], clusterer.pFit[1]))
     ax.set_ylim(h[h > 0].min() * 0.5, ax.get_ylim()[1])  # Set y-axis limits to avoid zero and very high values
     ax.set_yscale('log')  # Set y-axis to logarithmic scale
+
+    # Reset x-label
+    ax.set_xlabel("Prominence")
 
     # Save the figure
     plt.tight_layout()
@@ -1343,44 +1443,6 @@ def plot_prominence_model_fit(overwrite=False):
     plt.close()
     gc.collect()  # Free memory
     print(f"... saved prominence model fit plot to {file_prominence_model_fit_path}.\n")
-
-def plot_number_of_clusters_vs_significance(overwrite=False):
-    """
-    Plot the number of clusters vs significance from AstroLink.
-    """
-    # Check if plots already exist
-    file_clusters_vs_significance_path = os.path.join(FIGURES_PATH, "n_clusters_vs_significance.png")
-    if os.path.exists(file_clusters_vs_significance_path) and not overwrite:
-        print(f"Clusters vs significance plot already exists at:\n\t{file_clusters_vs_significance_path} .")
-        print("Use overwrite=True to force replotting.\n")
-        return
-    print("Plotting number of clusters vs significance...")
-
-    # Load the AstroLink clustering output
-    print("... loading AstroLink clustering output")
-    clusterer = loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
-    
-    # Plot the number of clusters vs significance
-    fig, ax = plt.subplots(figsize=(8, 6))
-
-    significances = np.linspace(3, 10, 71)  # Significance levels from 3 to 10
-    num_clusters = []
-    for sig in significances:
-        clusterer.S = sig
-        clusterer.extract_clusters()
-        num_clusters.append(len(clusterer.clusters) - 1)  # Exclude the background cluster
-
-    ax.loglog(significances, num_clusters, color='C0')
-    plt.grid(True, which="both", ls="-")
-    ax.set_xlabel(r"Significance, $S$")
-    ax.set_ylabel(r"Number of clusters, $N(>S)$")
-
-    # Save the figure
-    plt.tight_layout()
-    plt.savefig(file_clusters_vs_significance_path, dpi=300)
-    plt.close()
-    gc.collect()  # Free memory
-    print(f"... saved clusters vs significance plot to {file_clusters_vs_significance_path}.\n")
 
 def plot_cluster_labels_on_sky(overwrite=False):
     """
@@ -1421,6 +1483,7 @@ def plot_cluster_labels_on_sky(overwrite=False):
     fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
 
     # Cycle through the clusters and plot them
+    print("... plotting clusters on the sky")
     for i, clst in enumerate(clusterer.clusters[1:]):
         clusterMembers = clusterer.ordering[clst[0]:clst[1]]
         ax.scatter(
@@ -2029,6 +2092,20 @@ def prepare_Hunt2024_for_comparison(overwrite=False):
     del H24_members_cluster_ids_subsample, H24_members_cluster_probs_subsample, H24_clusters_probability_sums_total, H24_clusters_probability_sums_overlap  # Free memory
     gc.collect()  # Force garbage collection
 
+def plot_Hunt2024_clusters_on_sky(overwrite=False):
+    """
+    Plot the Hunt & Reffert (2024) clusters on the sky.
+    """
+    # Check if plot already exists
+    file_path = os.path.join(FIGURES_PATH, "Hunt2024_clusters_on_sky.png")
+    if os.path.exists(file_path) and not overwrite:
+        print(f"Hunt & Reffert (2024) clusters plot already exists at:\n\t{file_path} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting Hunt & Reffert (2024) clusters...")
+
+    pass # Placeholder for actual plotting code
+
 def compare_to_Hunt2024(overwrite=False):
     """
     Compare the clustering output to the Hunt & Reffert (2024).
@@ -2072,19 +2149,19 @@ def compare_to_Hunt2024(overwrite=False):
     del whichClusters, RPJE  # Free memory
     gc.collect()  # Force garbage collection
 
-def plot_evidence_weighted_Hunt2024_comparison_results(overwrite=False):
+def plot_Hunt2024_comparison_results(overwrite=False):
     """
     Plot the results of the comparison between clustering output and Hunt & Reffert (2024),
-    showing evidence-weighted recovery, purity, and Jaccard index under both subsample
-    assumptions ('full' and 'union'), with hatched regions indicating bounds.
+    showing recovery, purity, and Jaccard index under both subsample assumptions ('full' 
+    and 'union'), with hatched regions indicating bounds.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "Hunt2024_evidence_weighted_comparison_results.png")
+    file_path = os.path.join(FIGURES_PATH, "Hunt2024_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
-        print(f"Hunt & Reffert (2024) evidence-weighted comparison results plot already exists at:\n\t{file_path} .")
+        print(f"Hunt & Reffert (2024) comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
         return
-    print("Plotting Hunt & Reffert (2024) evidence-weighted comparison results...")
+    print("Plotting Hunt & Reffert (2024) comparison results...")
 
     # Load comparison results
     print("... loading comparison results")
@@ -2331,6 +2408,20 @@ def prepare_UCC_for_comparison(overwrite=False):
     del UCC_members_cluster_ids_subsample, UCC_members_cluster_probs_subsample, UCC_cluster_probability_sums_total, UCC_cluster_probability_sums_overlap  # Free memory
     gc.collect()  # Force garbage collection
 
+def plot_UCC_clusters_on_sky(overwrite=False):
+    """
+    Plot the Unified Cluster Catalogue clusters on the sky.
+    """
+    # Check if plot already exists
+    file_path = os.path.join(FIGURES_PATH, "UCC_clusters_on_sky.png")
+    if os.path.exists(file_path) and not overwrite:
+        print(f"Unified Cluster Catalogue clusters plot already exists at:\n\t{file_path} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting Unified Cluster Catalogue clusters...")
+
+    pass # Placeholder for actual plotting code
+
 def compare_to_UCC(overwrite=False):
     """
     Compare the clustering output to the Unified Cluster Catalogue.
@@ -2374,19 +2465,19 @@ def compare_to_UCC(overwrite=False):
     del whichClusters, RPJE  # Free memory
     gc.collect()  # Force garbage collection
 
-def plot_evidence_weighted_UCC_comparison_results(overwrite=False):
+def plot_UCC_comparison_results(overwrite=False):
     """
     Plot the results of the comparison between clustering output and the Unified Cluster Catalogue (UCC),
-    showing evidence-weighted recovery, purity, and Jaccard index under both subsample assumptions
+    showing recovery, purity, and Jaccard index under both subsample assumptions
     ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "UCC_evidence_weighted_comparison_results.png")
+    file_path = os.path.join(FIGURES_PATH, "UCC_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
-        print(f"Unified Cluster Catalogue evidence-weighted comparison results plot already exists at:\n\t{file_path} .")
+        print(f"Unified Cluster Catalogue comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
         return
-    print("Plotting Unified Cluster Catalogue evidence-weighted comparison results...")
+    print("Plotting Unified Cluster Catalogue comparison results...")
 
     # Load comparison results
     print("... loading comparison results")
@@ -2812,6 +2903,20 @@ def prepare_galstreams_for_comparison(overwrite=False):
     del subsample_mask, galstreams_members_stream_ids_subsample, galstreams_members_stream_probs_subsample, galstreams_streams_probability_sums_total, galstreams_streams_probability_sums_overlap  # Free memory
     gc.collect()  # Force garbage collection
 
+def plot_galstreams_streams_on_sky(overwrite=False):
+    """
+    Plot the galstreams streams on the sky.
+    """
+    # Check if plot already exists
+    file_path = os.path.join(FIGURES_PATH, "galstreams_streams_on_sky.png")
+    if os.path.exists(file_path) and not overwrite:
+        print(f"Galstreams streams on sky plot already exists at:\n\t{file_path} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting galstreams streams on the sky...")
+
+    pass # Plotting goes here
+
 def compare_to_galstreams(overwrite=False):
     """
     Compare the clustering output to the galstreams catalogue.
@@ -2855,19 +2960,19 @@ def compare_to_galstreams(overwrite=False):
     del whichClusters, RPJE  # Free memory
     gc.collect()  # Force garbage collection
 
-def plot_evidence_weighted_galstreams_comparison_results(overwrite=False):
+def plot_galstreams_comparison_results(overwrite=False):
     """
     Plot the results of the comparison between clustering output and the galstreams catalogue,
-    showing evidence-weighted recovery, purity, and Jaccard index under both subsample assumptions
+    showing recovery, purity, and Jaccard index under both subsample assumptions
     ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "galstreams_evidence_weighted_comparison_results.png")
+    file_path = os.path.join(FIGURES_PATH, "galstreams_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
-        print(f"Galstreams evidence-weighted comparison results plot already exists at:\n\t{file_path} .")
+        print(f"Galstreams comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
         return
-    print("Plotting Galstreams evidence-weighted comparison results...")
+    print("Plotting Galstreams comparison results...")
 
     # Load comparison results
     print("... loading comparison results")
@@ -3080,6 +3185,20 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
     del V21_members_cluster_ids_subsample, V21_members_cluster_probs_subsample, V21_clusters_probability_sums_total, V21_clusters_probability_sums_overlap  # Free memory
     gc.collect()  # Force garbage collection
 
+def plot_Vasiliev2021_clusters_on_sky(overwrite=False):
+    """
+    Plot the Vasiliev & Baumgardt (2021) globular clusters on the sky.
+    """
+    # Check if plot already exists
+    file_path = os.path.join(FIGURES_PATH, "Vasiliev2021_clusters_on_sky.png")
+    if os.path.exists(file_path) and not overwrite:
+        print(f"Vasiliev & Baumgardt (2021) globular clusters on sky plot already exists at:\n\t{file_path} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting Vasiliev & Baumgardt (2021) globular clusters on the sky...")
+
+    pass # Plotting goes here
+
 def compare_to_Vasiliev2021(overwrite=False):
     """
     Compare the clustering output to the Vasiliev & Baumgardt (2021) catalogue.
@@ -3123,19 +3242,19 @@ def compare_to_Vasiliev2021(overwrite=False):
     del whichClusters, RPJE  # Free memory
     gc.collect()  # Force garbage collection
 
-def plot_evidence_weighted_Vasiliev2021_comparison_results(overwrite=False):
+def plot_Vasiliev2021_comparison_results(overwrite=False):
     """
     Plot the results of the comparison between clustering output and the Vasiliev & Baumgardt (2021) catalogue,
-    showing evidence-weighted recovery, purity, and Jaccard index under both subsample assumptions
+    showing recovery, purity, and Jaccard index under both subsample assumptions
     ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "Vasiliev2021_evidence_weighted_comparison_results.png")
+    file_path = os.path.join(FIGURES_PATH, "Vasiliev2021_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
-        print(f"Vasiliev & Baumgardt (2021) evidence-weighted comparison results plot already exists at:\n\t{file_path} .")
+        print(f"Vasiliev & Baumgardt (2021) comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
         return
-    print("Plotting Vasiliev & Baumgardt (2021) evidence-weighted comparison results...")
+    print("Plotting Vasiliev & Baumgardt (2021) comparison results...")
 
     # Load comparison results
     print("... loading comparison results")
@@ -3334,6 +3453,20 @@ def prepare_Battaglia2021_for_comparison(overwrite=False):
     del B21_members_dwarfgalaxy_ids_subsample, B21_members_dwarfgalaxy_probs_subsample, B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_overlap  # Free memory
     gc.collect()  # Force garbage collection
 
+def plot_Battaglia2021_dwarfgalaxies_on_sky(overwrite=False):
+    """
+    Plot the Battaglia et al. (2021) dwarf galaxies on the sky.
+    """
+    # Check if plot already exists
+    file_path = os.path.join(FIGURES_PATH, "Battaglia2021_dwarfgalaxies_on_sky.png")
+    if os.path.exists(file_path) and not overwrite:
+        print(f"Battaglia et al. (2021) dwarf galaxies on sky plot already exists at:\n\t{file_path} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting Battaglia et al. (2021) dwarf galaxies on the sky...")
+
+    pass # Plotting goes here
+
 def compare_to_Battaglia2021(overwrite=False):
     """
     Compare the clustering output to the Battaglia et al. (2021) catalogue.
@@ -3377,40 +3510,34 @@ def compare_to_Battaglia2021(overwrite=False):
     del whichClusters, RPJE  # Free memory
     gc.collect()  # Force garbage collection
 
-def plot_evidence_weighted_Battaglia2021_comparison_results(overwrite=False):
+def plot_Battaglia2021_comparison_results(overwrite=False):
     """
     Plot the results of the comparison between clustering output and the Battaglia et al. (2021) catalogue,
-    showing evidence-weighted recovery, purity, and Jaccard index under both subsample assumptions
+    showing recovery, purity, and Jaccard index under both subsample assumptions
     ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "Battaglia2021_evidence_weighted_comparison_results.png")
+    file_path = os.path.join(FIGURES_PATH, "Battaglia2021_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
-        print(f"Battaglia et al. (2021) evidence-weighted comparison results plot already exists at:\n\t{file_path} .")
+        print(f"Battaglia et al. (2021) comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
         return
-    print("Plotting Battaglia et al. (2021) evidence-weighted comparison results...")
+    print("Plotting Battaglia et al. (2021) comparison results...")
 
     # Load comparison results
     print("... loading comparison results")
     RPJE = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_rpje.npy"))  # (N_sigmas, N_dwarfgalaxies, 2, 4)
     B21_dwarfgalaxies_probability_sums_total = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_total.npy"))  # (N_dwarfgalaxies,)
     B21_dwarfgalaxies_probability_sums_overlap = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_overlap.npy"))  # (N_dwarfgalaxies,)
-    print(np.sum(B21_dwarfgalaxies_probability_sums_overlap == 0), np.sum(B21_dwarfgalaxies_probability_sums_total == 0))
     coverage = B21_dwarfgalaxies_probability_sums_overlap / B21_dwarfgalaxies_probability_sums_total  # (N_dwarfgalaxies,)
-    #del B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_overlap  # Free memory
-    #gc.collect()  # Force garbage collection
+    del B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_overlap  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Extract per-assumption and per-statistic arrays
     R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
     P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
     J_full,  J_union  = RPJE[:, :, 0, 2], RPJE[:, :, 1, 2]
     #E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
-
-    notfinite = ~np.isfinite(coverage)
-    #coverage[notfinite] = 0.0
-    print(B21_dwarfgalaxies_probability_sums_overlap[notfinite])
-    print(B21_dwarfgalaxies_probability_sums_total[notfinite])
 
     # Evidence-weighted averages
     Rbar_full  = np.sum(R_full * coverage, axis=1) / np.sum(coverage)
@@ -3493,32 +3620,36 @@ if __name__ == "__main__":
 
     # Apply AstroLink to subsample and plot of cluster properties
     apply_astrolink_to_subsample()
-    plot_prominence_model_fit()
-    plot_number_of_clusters_vs_significance()
-    plot_cluster_labels_on_sky()
+    plot_prominence_model_fit(True)
+    plot_cluster_labels_on_sky(True)
     plot_cluster_proper_motions_on_sky()
 
     # Compare to Hunt & Reffert (2024)
     prepare_Hunt2024_for_comparison()
+    plot_Hunt2024_clusters_on_sky()
     compare_to_Hunt2024()
-    plot_evidence_weighted_Hunt2024_comparison_results()
+    plot_Hunt2024_comparison_results()
 
     # Compare to Unified Cluster Catalogue
     prepare_UCC_for_comparison()
+    plot_UCC_clusters_on_sky()
     compare_to_UCC()
-    plot_evidence_weighted_UCC_comparison_results()
+    plot_UCC_comparison_results()
 
     # Compare to galstreams catalogue
     prepare_galstreams_for_comparison()
+    plot_galstreams_streams_on_sky()
     compare_to_galstreams()
-    plot_evidence_weighted_galstreams_comparison_results()
+    plot_galstreams_comparison_results()
 
     # Compare to Vasiliev & Baumgardt (2021)
     prepare_Vasiliev2021_for_comparison()
+    plot_Vasiliev2021_clusters_on_sky()
     compare_to_Vasiliev2021()
-    plot_evidence_weighted_Vasiliev2021_comparison_results()
+    plot_Vasiliev2021_comparison_results()
 
     # Compare to Battaglia et al. (2021)
-    prepare_Battaglia2021_for_comparison(True)
-    compare_to_Battaglia2021(True)
-    plot_evidence_weighted_Battaglia2021_comparison_results(True)
+    prepare_Battaglia2021_for_comparison()
+    plot_Battaglia2021_dwarfgalaxies_on_sky()
+    compare_to_Battaglia2021()
+    plot_Battaglia2021_comparison_results()

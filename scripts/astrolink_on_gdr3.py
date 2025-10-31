@@ -30,7 +30,7 @@ from io import TextIOWrapper
 # Third-party imports
 import numpy as np
 import pandas as pd
-from scipy.optimize import minimize_scalar
+from scipy.optimize import minimize_scalar, minimize
 from scipy.stats import norm, beta
 from scipy.special import gamma, digamma
 from pykdtree.kdtree import KDTree
@@ -71,16 +71,16 @@ FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures/")  # Path to figures
 WORKING_MEMORY = 200  # GB for max memory usage by k nearest neighbour retrieval 
 
 # Pipeline constants
-#WITH_POSITIONS = True # Whether to use positions in the input data space for AstroLink clustering
-#WITH_PROPER_MOTIONS = True # Whether to use proper motions in the input data space for AstroLink clustering
-#WITH_RADIAL_VELOCITIES = False # Whether to use radial velocities in the input data space for AstroLink clustering
-#STOCHASTIC_RUN = False # Whether to sample stochastic values from their uncertainties / posterior
+WITH_PROPER_MOTIONS = True # Whether to use proper motions in the input data space for AstroLink clustering
+WITH_RADIAL_VELOCITIES = False # Whether to use radial velocities in the input data space for AstroLink clustering
+STOCHASTIC_RUN = False # Whether to sample stochastic values from their uncertainties / posterior
 KNN_FOR_SELECTION_FUNCTION = 32 # Number of nearest neighbors for selection function calculations
 SURVEY_SF_LOWER_LIMIT = 0.99 # Empirical survey selection function lower limit for subsample stars
 RUWE_UPPER_LIMIT = 1.2 # RUWE threshold for subsample stars
 HEALPIX_LEVEL = 12 # HEALPix level for on-sky plotting
 KNN_FOR_ASTROLINK = 16 # Number of nearest neighbors for AstroLink
-SIGMA_THRESHOLDS_FOR_COMPARISONS = np.linspace(2, 10, 81)  # Significance levels from 2 to 10 to be used when comparing to existing cluster catalogues
+SIGMA_THRESHOLDS_FOR_COMPARISONS = np.linspace(2, 10, 81)  # Significance levels from 2 to 10 to be used when comparing to existing cluster catalogues (must be increasing!)
+OPTIMAL_SIGMA_THRESHOLD = 3.8 + STOCHASTIC_RUN * 0.1 * np.random.randint(-2, 3, 1)[0]  # Optimal significance threshold determined from prominence model fitting
 
 
 # === Reduce GDR3 and Bailer-Jones GEDR3 catalogues to numpy files ===
@@ -1321,7 +1321,7 @@ def plot_prominence_model_fit(overwrite=False):
     clusterer = loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
     
     # Plot the prominence model fit
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(6, 6))
 
     # Plot prominences histogram
     subgroup_proms = clusterer.prominences[:, 1]
@@ -1337,24 +1337,17 @@ def plot_prominence_model_fit(overwrite=False):
     )
 
     # Plot fitted prominence model
-    xs = np.linspace(0, clusterer.prominences[:, 1].max(), 10**4)
+    xs = np.linspace(0, subgroup_proms.max(), 10**4)
     ys = beta.pdf(xs, clusterer.pFit[0], clusterer.pFit[1])
     line, = ax.plot(
         xs,
         ys,
         c='C0',
         lw=2,
-        alpha=0.8,
+        alpha=1.0,
+        zorder=2,
         label='Noise model fit'
     )
-
-    # Axis limits
-    ax.set_xlim(0, min(ax.get_xlim()[1], 1))
-    ax.set_ylim(0, ax.get_ylim()[1])
-
-    # Add labels
-    ax.set_xlabel(r'Prominences, $p_{g_\leq}$')
-    ax.set_ylabel('Probability Density')
 
     # Add secondary x-axis showing significance levels
     def prom_to_sigma(prom):
@@ -1371,8 +1364,7 @@ def plot_prominence_model_fit(overwrite=False):
         sf = np.clip(sf, 1e-300, 1 - 1e-16)
         return beta.isf(sf, clusterer.pFit[0], clusterer.pFit[1])
 
-    secax = ax.secondary_xaxis('top', functions=(prom_to_sigma, sigma_to_prom))
-    secax.set_xlabel(r"Significance ($S$)")
+    ax_top = ax.secondary_xaxis('top', functions=(prom_to_sigma, sigma_to_prom))
 
     # Define tick positions
     sigma_ticks = np.arange(-4, 11)
@@ -1386,56 +1378,75 @@ def plot_prominence_model_fit(overwrite=False):
     all_labels = [r"$-\infty$"] + ['']*4 + sigma_ticklabels[4:]
 
     # Apply ticks and labels
-    secax.set_xticks(all_ticks)
-    secax.set_xticklabels(all_labels)
-    secax.set_xlim(ax.get_xlim())
-
-    # Overlay number of clusters at each significance threshold
-    num_clusters = []
-    for significance in SIGMA_THRESHOLDS_FOR_COMPARISONS:
-        clusterer.S = significance
-        clusterer.extract_clusters()
-        num_clusters.append(len(clusterer.clusters) - 1)  # Exclude the background cluster
+    ax_top.set_xticks(all_ticks)
+    ax_top.set_xticklabels(all_labels)
+    ax_top.set_xlim(ax.get_xlim())
 
     # Plot number of clusters as a function of significance
-    ax2 = ax.twinx()  # create secondary y-axis on the right
-    ax2.set_yscale('log')
+    ax_right = ax.twinx()  # create secondary y-axis on the right
+    prominences = np.empty_like(SIGMA_THRESHOLDS_FOR_COMPARISONS)
+    num_clusters = np.empty_like(SIGMA_THRESHOLDS_FOR_COMPARISONS).astype(np.int64)
+    for i, significance in enumerate(SIGMA_THRESHOLDS_FOR_COMPARISONS):
+        # Extract clusters at this significance threshold
+        clusterer.S = significance
+        clusterer.extract_clusters()
 
-    # Convert significance values to prominence for consistent x-axis alignment
-    prominences = [sigma_to_prom(s) for s in SIGMA_THRESHOLDS_FOR_COMPARISONS]
+        # Record prominence and number of clusters
+        prominences[i] = beta.isf(norm.sf(significance), clusterer.pFit[0], clusterer.pFit[1])
+        num_clusters[i] = len(clusterer.clusters) - 1  # Exclude the background cluster
 
     # Plot curve (using the same x-scale as the main histogram)
-    ax2.plot(
+    ax_right.plot(
         prominences,
         num_clusters,
         color='C1',
         lw=2,
-        alpha=0.8,
+        alpha=1.0,
+        zorder=2,
         label="Number of clusters"
     )
 
-    # Label the right-hand axis
-    ax2.set_ylabel(r"Number of clusters, $N(S)$")#, color='C1')
-    #ax2.tick_params(axis='y', labelcolor='C1')
-    minN, maxN = min(num_clusters), max(num_clusters)
+    # Adjust limits of axes
+    ax.set_xlim(0, beta.isf(norm.sf(SIGMA_THRESHOLDS_FOR_COMPARISONS[-1]), clusterer.pFit[0], clusterer.pFit[1]))
+    ax.set_ylim(h[h > 0].min() * 0.5, ax.get_ylim()[1])  # Set y-axis limits to avoid zero and very high values
+    minN, maxN = num_clusters.min(), num_clusters.max()
     min_ylim, maxN_logunit = 10**np.floor(np.log10(minN)), 10**np.floor(np.log10(maxN))
     max_ylim = np.ceil(maxN / maxN_logunit) * maxN_logunit
-    ax2.set_ylim(min_ylim, max_ylim)
+    ax_right.set_ylim(min_ylim, max_ylim)
 
-    # Combine legends from both axes into one
+    # Add vertical and horizontal lines for optimal significance threshold and number of clusters at that threshold
+    optimal_prominence = beta.isf(norm.sf(OPTIMAL_SIGMA_THRESHOLD), clusterer.pFit[0], clusterer.pFit[1])
+    optimal_num_clusters = num_clusters[SIGMA_THRESHOLDS_FOR_COMPARISONS == OPTIMAL_SIGMA_THRESHOLD][0]
+    ax_right.plot(
+        [optimal_prominence, optimal_prominence, ax_right.get_xlim()[1]],
+        [ax_right.get_ylim()[1], optimal_num_clusters, optimal_num_clusters],
+        color='C2',
+        lw=1,
+        ls='dashed',
+        alpha=1.0,
+        zorder=1,
+    )
+    ax_right.text(optimal_prominence, 10**(0.98 * np.log10(ax_right.get_ylim()[1])), f"S = {OPTIMAL_SIGMA_THRESHOLD}",
+        color="C2", fontsize=10, rotation=90, ha='right', va='top')
+    ax_right.text(0.98 * ax_right.get_xlim()[1], optimal_num_clusters, r"$N(S)$" + f" = {optimal_num_clusters}",
+        color="C2", fontsize=10, ha='right', va='bottom')
+    
+    # Convert vertical axes to logarithmic scale
+    ax.set_yscale('log')
+    ax_right.set_yscale('log')
+
+    # Add labels to all axes
+    ax.set_xlabel(r'Prominence, $p_{g_\leq}$')
+    ax.set_ylabel('Probability Density')
+    ax_top.set_xlabel(r"Significance, $S$")
+    ax_right.set_ylabel(r"Number of clusters, $N(S)$")
+
+    # Combine legends from both vertical axes into one
     lines_1, labels_1 = ax.get_legend_handles_labels()
-    lines_2, labels_2 = ax2.get_legend_handles_labels()
+    lines_2, labels_2 = ax_right.get_legend_handles_labels()
     all_lines = lines_1 + lines_2
     all_labels = labels_1 + labels_2
     ax.legend(all_lines, all_labels, loc='upper right', frameon=False)
-
-    # Convert y-axis to logarithmic scale
-    ax.set_xlim(0, beta.isf(norm.sf(SIGMA_THRESHOLDS_FOR_COMPARISONS[-1]), clusterer.pFit[0], clusterer.pFit[1]))
-    ax.set_ylim(h[h > 0].min() * 0.5, ax.get_ylim()[1])  # Set y-axis limits to avoid zero and very high values
-    ax.set_yscale('log')  # Set y-axis to logarithmic scale
-
-    # Reset x-label
-    ax.set_xlabel("Prominence")
 
     # Save the figure
     plt.tight_layout()
@@ -2097,14 +2108,68 @@ def plot_Hunt2024_clusters_on_sky(overwrite=False):
     Plot the Hunt & Reffert (2024) clusters on the sky.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "Hunt2024_clusters_on_sky.png")
-    if os.path.exists(file_path) and not overwrite:
-        print(f"Hunt & Reffert (2024) clusters plot already exists at:\n\t{file_path} .")
+    file_clusters_on_sky_path = os.path.join(FIGURES_PATH, "Hunt2024_clusters_on_sky.png")
+    if os.path.exists(file_clusters_on_sky_path) and not overwrite:
+        print(f"Hunt & Reffert (2024) clusters plot already exists at:\n\t{file_clusters_on_sky_path} .")
         print("Use overwrite=True to force replotting.\n")
         return
     print("Plotting Hunt & Reffert (2024) clusters...")
 
-    pass # Placeholder for actual plotting code
+    # Load the required arrays
+    print("... loading required arrays for plotting")
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
+    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
+    del subsample_mask  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Convert (l, b) in degrees to radians for Mollweide projection
+    print("... converting galactic coordinates to radians for Mollweide projection")
+    galactic_coordinates = np.deg2rad(galactic_coordinates)
+
+     # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
+    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
+    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
+    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
+
+    # Load the Hunt & Reffert (2024) clustering output
+    print("... loading Hunt & Reffert (2024) catalogue")
+    H24_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_members_cluster_ids_subsample.npy"))
+    H24_members_cluster_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_members_cluster_probs_subsample.npy"))
+
+    # Simplify the catalogue
+    print("... simplifying Hunt & Reffert (2024) catalogue for plotting")
+    below_half_prob_bool = H24_members_cluster_probs_subsample < 0.5
+    no_cluster_id = H24_members_cluster_ids_subsample.max()  # Define "no cluster" ID
+    H24_members_cluster_ids_subsample[below_half_prob_bool] = no_cluster_id  # Assign "no cluster" ID to low-probability members
+    #H24_members_cluster_probs_subsample[below_half_prob_bool] = 0.0  # Assign zero probability to low-probability members
+    print('Plottable stars found', H24_members_cluster_probs_subsample.size - np.all(below_half_prob_bool, axis=1).sum())
+    del H24_members_cluster_probs_subsample, below_half_prob_bool  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Create a Mollweide projection plot and plot clusters on the sky
+    fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
+
+    # Cycle through the clusters and plot them
+    print("... plotting clusters on the sky")
+    for i in range(no_cluster_id):
+        clusterMembers = np.any(H24_members_cluster_ids_subsample == i, axis=1)
+        ax.scatter(
+            *galactic_coordinates[clusterMembers].T,
+            facecolor=f"C{i}", edgecolor='k',
+            s=0.75, lw=0.075
+        )  # Plot each cluster with a different color
+
+    # Remove grid, ticks, and labels
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(file_clusters_on_sky_path, dpi=500)
+    plt.close()
+    gc.collect()  # Free memory
+    print(f"... saved clusters on sky plot to {file_clusters_on_sky_path}.\n")
 
 def compare_to_Hunt2024(overwrite=False):
     """
@@ -3620,36 +3685,36 @@ if __name__ == "__main__":
 
     # Apply AstroLink to subsample and plot of cluster properties
     apply_astrolink_to_subsample()
-    plot_prominence_model_fit(True)
-    plot_cluster_labels_on_sky(True)
+    plot_prominence_model_fit()
+    plot_cluster_labels_on_sky()
     plot_cluster_proper_motions_on_sky()
 
     # Compare to Hunt & Reffert (2024)
     prepare_Hunt2024_for_comparison()
-    plot_Hunt2024_clusters_on_sky()
+    plot_Hunt2024_clusters_on_sky(True)
     compare_to_Hunt2024()
     plot_Hunt2024_comparison_results()
 
     # Compare to Unified Cluster Catalogue
     prepare_UCC_for_comparison()
-    plot_UCC_clusters_on_sky()
+    plot_UCC_clusters_on_sky(True)
     compare_to_UCC()
     plot_UCC_comparison_results()
 
     # Compare to galstreams catalogue
     prepare_galstreams_for_comparison()
-    plot_galstreams_streams_on_sky()
+    plot_galstreams_streams_on_sky(True)
     compare_to_galstreams()
     plot_galstreams_comparison_results()
 
     # Compare to Vasiliev & Baumgardt (2021)
     prepare_Vasiliev2021_for_comparison()
-    plot_Vasiliev2021_clusters_on_sky()
+    plot_Vasiliev2021_clusters_on_sky(True)
     compare_to_Vasiliev2021()
     plot_Vasiliev2021_comparison_results()
 
     # Compare to Battaglia et al. (2021)
     prepare_Battaglia2021_for_comparison()
-    plot_Battaglia2021_dwarfgalaxies_on_sky()
+    plot_Battaglia2021_dwarfgalaxies_on_sky(True)
     compare_to_Battaglia2021()
     plot_Battaglia2021_comparison_results()

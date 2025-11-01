@@ -65,7 +65,7 @@ OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output file
 REDUCED_CATALOGUE_PATH = os.path.join(OUTPUT_PATH, "catalogue_files/")  # Path to reduced catalogue numpy files
 SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files/")  # Path to numpy files of subsample from full catalogue
 CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to AstroLink output files
-FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_S_gaia_floor_32/")  # Path to figures
+FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_S_gaia_no_floor/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200  # GB for max memory usage by k nearest neighbour retrieval 
@@ -80,7 +80,7 @@ RUWE_UPPER_LIMIT = 1.2 # RUWE threshold for subsample stars
 HEALPIX_LEVEL = 12 # HEALPix level for on-sky plotting
 KNN_FOR_ASTROLINK = 16 # Number of nearest neighbors for AstroLink
 SIGMA_THRESHOLDS_FOR_COMPARISONS = np.linspace(2, 10, 81)  # Significance levels from 2 to 10 to be used when comparing to existing cluster catalogues (must be increasing!)
-OPTIMAL_SIGMA_THRESHOLD = 3.8 + STOCHASTIC_RUN * 0.1 * np.random.randint(-2, 3, 1)[0]  # Optimal significance threshold determined from prominence model fitting
+OPTIMAL_SIGMA_THRESHOLD = 3.8 + STOCHASTIC_RUN * np.random.normal(0, 0.1, 1)[0]  # Optimal significance threshold determined from prominence model fitting
 
 
 # === Reduce GDR3 and Bailer-Jones GEDR3 catalogues to numpy files ===
@@ -351,7 +351,11 @@ def calculate_empirical_survey_selection_function(overwrite=False):
 
         print(f"... computing m10 values for each star -- batch {start // chunk_n_rows + 1} of {n // chunk_n_rows + 1}   ", end='\r')
         # k-nearest neighbours query
-        sqr_dists, idx = tree.query(xyz_stars[start:end], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
+        sqr_dists, idx = tree.query(
+            xyz_stars[start:end],
+            k=KNN_FOR_SELECTION_FUNCTION,
+            sqr_dists=True
+        )
         del sqr_dists  # Free memory
         gc.collect()  # Force garbage collection
 
@@ -413,7 +417,11 @@ def calculate_empirical_survey_selection_function(overwrite=False):
 
         print(f"... computing m10 values for HEALPix pixels -- batch {start // chunk_n_rows + 1} of {n // chunk_n_rows + 1}     ", end='\r')
         # k-nearest neighbours query
-        _, idx = tree.query(xyz_healpix[start:end], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
+        _, idx = tree.query(
+            xyz_healpix[start:end],
+            k=KNN_FOR_SELECTION_FUNCTION,
+            sqr_dists=True
+        )
 
         # Median G-band magnitude of neighbors
         m10_healpix[start:end] = np.median(G_band_magnitudes[valid_for_kNN[idx]], axis=1)
@@ -615,7 +623,7 @@ def calculate_subsample_selection_function(overwrite=False):
     print("... constructing weighted composite space for kNN")
     nside = 2**5
     npix = hp.nside2npix(nside)
-    x_scale = 4*np.pi/npix # Scale factor for Cartesian coordinates
+    x_scale = 4 * np.pi / npix # Scale factor for Cartesian coordinates
     G_scale = 0.2  # Scale factor for G-band magnitude
     comp_stars = np.concatenate([
         xyz_stars,  # 3D Cartesian coordinates
@@ -641,7 +649,11 @@ def calculate_subsample_selection_function(overwrite=False):
 
         print(f"... computing subsample selection function for each star -- batch {start // chunk_n_rows + 1} of {n // chunk_n_rows + 1}   ", end='\r')
         # k-nearest neighbours query
-        _, idx = tree.query(comp_stars[start:end], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
+        _, idx = tree.query(
+            comp_stars[start:end],
+            k=KNN_FOR_SELECTION_FUNCTION,
+            sqr_dists=True
+        )
 
         # Fraction of neighbours in subsample
         subsample_sf[valid_gmag[start:end]] = subsample_mask[valid_gmag[idx]].sum(axis=1) / KNN_FOR_SELECTION_FUNCTION
@@ -704,7 +716,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Calculate the inverse of the empirical survey selection function for the subsample
-    inverse_survey_sf = 1 / np.sqrt(survey_sf[valid_gmag]**2 + 1 / KNN_FOR_SELECTION_FUNCTION**2)  # Soft floor to avoid diverging values
+    inverse_survey_sf = 1 / survey_sf[valid_gmag]#np.sqrt(survey_sf[valid_gmag]**2 + 1 / KNN_FOR_SELECTION_FUNCTION**2)  # Soft floor to avoid diverging values
     del survey_sf  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -753,7 +765,11 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
 
         print(f"... computing total selection function for each star in subsample -- batch {start // chunk_n_rows + 1} of {n // chunk_n_rows + 1}   ", end='\r')
         # k-nearest neighbours query
-        sqr_dists, idx = tree.query(xyz_stars[start:end], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
+        sqr_dists, idx = tree.query(
+            xyz_stars[start:end],
+            k=KNN_FOR_SELECTION_FUNCTION,
+            sqr_dists=True
+        )
         del sqr_dists  # Free memory
         gc.collect()  # Force garbage collection
 
@@ -824,7 +840,11 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
 
         print(f"... computing total selection function for HEALPix pixels -- batch {start // chunk_n_rows + 1} of {npix // chunk_n_rows + 1}   ", end='\r')
         # k-nearest neighbours query
-        _, idx = tree.query(xyz_healpix[start:end], k=KNN_FOR_SELECTION_FUNCTION, sqr_dists=True)
+        _, idx = tree.query(
+            xyz_healpix[start:end],
+            k=KNN_FOR_SELECTION_FUNCTION,
+            sqr_dists=True
+        )
 
         # Total selection function is the posterior distribution Beta(n_sub + 1, n_mw - n_sub + 1)
         nsub_healpix_batch = subsample_sf[idx].sum(axis=1)
@@ -1258,6 +1278,7 @@ def apply_astrolink_to_subsample(overwrite=False):
         weights=1/total_sf_mean,
         k_den=KNN_FOR_ASTROLINK,
         adaptive=0,
+        S=OPTIMAL_SIGMA_THRESHOLD,
         workers=MAX_PARALLEL_WORKERS,
         verbose=0
     )
@@ -1299,6 +1320,7 @@ def apply_astrolink_to_subsample(overwrite=False):
     print(f"... [AstroLink] Regression time     | {100*clusterer._regrTime/clusterer._totalTime:.2f}%         ")
     print(f"... [AstroLink] Rejection time      | {100*clusterer._rejTime/clusterer._totalTime:.2f}%          ")
     print(f"... [AstroLink] Total time          | {clusterer._totalTime:.2f} seconds!")
+    print(f"... found {clusterer.clusters.shape[0] - 1} clusters at S={clusterer.S} in the clustering output")
 
     # Save the clustering output
     print(f"... saving AstroLink clustering output to {file_astrolink_object}.\n")
@@ -1326,7 +1348,7 @@ def plot_prominence_model_fit(overwrite=False):
     # Plot prominences histogram
     subgroup_proms = clusterer.prominences[:, 1]
     bw = 2*np.subtract(*np.percentile(subgroup_proms, [75, 25]))*subgroup_proms.size**(-1/3) # Freedman-Diaconis rule
-    h, bins, patches = ax.hist(
+    h, _, _ = ax.hist(
         subgroup_proms,
         bins=np.arange(np.ceil(subgroup_proms.max()/bw).astype(np.int64) + 1)*bw,
         density=True,
@@ -1339,7 +1361,7 @@ def plot_prominence_model_fit(overwrite=False):
     # Plot fitted prominence model
     xs = np.linspace(0, subgroup_proms.max(), 10**4)
     ys = beta.pdf(xs, clusterer.pFit[0], clusterer.pFit[1])
-    line, = ax.plot(
+    ax.plot(
         xs,
         ys,
         c='C0',
@@ -1348,6 +1370,8 @@ def plot_prominence_model_fit(overwrite=False):
         zorder=2,
         label='Noise model fit'
     )
+    del subgroup_proms, xs, ys  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Add secondary x-axis showing significance levels
     def prom_to_sigma(prom):
@@ -1369,10 +1393,7 @@ def plot_prominence_model_fit(overwrite=False):
     # Define tick positions
     sigma_ticks = np.arange(-4, 11)
     sigma_ticklabels = [f"{s:d}" for s in sigma_ticks]
-
-    # Add the special leftmost tick corresponding to prominence = 0.0
-    # (use sigma = -np.inf for labeling, but use prom=0.0 for placement)
-    prom_zero = 0.0
+    prom_zero = 0.0 # Add the special leftmost tick corresponding to prominence = 0.0 (use S = -np.inf for labeling)
     sigma_prom_zero = prom_to_sigma(1e-10)  # for position; ~very negative
     all_ticks = np.concatenate(([sigma_prom_zero], sigma_ticks))
     all_labels = [r"$-\infty$"] + ['']*4 + sigma_ticklabels[4:]
@@ -1384,6 +1405,8 @@ def plot_prominence_model_fit(overwrite=False):
 
     # Plot number of clusters as a function of significance
     ax_right = ax.twinx()  # create secondary y-axis on the right
+    optimal_prominence = beta.isf(norm.sf(clusterer.S), clusterer.pFit[0], clusterer.pFit[1])
+    optimal_num_clusters = clusterer.clusters.shape[0] - 1  # Exclude the background cluster
     prominences = np.empty_like(SIGMA_THRESHOLDS_FOR_COMPARISONS)
     num_clusters = np.empty_like(SIGMA_THRESHOLDS_FOR_COMPARISONS).astype(np.int64)
     for i, significance in enumerate(SIGMA_THRESHOLDS_FOR_COMPARISONS):
@@ -1393,7 +1416,7 @@ def plot_prominence_model_fit(overwrite=False):
 
         # Record prominence and number of clusters
         prominences[i] = beta.isf(norm.sf(significance), clusterer.pFit[0], clusterer.pFit[1])
-        num_clusters[i] = len(clusterer.clusters) - 1  # Exclude the background cluster
+        num_clusters[i] = clusterer.clusters.shape[0] - 1  # Exclude the background cluster
 
     # Plot curve (using the same x-scale as the main histogram)
     ax_right.plot(
@@ -1405,6 +1428,8 @@ def plot_prominence_model_fit(overwrite=False):
         zorder=2,
         label="Number of clusters"
     )
+    del prominences  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Adjust limits of axes
     ax.set_xlim(0, beta.isf(norm.sf(SIGMA_THRESHOLDS_FOR_COMPARISONS[-1]), clusterer.pFit[0], clusterer.pFit[1]))
@@ -1415,8 +1440,6 @@ def plot_prominence_model_fit(overwrite=False):
     ax_right.set_ylim(min_ylim, max_ylim)
 
     # Add vertical and horizontal lines for optimal significance threshold and number of clusters at that threshold
-    optimal_prominence = beta.isf(norm.sf(OPTIMAL_SIGMA_THRESHOLD), clusterer.pFit[0], clusterer.pFit[1])
-    optimal_num_clusters = num_clusters[SIGMA_THRESHOLDS_FOR_COMPARISONS == OPTIMAL_SIGMA_THRESHOLD][0]
     ax_right.plot(
         [optimal_prominence, optimal_prominence, ax_right.get_xlim()[1]],
         [ax_right.get_ylim()[1], optimal_num_clusters, optimal_num_clusters],
@@ -1426,10 +1449,27 @@ def plot_prominence_model_fit(overwrite=False):
         alpha=1.0,
         zorder=1,
     )
-    ax_right.text(optimal_prominence, 10**(0.98 * np.log10(ax_right.get_ylim()[1])), f"S = {OPTIMAL_SIGMA_THRESHOLD}",
-        color="C2", fontsize=10, rotation=90, ha='right', va='top')
-    ax_right.text(0.98 * ax_right.get_xlim()[1], optimal_num_clusters, r"$N(S)$" + f" = {optimal_num_clusters}",
-        color="C2", fontsize=10, ha='right', va='bottom')
+    ax_right.text(
+        optimal_prominence,
+        10**(0.98 * np.log10(ax_right.get_ylim()[1])),
+        f"S = {OPTIMAL_SIGMA_THRESHOLD}",
+        color="C2",
+        fontsize=10,
+        rotation=90,
+        ha='right',
+        va='top'
+    )
+    ax_right.text(
+        0.98 * ax_right.get_xlim()[1],
+        optimal_num_clusters,
+        r"$N(S)$" + f" = {optimal_num_clusters}",
+        color="C2",
+        fontsize=10,
+        ha='right',
+        va='bottom'
+    )
+    del clusterer, num_clusters  # Free memory
+    gc.collect()  # Force garbage collection
     
     # Convert vertical axes to logarithmic scale
     ax.set_yscale('log')
@@ -1470,9 +1510,6 @@ def plot_cluster_labels_on_sky(overwrite=False):
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
     clusterer = loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
-    clusterer.S = OPTIMAL_SIGMA_THRESHOLD
-    clusterer.extract_clusters()
-    print(f"... found {len(clusterer.clusters) - 1} clusters at S={clusterer.S} in the clustering output")
 
     # Load the required arrays
     print("... loading required arrays for plotting")
@@ -1489,6 +1526,8 @@ def plot_cluster_labels_on_sky(overwrite=False):
     longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
     galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
     galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
+    del longitude_wrap_bool  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Create a Mollweide projection plot and plot clusters on the sky
     fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
@@ -1502,6 +1541,8 @@ def plot_cluster_labels_on_sky(overwrite=False):
             facecolor=f"C{i}", edgecolor='k',
             s=0.75, lw=0.075
         )  # Plot each cluster with a different color
+    del clusterer, galactic_coordinates, clusterMembers  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Remove grid, ticks, and labels
     ax.grid(False)
@@ -1530,8 +1571,6 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
     clusterer = loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
-    clusterer.S = OPTIMAL_SIGMA_THRESHOLD
-    clusterer.extract_clusters()
 
     # Load the required arrays
     print("... loading required arrays for plotting")

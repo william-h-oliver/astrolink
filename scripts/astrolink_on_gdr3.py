@@ -65,7 +65,7 @@ OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output file
 REDUCED_CATALOGUE_PATH = os.path.join(OUTPUT_PATH, "catalogue_files/")  # Path to reduced catalogue numpy files
 SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files/")  # Path to numpy files of subsample from full catalogue
 CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to AstroLink output files
-FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures/")  # Path to figures
+FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_S_gaia_floor_32/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200  # GB for max memory usage by k nearest neighbour retrieval 
@@ -704,7 +704,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Calculate the inverse of the empirical survey selection function for the subsample
-    inverse_survey_sf = 1 / np.sqrt(survey_sf[valid_gmag]**2 + 1 / KNN_FOR_ASTROLINK**2)  # Soft floor to avoid diverging values
+    inverse_survey_sf = 1 / np.sqrt(survey_sf[valid_gmag]**2 + 1 / KNN_FOR_SELECTION_FUNCTION**2)  # Soft floor to avoid diverging values
     del survey_sf  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -1470,7 +1470,7 @@ def plot_cluster_labels_on_sky(overwrite=False):
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
     clusterer = loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
-    clusterer.S = 3.8
+    clusterer.S = OPTIMAL_SIGMA_THRESHOLD
     clusterer.extract_clusters()
     print(f"... found {len(clusterer.clusters) - 1} clusters at S={clusterer.S} in the clustering output")
 
@@ -1530,7 +1530,7 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
     clusterer = loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
-    clusterer.S = 3.8
+    clusterer.S = OPTIMAL_SIGMA_THRESHOLD
     clusterer.extract_clusters()
 
     # Load the required arrays
@@ -2138,12 +2138,12 @@ def plot_Hunt2024_clusters_on_sky(overwrite=False):
 
     # Simplify the catalogue
     print("... simplifying Hunt & Reffert (2024) catalogue for plotting")
-    below_half_prob_bool = H24_members_cluster_probs_subsample < 0.5
+    plottable_bool = np.any(H24_members_cluster_probs_subsample > 0.5, axis=1)
     no_cluster_id = H24_members_cluster_ids_subsample.max()  # Define "no cluster" ID
-    H24_members_cluster_ids_subsample[below_half_prob_bool] = no_cluster_id  # Assign "no cluster" ID to low-probability members
-    #H24_members_cluster_probs_subsample[below_half_prob_bool] = 0.0  # Assign zero probability to low-probability members
-    print('Plottable stars found', H24_members_cluster_probs_subsample.size - np.all(below_half_prob_bool, axis=1).sum())
-    del H24_members_cluster_probs_subsample, below_half_prob_bool  # Free memory
+    H24_members_cluster_ids_subsample = H24_members_cluster_ids_subsample[plottable_bool]
+    galactic_coordinates = galactic_coordinates[plottable_bool]
+    print(f"... {plottable_bool.sum()} plottable stars")
+    del H24_members_cluster_probs_subsample, plottable_bool  # Free memory
     gc.collect()  # Force garbage collection
 
     # Create a Mollweide projection plot and plot clusters on the sky
@@ -2264,6 +2264,7 @@ def plot_Hunt2024_comparison_results(overwrite=False):
     Jbar_full  = np.sum(J_full * C, axis=1) / np.sum(C)
     Jbar_union = np.sum(J_union * C, axis=1) / np.sum(C)
 
+    """
     # Recovery
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
             color='k', linestyle='dashed', linewidth=1.5, label='R (o,m,g)', zorder=3)
@@ -2287,6 +2288,7 @@ def plot_Hunt2024_comparison_results(overwrite=False):
             color='k', linestyle='solid', linewidth=1.5, zorder=3)
     ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
                     color='k', alpha=0.3, zorder=3)
+    """
 
     # ========== INDIVIDUAL CLUSTER TYPES ==========
     print("... plotting per-cluster-type statistics")
@@ -2313,6 +2315,15 @@ def plot_Hunt2024_comparison_results(overwrite=False):
                 color=type_colour, linestyle='solid', linewidth=0.75, alpha=0.8, zorder=2)
         ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
                         color=type_colour, alpha=0.3, zorder=2)
+
+        # Plot fraction of clusters of this type matched to above J=0.5
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, np.mean(J_union > 0.5, axis=1),
+                color=type_colour, linestyle='dashed', linewidth=0.75, alpha=0.8,
+                label=f"N({cluster_type} | J > 0.5)/N({cluster_type})", zorder=2)
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, np.mean(J_full > 0.5, axis=1),
+                color=type_colour, linestyle='dashed', linewidth=0.75, alpha=0.8, zorder=2)
+        ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, np.mean(J_full > 0.5, axis=1), np.mean(J_union > 0.5, axis=1),
+                        facecolor='none', hatch='//', edgecolor=type_colour, linewidth=0.0, alpha=0.3, zorder=2)
 
     # ========== Final formatting ==========
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
@@ -2478,14 +2489,68 @@ def plot_UCC_clusters_on_sky(overwrite=False):
     Plot the Unified Cluster Catalogue clusters on the sky.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "UCC_clusters_on_sky.png")
-    if os.path.exists(file_path) and not overwrite:
-        print(f"Unified Cluster Catalogue clusters plot already exists at:\n\t{file_path} .")
+    file_clusters_on_sky_path = os.path.join(FIGURES_PATH, "UCC_clusters_on_sky.png")
+    if os.path.exists(file_clusters_on_sky_path) and not overwrite:
+        print(f"Unified Cluster Catalogue clusters plot already exists at:\n\t{file_clusters_on_sky_path} .")
         print("Use overwrite=True to force replotting.\n")
         return
     print("Plotting Unified Cluster Catalogue clusters...")
 
-    pass # Placeholder for actual plotting code
+    # Load the required arrays
+    print("... loading required arrays for plotting")
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
+    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
+    del subsample_mask  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Convert (l, b) in degrees to radians for Mollweide projection
+    print("... converting galactic coordinates to radians for Mollweide projection")
+    galactic_coordinates = np.deg2rad(galactic_coordinates)
+
+     # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
+    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
+    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
+    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
+
+    # Load the UCC clustering output
+    print("... loading Unified Cluster Catalogue catalogue")
+    UCC_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_members_cluster_ids_subsample.npy"))
+    UCC_members_cluster_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_members_cluster_probs_subsample.npy"))
+
+    # Simplify the catalogue
+    print("... simplifying Unified Cluster Catalogue catalogue for plotting")
+    plottable_bool = np.any(UCC_members_cluster_probs_subsample > 0.5, axis=1)
+    no_cluster_id = UCC_members_cluster_ids_subsample.max()  # Define "no cluster" ID
+    UCC_members_cluster_ids_subsample = UCC_members_cluster_ids_subsample[plottable_bool]
+    galactic_coordinates = galactic_coordinates[plottable_bool]
+    print(f"... {plottable_bool.sum()} plottable stars")
+    del UCC_members_cluster_probs_subsample, plottable_bool  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Create a Mollweide projection plot and plot clusters on the sky
+    fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
+
+    # Cycle through the clusters and plot them
+    print("... plotting clusters on the sky")
+    for i in range(no_cluster_id):
+        clusterMembers = np.any(UCC_members_cluster_ids_subsample == i, axis=1)
+        ax.scatter(
+            *galactic_coordinates[clusterMembers].T,
+            facecolor=f"C{i}", edgecolor='k',
+            s=0.75, lw=0.075
+        )  # Plot each cluster with a different color
+
+    # Remove grid, ticks, and labels
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(file_clusters_on_sky_path, dpi=500)
+    plt.close()
+    gc.collect()  # Free memory
+    print(f"... saved clusters on sky plot to {file_clusters_on_sky_path}.\n")
 
 def compare_to_UCC(overwrite=False):
     """
@@ -2973,14 +3038,73 @@ def plot_galstreams_streams_on_sky(overwrite=False):
     Plot the galstreams streams on the sky.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "galstreams_streams_on_sky.png")
-    if os.path.exists(file_path) and not overwrite:
-        print(f"Galstreams streams on sky plot already exists at:\n\t{file_path} .")
+    file_streams_on_sky_path = os.path.join(FIGURES_PATH, "galstreams_streams_on_sky.png")
+    if os.path.exists(file_streams_on_sky_path) and not overwrite:
+        print(f"Galstreams streams on sky plot already exists at:\n\t{file_streams_on_sky_path} .")
         print("Use overwrite=True to force replotting.\n")
         return
     print("Plotting galstreams streams on the sky...")
 
-    pass # Plotting goes here
+    # Load the required arrays
+    print("... loading required arrays for plotting")
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
+    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
+    del subsample_mask  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Convert (l, b) in degrees to radians for Mollweide projection
+    print("... converting galactic coordinates to radians for Mollweide projection")
+    galactic_coordinates = np.deg2rad(galactic_coordinates)
+
+     # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
+    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
+    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
+    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
+
+    # Load the galstreams clustering output
+    print("... loading galstreams clustering output for plotting")
+    galstreams_members_stream_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_ids_subsample.npy"))  # (N,)
+    galstreams_members_stream_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_probs_subsample.npy"))  # (N,)
+
+    # Simplify the catalogue
+    print("... simplifying the galstreams catalogue for plotting")
+    plottable_bool = np.any(galstreams_members_stream_probs_subsample > 0.5, axis=1)
+    no_stream_id = galstreams_members_stream_ids_subsample.max()
+    galstreams_members_stream_ids_subsample = galstreams_members_stream_ids_subsample[plottable_bool]
+    galactic_coordinates = galactic_coordinates[plottable_bool]
+    print(f"... {plottable_bool.sum()} plottable stars")
+    del galstreams_members_stream_probs_subsample, plottable_bool  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Create a Mollweide projection plot and plot streams on the sky
+    fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
+
+    # Cycle through the streams and plot them
+    print("... plotting streams on the sky")
+    for i in range(no_stream_id):
+        streamMembers = np.any(galstreams_members_stream_ids_subsample == i, axis=1)
+        n_stream = streamMembers.sum()
+        if n_stream > 5000:
+            streamMembers_indices = np.where(streamMembers)[0]
+            removed_indices = np.random.choice(streamMembers_indices, size=n_stream-5000, replace=False)
+            streamMembers[removed_indices] = False
+        ax.scatter(
+            *galactic_coordinates[streamMembers].T,
+            facecolor=f"C{i}", edgecolor='k',
+            s=0.75, lw=0.075
+        )  # Plot each stream with a different color
+
+    # Remove grid, ticks, and labels
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(file_streams_on_sky_path, dpi=500)
+    plt.close()
+    gc.collect()  # Free memory
+    print(f"... saved clusters on sky plot to {file_streams_on_sky_path}.\n")
 
 def compare_to_galstreams(overwrite=False):
     """
@@ -3255,14 +3379,68 @@ def plot_Vasiliev2021_clusters_on_sky(overwrite=False):
     Plot the Vasiliev & Baumgardt (2021) globular clusters on the sky.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "Vasiliev2021_clusters_on_sky.png")
-    if os.path.exists(file_path) and not overwrite:
-        print(f"Vasiliev & Baumgardt (2021) globular clusters on sky plot already exists at:\n\t{file_path} .")
+    file_clusters_on_sky_path = os.path.join(FIGURES_PATH, "Vasiliev2021_clusters_on_sky.png")
+    if os.path.exists(file_clusters_on_sky_path) and not overwrite:
+        print(f"Vasiliev & Baumgardt (2021) globular clusters on sky plot already exists at:\n\t{file_clusters_on_sky_path} .")
         print("Use overwrite=True to force replotting.\n")
         return
     print("Plotting Vasiliev & Baumgardt (2021) globular clusters on the sky...")
 
-    pass # Plotting goes here
+    # Load the required arrays
+    print("... loading required arrays for plotting")
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
+    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
+    del subsample_mask  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Convert (l, b) in degrees to radians for Mollweide projection
+    print("... converting galactic coordinates to radians for Mollweide projection")
+    galactic_coordinates = np.deg2rad(galactic_coordinates)
+
+     # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
+    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
+    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
+    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
+
+    # Load the Vasiliev & Baumgardt (2021) clustering output
+    print("... loading Vasiliev & Baumgardt (2021) clustering output for plotting")
+    V21_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_ids_subsample.npy"))  # (N,)
+    V21_members_cluster_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_probs_subsample.npy"))  # (N,)
+
+    # Simplify the catalogue
+    print("... simplifying the Vasiliev & Baumgardt (2021) catalogue for plotting")
+    plottable_bool = np.any(V21_members_cluster_probs_subsample > 0.5, axis=1)
+    no_cluster_id = V21_members_cluster_ids_subsample.max()
+    V21_members_cluster_ids_subsample = V21_members_cluster_ids_subsample[plottable_bool]
+    galactic_coordinates = galactic_coordinates[plottable_bool]
+    print(f"... {plottable_bool.sum()} plottable stars")
+    del V21_members_cluster_probs_subsample, plottable_bool  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Create a Mollweide projection plot and plot clusters on the sky
+    fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
+
+    # Cycle through the clusters and plot them
+    print("... plotting clusters on the sky")
+    for i in range(no_cluster_id):
+        clusterMembers = np.any(V21_members_cluster_ids_subsample == i, axis=1)
+        ax.scatter(
+            *galactic_coordinates[clusterMembers].T,
+            facecolor=f"C{i}", edgecolor='k',
+            s=0.75, lw=0.075
+        )  # Plot each cluster with a different color
+
+    # Remove grid, ticks, and labels
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(file_clusters_on_sky_path, dpi=500)
+    plt.close()
+    gc.collect()  # Free memory
+    print(f"... saved clusters on sky plot to {file_clusters_on_sky_path}.\n")
 
 def compare_to_Vasiliev2021(overwrite=False):
     """
@@ -3523,14 +3701,68 @@ def plot_Battaglia2021_dwarfgalaxies_on_sky(overwrite=False):
     Plot the Battaglia et al. (2021) dwarf galaxies on the sky.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "Battaglia2021_dwarfgalaxies_on_sky.png")
-    if os.path.exists(file_path) and not overwrite:
-        print(f"Battaglia et al. (2021) dwarf galaxies on sky plot already exists at:\n\t{file_path} .")
+    file_clusters_on_sky_path = os.path.join(FIGURES_PATH, "Battaglia2021_dwarfgalaxies_on_sky.png")
+    if os.path.exists(file_clusters_on_sky_path) and not overwrite:
+        print(f"Battaglia et al. (2021) dwarf galaxies on sky plot already exists at:\n\t{file_clusters_on_sky_path} .")
         print("Use overwrite=True to force replotting.\n")
         return
     print("Plotting Battaglia et al. (2021) dwarf galaxies on the sky...")
 
-    pass # Plotting goes here
+    # Load the required arrays
+    print("... loading required arrays for plotting")
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
+    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
+    del subsample_mask  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Convert (l, b) in degrees to radians for Mollweide projection
+    print("... converting galactic coordinates to radians for Mollweide projection")
+    galactic_coordinates = np.deg2rad(galactic_coordinates)
+
+     # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
+    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
+    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
+    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
+
+    # Load the Battaglia et al. (2021) clustering output
+    print("... loading Battaglia et al. (2021) clustering output for plotting")
+    B21_members_dwarfgalaxy_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_ids_subsample.npy"))  # (N,)
+    B21_members_dwarfgalaxy_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_probs_subsample.npy"))  # (N,)
+
+    # Simplify the catalogue
+    print("... simplifying the Battaglia et al. (2021) catalogue for plotting")
+    plottable_bool = np.any(B21_members_dwarfgalaxy_probs_subsample > 0.5, axis=1)
+    no_dwarfgalaxy_id = B21_members_dwarfgalaxy_ids_subsample.max()
+    B21_members_dwarfgalaxy_ids_subsample = B21_members_dwarfgalaxy_ids_subsample[plottable_bool]
+    galactic_coordinates = galactic_coordinates[plottable_bool]
+    print(f"... {plottable_bool.sum()} plottable stars")
+    del B21_members_dwarfgalaxy_probs_subsample, plottable_bool  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Create a Mollweide projection plot and plot dwarf galaxies on the sky
+    fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
+
+    # Cycle through the dwarf galaxies and plot them
+    print("... plotting dwarf galaxies on the sky")
+    for i in range(no_dwarfgalaxy_id):
+        dwarfgalaxyMembers = np.any(B21_members_dwarfgalaxy_ids_subsample == i, axis=1)
+        ax.scatter(
+            *galactic_coordinates[dwarfgalaxyMembers].T,
+            facecolor=f"C{i}", edgecolor='k',
+            s=0.75, lw=0.075
+        )  # Plot each dwarf galaxy with a different color
+
+    # Remove grid, ticks, and labels
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(file_clusters_on_sky_path, dpi=500)
+    plt.close()
+    gc.collect()  # Free memory
+    print(f"... saved dwarf galaxies on sky plot to {file_clusters_on_sky_path}.\n")
 
 def compare_to_Battaglia2021(overwrite=False):
     """
@@ -3675,46 +3907,46 @@ if __name__ == "__main__":
     calculate_subsample_selection_function()
 
     # Calculate total selection function for subsample
-    calculate_total_selection_function_for_subsample()
-    plot_total_selection_function_for_subsample()
+    calculate_total_selection_function_for_subsample(True)
+    plot_total_selection_function_for_subsample(True)
     
     # Construct input data to be passed to AstroLink
-    calculate_distance_contraction_for_subsample()
-    calculate_contracted_data_and_errors_for_subsample()
-    construct_data_space_for_subsample()
+    calculate_distance_contraction_for_subsample(True)
+    calculate_contracted_data_and_errors_for_subsample(True)
+    construct_data_space_for_subsample(True)
 
     # Apply AstroLink to subsample and plot of cluster properties
-    apply_astrolink_to_subsample()
-    plot_prominence_model_fit()
-    plot_cluster_labels_on_sky()
-    plot_cluster_proper_motions_on_sky()
+    apply_astrolink_to_subsample(True)
+    plot_prominence_model_fit(True)
+    plot_cluster_labels_on_sky(True)
+    plot_cluster_proper_motions_on_sky(True)
 
     # Compare to Hunt & Reffert (2024)
     prepare_Hunt2024_for_comparison()
-    plot_Hunt2024_clusters_on_sky(True)
-    compare_to_Hunt2024()
-    plot_Hunt2024_comparison_results()
+    #plot_Hunt2024_clusters_on_sky()
+    compare_to_Hunt2024(True)
+    plot_Hunt2024_comparison_results(True)
 
     # Compare to Unified Cluster Catalogue
     prepare_UCC_for_comparison()
-    plot_UCC_clusters_on_sky(True)
-    compare_to_UCC()
-    plot_UCC_comparison_results()
+    #plot_UCC_clusters_on_sky()
+    compare_to_UCC(True)
+    plot_UCC_comparison_results(True)
 
     # Compare to galstreams catalogue
     prepare_galstreams_for_comparison()
-    plot_galstreams_streams_on_sky(True)
-    compare_to_galstreams()
-    plot_galstreams_comparison_results()
+    #plot_galstreams_streams_on_sky()
+    compare_to_galstreams(True)
+    plot_galstreams_comparison_results(True)
 
     # Compare to Vasiliev & Baumgardt (2021)
     prepare_Vasiliev2021_for_comparison()
-    plot_Vasiliev2021_clusters_on_sky(True)
-    compare_to_Vasiliev2021()
-    plot_Vasiliev2021_comparison_results()
+    #plot_Vasiliev2021_clusters_on_sky()
+    compare_to_Vasiliev2021(True)
+    plot_Vasiliev2021_comparison_results(True)
 
     # Compare to Battaglia et al. (2021)
     prepare_Battaglia2021_for_comparison()
-    plot_Battaglia2021_dwarfgalaxies_on_sky(True)
-    compare_to_Battaglia2021()
-    plot_Battaglia2021_comparison_results()
+    #plot_Battaglia2021_dwarfgalaxies_on_sky()
+    compare_to_Battaglia2021(True)
+    plot_Battaglia2021_comparison_results(True)

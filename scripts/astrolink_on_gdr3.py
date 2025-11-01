@@ -65,7 +65,7 @@ OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output file
 REDUCED_CATALOGUE_PATH = os.path.join(OUTPUT_PATH, "catalogue_files/")  # Path to reduced catalogue numpy files
 SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files/")  # Path to numpy files of subsample from full catalogue
 CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to AstroLink output files
-FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_S_gaia_no_floor/")  # Path to figures
+FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_S_gaia_k64_floor_64/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200  # GB for max memory usage by k nearest neighbour retrieval 
@@ -74,7 +74,7 @@ WORKING_MEMORY = 200  # GB for max memory usage by k nearest neighbour retrieval
 WITH_PROPER_MOTIONS = True # Whether to use proper motions in the input data space for AstroLink clustering
 WITH_RADIAL_VELOCITIES = False # Whether to use radial velocities in the input data space for AstroLink clustering
 STOCHASTIC_RUN = False # Whether to sample stochastic values from their uncertainties / posterior
-KNN_FOR_SELECTION_FUNCTION = 32 # Number of nearest neighbors for selection function calculations
+KNN_FOR_SELECTION_FUNCTION = 64 # Number of nearest neighbors for selection function calculations
 SURVEY_SF_LOWER_LIMIT = 0.99 # Empirical survey selection function lower limit for subsample stars
 RUWE_UPPER_LIMIT = 1.2 # RUWE threshold for subsample stars
 HEALPIX_LEVEL = 12 # HEALPix level for on-sky plotting
@@ -716,7 +716,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Calculate the inverse of the empirical survey selection function for the subsample
-    inverse_survey_sf = 1 / survey_sf[valid_gmag]#np.sqrt(survey_sf[valid_gmag]**2 + 1 / KNN_FOR_SELECTION_FUNCTION**2)  # Soft floor to avoid diverging values
+    inverse_survey_sf = 1 / np.sqrt(survey_sf[valid_gmag]**2 + 1 / KNN_FOR_SELECTION_FUNCTION**2)  # Soft floor to avoid diverging values
     del survey_sf  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -2283,16 +2283,16 @@ def plot_Hunt2024_comparison_results(overwrite=False):
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
 
+    """
     # ========== COMBINED (o,m,g) CLUSTERS ==========
     print("... plotting (o,m,g) combined statistics vs significance level")
-
     mask = (H24_cluster_types != 'r') & (H24_cluster_types != 'd')
 
     # Extract per-statistic and per-assumption arrays
-    R_full,  R_union  = RPJE[:, mask, 0, 0], RPJE[:, mask, 1, 0]
-    P_full,  P_union  = RPJE[:, mask, 0, 1], RPJE[:, mask, 1, 1]
-    J_full,  J_union  = RPJE[:, mask, 0, 2], RPJE[:, mask, 1, 2]
-    #E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
+    R_full, R_union  = RPJE[:, mask, 0, 0], RPJE[:, mask, 1, 0]
+    P_full, P_union  = RPJE[:, mask, 0, 1], RPJE[:, mask, 1, 1]
+    J_full, J_union  = RPJE[:, mask, 0, 2], RPJE[:, mask, 1, 2]
+    #E_full, E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
     C = coverage[mask]  # (N_clusters,)
 
     # Evidence-weighted means
@@ -2303,7 +2303,6 @@ def plot_Hunt2024_comparison_results(overwrite=False):
     Jbar_full  = np.sum(J_full * C, axis=1) / np.sum(C)
     Jbar_union = np.sum(J_union * C, axis=1) / np.sum(C)
 
-    """
     # Recovery
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
             color='k', linestyle='dashed', linewidth=1.5, label='R (o,m,g)', zorder=3)
@@ -2331,7 +2330,13 @@ def plot_Hunt2024_comparison_results(overwrite=False):
 
     # ========== INDIVIDUAL CLUSTER TYPES ==========
     print("... plotting per-cluster-type statistics")
-    cluster_type_and_colour = dict(zip(['o', 'm', 'g', 'd', 'r'], ['C0', 'C2', 'C1', 'C4', 'C3']))
+    cluster_type_and_colour = {
+        'o': 'C0',  # Open clusters
+        'm': 'C2',  # Moving groups
+        'g': 'C1',  # Globular clusters
+        'd': 'C4',  # Too distant to classify
+        'r': 'C3'   # Rejected
+    }
 
     for cluster_type, type_colour in cluster_type_and_colour.items():
         mask = H24_cluster_types == cluster_type
@@ -2339,7 +2344,7 @@ def plot_Hunt2024_comparison_results(overwrite=False):
             continue
 
         #E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
-        J_full,  J_union  = RPJE[:, mask, 0, 2], RPJE[:, mask, 1, 2]
+        J_full, J_union  = RPJE[:, mask, 0, 2], RPJE[:, mask, 1, 2]
         C = coverage[mask]  # (N_clusters,)
 
         # Weighted means
@@ -2355,13 +2360,17 @@ def plot_Hunt2024_comparison_results(overwrite=False):
         ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
                         color=type_colour, alpha=0.3, zorder=2)
 
+        # Matched fractions
+        fraction_matched_union = np.mean(J_union > 0.5, axis=1)
+        fraction_matched_full = np.mean(J_full > 0.5, axis=1)
+
         # Plot fraction of clusters of this type matched to above J=0.5
-        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, np.mean(J_union > 0.5, axis=1),
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_union,
                 color=type_colour, linestyle='dashed', linewidth=0.75, alpha=0.8,
                 label=f"N({cluster_type} | J > 0.5)/N({cluster_type})", zorder=2)
-        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, np.mean(J_full > 0.5, axis=1),
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full,
                 color=type_colour, linestyle='dashed', linewidth=0.75, alpha=0.8, zorder=2)
-        ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, np.mean(J_full > 0.5, axis=1), np.mean(J_union > 0.5, axis=1),
+        ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full, fraction_matched_union,
                         facecolor='none', hatch='//', edgecolor=type_colour, linewidth=0.0, alpha=0.3, zorder=2)
 
     # ========== Final formatting ==========
@@ -2669,7 +2678,7 @@ def plot_UCC_comparison_results(overwrite=False):
 
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
-
+    """
     # ========== ALL CLUSTERS ==========
     print("... plotting overall cluster-match statistics vs significance level")
 
@@ -2710,7 +2719,7 @@ def plot_UCC_comparison_results(overwrite=False):
             color='k', linestyle='solid', linewidth=1.5, zorder=3)
     ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
                     color='k', alpha=0.3, zorder=3)
-
+    """
     # ========== QUALITY CLASS GROUPS ==========
     print("... plotting statistics vs significance level for UCC quality ranges")
 
@@ -2731,6 +2740,8 @@ def plot_UCC_comparison_results(overwrite=False):
         if not np.any(mask):
             continue
 
+        class_list_string = f"({'\\{' + ','.join(class_list) + '\\}'})"
+
         # Extract Jaccard + evidence per assumption
         #E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
         J_full,  J_union  = RPJE[:, mask, 0, 2], RPJE[:, mask, 1, 2]
@@ -2743,11 +2754,24 @@ def plot_UCC_comparison_results(overwrite=False):
         # Plot both bounds + hatched region
         ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
                 color=colour, linestyle='solid', linewidth=0.75, alpha=0.8,
-                label='J (' + ','.join(class_list) + ')', zorder=2)
+                label='J' + class_list_string, zorder=2)
         ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
                 color=colour, linestyle='solid', linewidth=0.75, alpha=0.8, zorder=2)
         ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
                         color=colour, alpha=0.3, zorder=2)
+
+        # Matched fractions
+        fraction_matched_union = np.mean(J_union > 0.5, axis=1)
+        fraction_matched_full = np.mean(J_full > 0.5, axis=1)
+
+        # Plot fraction of clusters of this type matched to above J=0.5
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_union,
+                color=type_colour, linestyle='dashed', linewidth=0.75, alpha=0.8,
+                label="N(" + class_list_string + " | J > 0.5)/N(" + class_list_string + ")", zorder=2)
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full,
+                color=type_colour, linestyle='dashed', linewidth=0.75, alpha=0.8, zorder=2)
+        ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full, fraction_matched_union,
+                        facecolor='none', hatch='//', edgecolor=type_colour, linewidth=0.0, alpha=0.3, zorder=2)
 
     # ========== Final formatting ==========
     print('... saving figure.\n')
@@ -3232,6 +3256,7 @@ def plot_galstreams_comparison_results(overwrite=False):
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
 
+    """
     # Recovery
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
             color='k', linestyle='dashed', linewidth=1.5, label='R', zorder=3)
@@ -3247,6 +3272,7 @@ def plot_galstreams_comparison_results(overwrite=False):
             color='k', linestyle='dotted', linewidth=1.5, zorder=3)
     ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
                     facecolor='none', hatch='\\', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+    """
 
     # Jaccard
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
@@ -3255,6 +3281,19 @@ def plot_galstreams_comparison_results(overwrite=False):
             color='k', linestyle='solid', linewidth=1.5, zorder=3)
     ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
                     color='k', alpha=0.3, zorder=3)
+    
+    # Matched fractions
+    fraction_matched_union = np.mean(J_union > 0.5, axis=1)
+    fraction_matched_full = np.mean(J_full > 0.5, axis=1)
+
+    # Plot fraction of clusters of this type matched to above J=0.5
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_union,
+            color='k', linestyle='dashed', linewidth=0.75, alpha=0.8,
+            label="N(J > 0.5)/N", zorder=2)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full,
+            color='k', linestyle='dashed', linewidth=0.75, alpha=0.8, zorder=2)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full, fraction_matched_union,
+                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=2)
 
     # Final formatting
     print("... saving figure.\n")
@@ -3566,6 +3605,7 @@ def plot_Vasiliev2021_comparison_results(overwrite=False):
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
 
+    """
     # Recovery
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
             color='k', linestyle='dashed', linewidth=1.5, label='R', zorder=3)
@@ -3581,6 +3621,7 @@ def plot_Vasiliev2021_comparison_results(overwrite=False):
             color='k', linestyle='dotted', linewidth=1.5, zorder=3)
     ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
                     facecolor='none', hatch='\\', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+    """
 
     # Jaccard
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
@@ -3589,6 +3630,19 @@ def plot_Vasiliev2021_comparison_results(overwrite=False):
             color='k', linestyle='solid', linewidth=1.5, zorder=3)
     ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
                     color='k', alpha=0.3, zorder=3)
+    
+    # Matched fractions
+    fraction_matched_union = np.mean(J_union > 0.5, axis=1)
+    fraction_matched_full = np.mean(J_full > 0.5, axis=1)
+
+    # Plot fraction of clusters of this type matched to above J=0.5
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_union,
+            color='k', linestyle='dashed', linewidth=0.75, alpha=0.8,
+            label="N(J > 0.5)/N", zorder=2)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full,
+            color='k', linestyle='dashed', linewidth=0.75, alpha=0.8, zorder=2)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full, fraction_matched_union,
+                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=2)
 
     # Final formatting
     print("... saving figure.\n")
@@ -3888,6 +3942,7 @@ def plot_Battaglia2021_comparison_results(overwrite=False):
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
 
+    """
     # Recovery
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
             color='k', linestyle='dashed', linewidth=1.5, label='R', zorder=3)
@@ -3903,6 +3958,7 @@ def plot_Battaglia2021_comparison_results(overwrite=False):
             color='k', linestyle='dotted', linewidth=1.5, zorder=3)
     ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
                     facecolor='none', hatch='\\', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+    """
 
     # Jaccard
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
@@ -3911,6 +3967,19 @@ def plot_Battaglia2021_comparison_results(overwrite=False):
             color='k', linestyle='solid', linewidth=1.5, zorder=3)
     ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
                     color='k', alpha=0.3, zorder=3)
+    
+    # Matched fractions
+    fraction_matched_union = np.mean(J_union > 0.5, axis=1)
+    fraction_matched_full = np.mean(J_full > 0.5, axis=1)
+
+    # Plot fraction of clusters of this type matched to above J=0.5
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_union,
+            color='k', linestyle='dashed', linewidth=0.75, alpha=0.8,
+            label="N(J > 0.5)/N", zorder=2)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full,
+            color='k', linestyle='dashed', linewidth=0.75, alpha=0.8, zorder=2)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full, fraction_matched_union,
+                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=2)
 
     # Final formatting
     print("... saving figure.\n")
@@ -3938,12 +4007,12 @@ if __name__ == "__main__":
     prepare_bailerjones_gedr3_distances()
 
     # Calculate empirical selection function
-    calculate_empirical_survey_selection_function()
-    plot_limiting_g_band_magnitude_on_sky()
+    calculate_empirical_survey_selection_function(True)
+    plot_limiting_g_band_magnitude_on_sky(True)
     
     # Construct subsample and subsample selection function
-    construct_subsample_from_full_catalogue()
-    calculate_subsample_selection_function()
+    construct_subsample_from_full_catalogue(True)
+    calculate_subsample_selection_function(True)
 
     # Calculate total selection function for subsample
     calculate_total_selection_function_for_subsample(True)
@@ -3961,31 +4030,31 @@ if __name__ == "__main__":
     plot_cluster_proper_motions_on_sky(True)
 
     # Compare to Hunt & Reffert (2024)
-    prepare_Hunt2024_for_comparison()
-    #plot_Hunt2024_clusters_on_sky()
+    prepare_Hunt2024_for_comparison(True)
+    plot_Hunt2024_clusters_on_sky(True)
     compare_to_Hunt2024(True)
     plot_Hunt2024_comparison_results(True)
 
     # Compare to Unified Cluster Catalogue
-    prepare_UCC_for_comparison()
-    #plot_UCC_clusters_on_sky()
+    prepare_UCC_for_comparison(True)
+    plot_UCC_clusters_on_sky(True)
     compare_to_UCC(True)
     plot_UCC_comparison_results(True)
 
     # Compare to galstreams catalogue
-    prepare_galstreams_for_comparison()
-    #plot_galstreams_streams_on_sky()
+    prepare_galstreams_for_comparison(True)
+    plot_galstreams_streams_on_sky(True)
     compare_to_galstreams(True)
     plot_galstreams_comparison_results(True)
 
     # Compare to Vasiliev & Baumgardt (2021)
-    prepare_Vasiliev2021_for_comparison()
-    #plot_Vasiliev2021_clusters_on_sky()
+    prepare_Vasiliev2021_for_comparison(True)
+    plot_Vasiliev2021_clusters_on_sky(True)
     compare_to_Vasiliev2021(True)
     plot_Vasiliev2021_comparison_results(True)
 
     # Compare to Battaglia et al. (2021)
-    prepare_Battaglia2021_for_comparison()
-    #plot_Battaglia2021_dwarfgalaxies_on_sky()
+    prepare_Battaglia2021_for_comparison(True)
+    plot_Battaglia2021_dwarfgalaxies_on_sky(True)
     compare_to_Battaglia2021(True)
     plot_Battaglia2021_comparison_results(True)

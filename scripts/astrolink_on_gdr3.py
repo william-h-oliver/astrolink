@@ -4024,54 +4024,54 @@ if __name__ == "__main__":
     prepare_bailerjones_gedr3_distances()
 
     # Calculate empirical selection function
-    calculate_empirical_survey_selection_function()
-    plot_limiting_g_band_magnitude_on_sky()
+    calculate_empirical_survey_selection_function(True)
+    plot_limiting_g_band_magnitude_on_sky(True)
     
     # Construct subsample and subsample selection function
-    construct_subsample_from_full_catalogue()
-    calculate_subsample_selection_function()
+    construct_subsample_from_full_catalogue(True)
+    calculate_subsample_selection_function(True)
 
     # Calculate total selection function for subsample
-    calculate_total_selection_function_for_subsample()
-    plot_total_selection_function_for_subsample()
+    calculate_total_selection_function_for_subsample(True)
+    plot_total_selection_function_for_subsample(True)
 
     # Construct input data to be passed to AstroLink
-    calculate_distance_contraction_for_subsample()
-    calculate_contracted_data_and_errors_for_subsample()
-    construct_data_space_for_subsample()
+    calculate_distance_contraction_for_subsample(True)
+    calculate_contracted_data_and_errors_for_subsample(True)
+    construct_data_space_for_subsample(True)
 
     # Apply AstroLink to subsample and plot of cluster properties
-    apply_astrolink_to_subsample()
-    plot_prominence_model_fit()
-    plot_cluster_labels_on_sky()
-    plot_cluster_proper_motions_on_sky()
+    apply_astrolink_to_subsample(True)
+    plot_prominence_model_fit(True)
+    plot_cluster_labels_on_sky(True)
+    plot_cluster_proper_motions_on_sky(True)
 
     # Compare to Hunt & Reffert (2024)
-    prepare_Hunt2024_for_comparison()
-    plot_Hunt2024_clusters_on_sky()
-    compare_to_Hunt2024()
-    plot_Hunt2024_comparison_results()
+    prepare_Hunt2024_for_comparison(True)
+    plot_Hunt2024_clusters_on_sky(True)
+    compare_to_Hunt2024(True)
+    plot_Hunt2024_comparison_results(True)
 
     # Compare to Unified Cluster Catalogue
-    prepare_UCC_for_comparison()
-    plot_UCC_clusters_on_sky()
-    compare_to_UCC()
-    plot_UCC_comparison_results()
+    prepare_UCC_for_comparison(True)
+    plot_UCC_clusters_on_sky(True)
+    compare_to_UCC(True)
+    plot_UCC_comparison_results(True)
 
     # Compare to Vasiliev & Baumgardt (2021)
-    prepare_Vasiliev2021_for_comparison()
-    plot_Vasiliev2021_clusters_on_sky()
-    compare_to_Vasiliev2021()
+    prepare_Vasiliev2021_for_comparison(True)
+    plot_Vasiliev2021_clusters_on_sky(True)
+    compare_to_Vasiliev2021(True)
     plot_Vasiliev2021_comparison_results(True)
 
     # Compare to Battaglia et al. (2021)
-    prepare_Battaglia2021_for_comparison()
-    plot_Battaglia2021_dwarfgalaxies_on_sky()
-    compare_to_Battaglia2021()
-    plot_Battaglia2021_comparison_results()
+    prepare_Battaglia2021_for_comparison(True)
+    plot_Battaglia2021_dwarfgalaxies_on_sky(True)
+    compare_to_Battaglia2021(True)
+    plot_Battaglia2021_comparison_results(True)
 
     # Compare to galstreams catalogue
-    prepare_galstreams_for_comparison()
-    plot_galstreams_streams_on_sky()
-    compare_to_galstreams()
-    plot_galstreams_comparison_results()
+    prepare_galstreams_for_comparison(True)
+    plot_galstreams_streams_on_sky(True)
+    compare_to_galstreams(True)
+    plot_galstreams_comparison_results(True)

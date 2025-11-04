@@ -46,6 +46,7 @@ import galstreams # Also needs astropy==6.1.2 as well as gala==1.9.1
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from matplotlib.patches import Rectangle
 import healpy as hp
 from healpy.newvisufunc import projview, newprojplot
 
@@ -65,7 +66,7 @@ OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output file
 REDUCED_CATALOGUE_PATH = os.path.join(OUTPUT_PATH, "catalogue_files/")  # Path to reduced catalogue numpy files
 SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files/")  # Path to numpy files of subsample from full catalogue
 CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to AstroLink output files
-FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_S_gaia_k64_floor_64/")  # Path to figures
+FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200  # GB for max memory usage by k nearest neighbour retrieval 
@@ -74,7 +75,7 @@ WORKING_MEMORY = 200  # GB for max memory usage by k nearest neighbour retrieval
 WITH_PROPER_MOTIONS = True # Whether to use proper motions in the input data space for AstroLink clustering
 WITH_RADIAL_VELOCITIES = False # Whether to use radial velocities in the input data space for AstroLink clustering
 STOCHASTIC_RUN = False # Whether to sample stochastic values from their uncertainties / posterior
-KNN_FOR_SELECTION_FUNCTION = 64 # Number of nearest neighbors for selection function calculations
+KNN_FOR_SELECTION_FUNCTION = 128 # Number of nearest neighbors for selection function calculations
 SURVEY_SF_LOWER_LIMIT = 0.99 # Empirical survey selection function lower limit for subsample stars
 RUWE_UPPER_LIMIT = 1.2 # RUWE threshold for subsample stars
 HEALPIX_LEVEL = 12 # HEALPix level for on-sky plotting
@@ -476,26 +477,24 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
     plt.savefig(file_m10_path, dpi=300)
     plt.close()
     gc.collect()  # Free memory
-    
-    print(f"... saved mollview plot to {file_m10_path}\n")
+    print(f"... saved mollview plot to {file_m10_path}.\n")
 
 
     print("Plotting limiting G-band magnitude across the sky...")
     # Taken from the source code of gaiaunlimited.selectionfunctions.m10_to_completeness...
-    # These are the best-fit value of the free parameters we optimised in our model:
-    ax, bx, cx, ay, by, cy, az, bz, cz, lim = dict(
-        ax=0.9848761394197864,
-        bx=0.6473155510230146,
-        cx=0.6929084598209412,
-        ay=-0.003935382139847386,
-        by=0.2230529402297744,
-        cy=-0.09331877468160235,
-        az=0.006144107896473064,
-        bz=0.03681705933744438,
-        cz=0.35140564525722895,
-        lim=20.519369625540833,
-    ).values()
+    # These are the best-fit value of the free parameters we optimised in their model:
+    ax=0.9848761394197864
+    bx=0.6473155510230146
+    cx=0.6929084598209412
+    ay=-0.003935382139847386
+    by=0.2230529402297744
+    cy=-0.09331877468160235
+    az=0.006144107896473064
+    bz=0.03681705933744438
+    cz=0.35140564525722895
+    lim=20.519369625540833
 
+    # Calculate predicted parameters based on m10
     predictedG0 = ax * m10 + bx
     predictedG0[m10 > lim] = cx * m10[m10 > lim] + (ax - cx) * lim + bx
     #
@@ -678,26 +677,20 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     # Check if arrays already exists
     file_nsub = os.path.join(SUBSAMPLE_PATH, "total_selection_function_nsub.npy")
     file_nmw = os.path.join(SUBSAMPLE_PATH, "total_selection_function_nmw.npy")
-    file_total_sf_mean = os.path.join(SUBSAMPLE_PATH, "total_selection_function_mean.npy")
-    file_total_sf_var = os.path.join(SUBSAMPLE_PATH, "total_selection_function_var.npy")
-    file_total_sf_mean_healpix = os.path.join(SUBSAMPLE_PATH, "total_selection_function_mean_healpix.npy")
-    file_total_sf_var_healpix = os.path.join(SUBSAMPLE_PATH, "total_selection_function_var_healpix.npy")
+    file_nsub_healpix = os.path.join(SUBSAMPLE_PATH, "total_selection_function_nsub_healpix.npy")
+    file_nmw_healpix = os.path.join(SUBSAMPLE_PATH, "total_selection_function_nmw_healpix.npy")
 
     # Skip processing if all output files already exist
     all_exist = (os.path.exists(file_nsub) and
                 os.path.exists(file_nmw) and
-                os.path.exists(file_total_sf_mean) and
-                os.path.exists(file_total_sf_var) and
-                os.path.exists(file_total_sf_mean_healpix) and
-                os.path.exists(file_total_sf_var_healpix))
+                os.path.exists(file_nsub_healpix) and
+                os.path.exists(file_nmw_healpix))
     if all_exist and not overwrite:
         print(f"Total selection function arrays already exist at:")
-        print(f"\t{file_total_sf_mean} ,")
-        print(f"\t{file_total_sf_var} ,")
         print(f"\t{file_nsub} ,")
         print(f"\t{file_nmw} ,")
-        print(f"\t{file_total_sf_mean_healpix} , and")
-        print(f"\t{file_total_sf_var_healpix} .")
+        print(f"\t{file_nsub_healpix} , and")
+        print(f"\t{file_nmw_healpix} .")
         print("Use overwrite=True to force recomputation.\n")
         return
     print("Calculating total selection function for the subsample...")
@@ -716,7 +709,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Calculate the inverse of the empirical survey selection function for the subsample
-    inverse_survey_sf = 1 / np.sqrt(survey_sf[valid_gmag]**2 + 1 / KNN_FOR_SELECTION_FUNCTION**2)  # Soft floor to avoid diverging values
+    inverse_survey_sf = 1 / np.sqrt(survey_sf[valid_gmag]**2 + 1 / 100**2)  # Soft floor to avoid diverging values
     del survey_sf  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -755,8 +748,6 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     print("... initializing total selection function arrays for stars in the subsample")
     nsub = np.full_like(valid_gmag, fill_value=np.nan, dtype=np.float64)
     nmw = np.full_like(valid_gmag, fill_value=np.nan, dtype=np.float64)
-    total_sf_mean = np.full_like(valid_gmag, fill_value=np.nan, dtype=np.float64)
-    total_sf_var = np.full_like(valid_gmag, fill_value=np.nan, dtype=np.float64)
     valid_gmag = np.where(valid_gmag)[0]  # Indices of stars with valid G-band magnitudes
 
     # Compute total selection function for each star in the subsample
@@ -765,43 +756,33 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
 
         print(f"... computing total selection function for each star in subsample -- batch {start // chunk_n_rows + 1} of {n // chunk_n_rows + 1}   ", end='\r')
         # k-nearest neighbours query
-        sqr_dists, idx = tree.query(
+        _, idx = tree.query(
             xyz_stars[start:end],
             k=KNN_FOR_SELECTION_FUNCTION,
             sqr_dists=True
         )
-        del sqr_dists  # Free memory
+        del _  # Free memory
         gc.collect()  # Force garbage collection
 
-        # Total selection function is the posterior distribution Beta(n_sub + 1, n_mw - n_sub + 1)
-        nsub_batch = subsample_sf[idx].sum(axis=1)
-        nmw_batch = inverse_survey_sf[idx].sum(axis=1)
+        # Compute expected number of neighbours in subsample and in Milky Way
         valid_slice = valid_gmag[start:end]
-        nsub[valid_slice] = nsub_batch
-        nmw[valid_slice] = nmw_batch
-        total_sf_mean[valid_slice] = (nsub_batch + 1) / (nmw_batch + 2)  # Mean of selection function for stars in subsample
-        total_sf_var[valid_slice] = (nsub_batch + 1) * (nmw_batch - nsub_batch + 1) / ((nmw_batch + 2)**2 * (nmw_batch + 3))  # Variance of selection function for stars in subsample
+        nsub[valid_slice] = subsample_sf[idx].sum(axis=1)
+        nmw[valid_slice] = inverse_survey_sf[idx].sum(axis=1)
 
         # Delete temporary variables to free memory
-        del idx, nsub_batch, nmw_batch
+        del idx
         gc.collect()
     print(f"... range of expected number of neighbours in subsample: {np.nanmin(nsub):.3f} -- {np.nanmax(nsub):.3f}                   ")
     print(f"... range of expected number of neighbours in Milky Way: {np.nanmin(nmw):.3f} -- {np.nanmax(nmw):.3f}")
-    print(f"... range of total selection function mean:              {np.nanmin(total_sf_mean):.3f} -- {np.nanmax(total_sf_mean):.3f}")
-    print(f"... range of total selection function variance:          {np.nanmin(total_sf_var):.3f} -- {np.nanmax(total_sf_var):.3f}")
 
     # Save total selection function arrays for stars
     print(f"... saving total selection function arrays for stars to:")
-    print(f"\t{file_nsub} ,")
-    print(f"\t{file_nmw} ,")
-    print(f"\t{file_total_sf_mean} , and")
-    print(f"\t{file_total_sf_var} .\n")
+    print(f"\t{file_nsub} and")
+    print(f"\t{file_nmw} .")
     np.save(file_nsub, nsub)
     np.save(file_nmw, nmw)
-    np.save(file_total_sf_mean, total_sf_mean)
-    np.save(file_total_sf_var, total_sf_var)
 
-    del nsub, nmw, total_sf_mean, total_sf_var, xyz_stars  # Free memory
+    del xyz_stars, nsub, nmw  # Free memory
     gc.collect()  # Force garbage collection
 
     # Also calculate the total selection function values at the centre of each HEALPix pixel for plotting
@@ -831,8 +812,8 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
 
     # Initialize arrays for HEALPix pixels
     print("... initializing total selection function arrays for HEALPix pixels")
-    total_sf_mean_healpix = np.empty(npix)
-    total_sf_var_healpix = np.empty(npix)
+    nsub_healpix = np.empty(npix)
+    nmw_healpix = np.empty(npix)
 
     # Compute m10 for each HEALPix pixel as median G of neighbors with <11 transits
     for start in range(0, npix, chunk_n_rows):
@@ -845,15 +826,15 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
             k=KNN_FOR_SELECTION_FUNCTION,
             sqr_dists=True
         )
+        del _ # Free memory
+        gc.collect()  # Force garbage collection
 
         # Total selection function is the posterior distribution Beta(n_sub + 1, n_mw - n_sub + 1)
-        nsub_healpix_batch = subsample_sf[idx].sum(axis=1)
-        nmw_healpix_batch = inverse_survey_sf[idx].sum(axis=1)
-        total_sf_mean_healpix[start:end] = (nsub_healpix_batch + 1) / (nmw_healpix_batch + 2)  # Mean of selection function for HEALPix pixels
-        total_sf_var_healpix[start:end] = (nsub_healpix_batch + 1) * (nmw_healpix_batch - nsub_healpix_batch + 1) / ((nmw_healpix_batch + 2)**2 * (nmw_healpix_batch + 3))  # Variance of selection function for HEALPix pixels
+        nsub_healpix[start:end] = subsample_sf[idx].sum(axis=1)
+        nmw_healpix[start:end] = inverse_survey_sf[idx].sum(axis=1)
 
         # Delete temporary variables to free memory
-        del _, idx, nsub_healpix_batch, nmw_healpix_batch
+        del idx
         gc.collect()
     
     del tree, xyz_healpix, valid_gmag, subsample_sf, inverse_survey_sf  # Free memory
@@ -861,11 +842,11 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
 
     # Save total selection function arrays for healpix pixels
     print(f"... saving total selection function arrays for HEALPix pixels to:                ")
-    print(f"\t{file_total_sf_mean_healpix} , and")
-    print(f"\t{file_total_sf_var_healpix} .\n")
-    np.save(file_total_sf_mean_healpix, total_sf_mean_healpix)
-    np.save(file_total_sf_var_healpix, total_sf_var_healpix)
-    del total_sf_mean_healpix, total_sf_var_healpix  # Free memory
+    print(f"\t{file_nsub_healpix} and")
+    print(f"\t{file_nmw_healpix} .")
+    np.save(file_nsub_healpix, nsub_healpix)
+    np.save(file_nmw_healpix, nmw_healpix)
+    del nsub_healpix, nmw_healpix  # Free memory
     gc.collect()  # Force garbage collection
 
 def plot_total_selection_function_for_subsample(overwrite=False):
@@ -886,8 +867,13 @@ def plot_total_selection_function_for_subsample(overwrite=False):
     print("Plotting total selection function on the sky...")
 
     # Load total selection function data
-    total_sf_mean = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_mean_healpix.npy"))  # (npix,)
-    total_sf_var = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_var_healpix.npy"))  # (npix,)
+    nsub_healpix = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_nsub_healpix.npy"))  # (npix,)
+    nmw_healpix = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_nmw_healpix.npy"))  # (npix,)
+
+    # Compute mean and standard error of the total selection function
+    print("... computing mean and standard error of the total selection function")
+    total_sf_mean = (nsub_healpix + 1) / (nmw_healpix + 2)
+    total_sf_se = np.sqrt(total_sf_mean * (nmw_healpix - nsub_healpix + 1) / ((nmw_healpix + 2) * nsub_healpix + 3))
 
     # Create a Mollweide projection plot of the total selection function mean
     plt.figure(figsize=(12, 6))
@@ -895,7 +881,7 @@ def plot_total_selection_function_for_subsample(overwrite=False):
         total_sf_mean,
         coord=["G"],
         nest=True,
-        unit=r"Total selection function mean, $\mathbb{E}[S_{\mathrm{total}}]$",
+        unit=r"Total selection function mean, $\mu_{S_\mathrm{total}}$",
         cb_orientation="horizontal",
         min=0,
         max=1,
@@ -911,11 +897,6 @@ def plot_total_selection_function_for_subsample(overwrite=False):
 
     print(f"... saved mollview plot to {file_total_sf_mean_path}")
 
-    # Compute standard error (sqrt of variance)
-    total_sf_se = np.sqrt(total_sf_var)
-    del total_sf_var  # Free memory
-    gc.collect()  # Force garbage collection
-
     lower_limit_se_scale = 10**np.floor(np.log10(total_sf_se.min()))
     lower_limit_se = lower_limit_se_scale * np.floor(total_sf_se.min() / lower_limit_se_scale)
     upper_limit_se_scale = 10**np.ceil(np.log10(total_sf_se.max()))
@@ -927,7 +908,7 @@ def plot_total_selection_function_for_subsample(overwrite=False):
         total_sf_se,
         coord=["G"],
         nest=True,
-        unit=r"Total selection function standard error, $\sqrt{\mathrm{Var}[S_{\mathrm{total}}]}$",
+        unit=r"Total selection function standard error, $\sigma_{S_\mathrm{total}}$",
         cb_orientation="horizontal",
         min=lower_limit_se,
         max=upper_limit_se,
@@ -957,7 +938,7 @@ def plot_total_selection_function_for_subsample(overwrite=False):
         stderr_over_mean,
         coord=["G"],
         nest=True,
-        unit=r"Total selection function fractional error, $\sqrt{\mathrm{Var}[S_{\mathrm{total}}]} / \mathbb{E}[S_{\mathrm{total}}]$",
+        unit=r"Total selection function fractional error, $\sigma_{S_\mathrm{total}} / \mu_{S_\mathrm{total}}$",
         cb_orientation="horizontal",
         min=lower_limit_se_over_mean,
         max=1,
@@ -972,7 +953,6 @@ def plot_total_selection_function_for_subsample(overwrite=False):
     gc.collect()  # Free memory
 
     print(f"... saved mollview plot to {file_total_sf_se_over_mean_path}.\n")
-
 
 # === Construct input data to be passed to AstroLink ===
 def calculate_distance_contraction_for_subsample(overwrite=False):
@@ -1001,7 +981,8 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_photogeo.npy"))[subsample_mask].T  # each (n,) in pc
     ra, dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask].T  # each (n,) in degrees
     dra, ddec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask, :2].T  # each (n,) in degrees
-    total_sf_mean = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_mean.npy"))[subsample_mask]  # (N,)
+    nsub = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_nsub.npy"))[subsample_mask]  # (n,)
+    nmw = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_nmw.npy"))[subsample_mask]  # (n,)
     del subsample_mask  # Free memory
     gc.collect()  # Force garbage collection
     
@@ -1016,8 +997,8 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     variances[zero_variances, 0] = variances[zero_variances, 1:].sum(axis=1) / 2  # Prevent zero variance in distance
 
     # Weights for each star in the average
-    weights = 1 / total_sf_mean
-    del lo, high, drSqr, ra, dec, dra, ddec, total_sf_mean  # Free memory
+    weights = nmw / (nsub + 2)  # Mode of the posterior of the inverse total selection function
+    del lo, high, drSqr, ra, dec, dra, ddec, nsub, nmw  # Free memory
     gc.collect()  # Force garbage collection
 
     # Define loss wrapper for minimization so that the current r_half and loss can be printed
@@ -1266,8 +1247,36 @@ def apply_astrolink_to_subsample(overwrite=False):
     print("... loading required arrays for AstroLink clustering")
     input_data = np.load(os.path.join(SUBSAMPLE_PATH, "data_space.npy"))  # (N, 6)
     subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
-    total_sf_mean = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_mean.npy"))[subsample_mask]  # (N,)
+    nsub = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_nsub.npy"))[subsample_mask]  # (N,)
+    nmw = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_nmw.npy"))[subsample_mask]  # (N,)
     del subsample_mask  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Calculate inverse total selection function and use as weights
+    print("... calculating inverse total selection function to use as weights")
+    if STOCHASTIC_RUN:
+        # Batched sampling from the posterior distribution of S_total^{-1} ~ 1 + BetaPrime(n_mw - n_sub - 1, n_sub + 1)
+        n_rows = nsub.shape[0]
+        chunk_n_rows = min(int(WORKING_MEMORY * (2**30) // (4 * 5)), n_rows)  # Number of rows to process in each batch
+        weights = np.empty(n_rows, dtype=np.float32)
+        for start in range(0, n_rows, chunk_n_rows):
+            end = min(start + chunk_n_rows, n_rows)
+
+            # Get batch
+            nmw_batch = nmw[start:end]
+            nsub_batch = nsub[start:end]
+
+            # Get Gamma shape parameters
+            a = nsub_batch + 1
+            b = nmw_batch - nsub_batch - 1
+
+            # Sample from the Beta Prime distribution using its Gamma representation
+            g1 = np.random.gamma(shape=b, scale=1.0).astype(np.float32)
+            g2 = np.random.gamma(shape=a, scale=1.0).astype(np.float32)
+            weights[start:end] = 1 + (a * g1) / (b * g2)
+    else:
+        weights = nmw.astype(np.float32) / (nsub.astype(np.float32) + 2)  # Mode of the posterior distribution of S_total^{-1}
+    del nsub, nmw  # Free memory
     gc.collect()  # Force garbage collection
 
     # Initialize AstroLink
@@ -1275,14 +1284,14 @@ def apply_astrolink_to_subsample(overwrite=False):
     clusterer = AstroLink(
         P=input_data,
         d_intrinsic=5,
-        weights=1/total_sf_mean,
+        weights=weights,
         k_den=KNN_FOR_ASTROLINK,
         adaptive=0,
         S=OPTIMAL_SIGMA_THRESHOLD,
         workers=MAX_PARALLEL_WORKERS,
         verbose=0
     )
-    del input_data, total_sf_mean  # Free memory
+    del input_data, weights  # Free memory
     gc.collect()  # Force garbage collection
 
     # The following is a reworked version of the astrolink.run() method
@@ -1468,7 +1477,7 @@ def plot_prominence_model_fit(overwrite=False):
         ha='right',
         va='bottom'
     )
-    del clusterer, num_clusters  # Free memory
+    del num_clusters  # Free memory
     gc.collect()  # Force garbage collection
     
     # Convert vertical axes to logarithmic scale
@@ -1492,7 +1501,8 @@ def plot_prominence_model_fit(overwrite=False):
     plt.tight_layout()
     plt.savefig(file_prominence_model_fit_path, dpi=300)
     plt.close()
-    gc.collect()  # Free memory
+    del clusterer # Free memory
+    gc.collect()  # Force garbage collection
     print(f"... saved prominence model fit plot to {file_prominence_model_fit_path}.\n")
 
 def plot_cluster_labels_on_sky(overwrite=False):
@@ -1655,8 +1665,11 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
     print("... calculating proper motion colours for plotting")
     mu_magnitude = np.sqrt(mu_l_cosb**2 + mu_b**2)  # Proper motion magnitude in mas/yr
     mu_magnitude = np.clip(mu_magnitude, 0, 20) / 20  # Clip to avoid extreme values
+    mu_magnitude = np.clip(np.ceil(8 * mu_magnitude) / 8, 0, 1)  # Bin into 8 discrete magnitudes for better colour contrast
+    mu_magnitude = mu_magnitude**0.8  # Adjust brightness scaling for better visibility
     mu_angle = np.arctan2(mu_b, mu_l_cosb)  # Proper motion angle in radians
     mu_angle = (mu_angle + np.pi) / (2 * np.pi)  # Shift to [0, 2*pi] range
+    mu_angle = (np.floor(16 * mu_angle) + 0.5) / 16  # Bin into 16 discrete angles for better colour contrast
     colours = mcolors.hsv_to_rgb(np.column_stack([mu_angle, mu_magnitude, np.ones_like(mu_angle)]))
     del mu_l_cosb, mu_b, mu_magnitude, mu_angle  # Free memory
     gc.collect()  # Force garbage collection
@@ -1686,8 +1699,9 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
 
     # Make the colour wheel for proper motions
     print("... creating colour wheel for proper motions")
+
     # Resolution of the colour wheel
-    N = 256
+    N = 2**9
     radius = 1
     y, x = np.ogrid[-radius:radius:N*1j, -radius:radius:N*1j]
     r = np.sqrt(x**2 + y**2)
@@ -1695,24 +1709,36 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
     del y, x  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Create HSV image
-    hue = (theta + np.pi) / (2 * np.pi)        # [0, 1]
-    saturation = np.clip(r, 0, 1)              # [0, 1]
-    value = np.ones_like(hue)                  # fixed at 1
+    # --- Apply same transformations as for the stars ---
+
+    # Angle → hue
+    hue = (theta + np.pi) / (2 * np.pi)             # [0, 1]
+    hue = (np.floor(16 * hue) + 0.5) / 16           # 16 discrete angle bins (midpoints)
+
+    # Radius → saturation
+    saturation = np.clip(r, 0, 1)                   # [0, 1]
+    saturation = np.clip(np.ceil(8 * saturation) / 8, 0, 1)  # 8 discrete magnitude bins (outer edges)
+    saturation = saturation ** 0.8                  # Brightness scaling
+
+    # Value (brightness)
+    value = np.ones_like(hue)
+
+    # Stack and convert to RGB
     hsv = np.stack([hue, saturation, value], axis=-1)
     rgb = mcolors.hsv_to_rgb(hsv)
-    del hue, saturation, value, hsv  # Free memory
+
+    del hue, saturation, value, hsv
     gc.collect()  # Force garbage collection
 
     # Add alpha channel
-    alpha = np.ones((N, N, 1))  # Shape (N, N, 1)
-    rgba = np.concatenate([rgb, alpha], axis=-1)  # Shape (N, N, 4)
-    del rgb, alpha  # Free memory
-    gc.collect()  # Force garbage collection
+    alpha = np.ones((N, N, 1))
+    rgba = np.concatenate([rgb, alpha], axis=-1)
+    del rgb, alpha
+    gc.collect()
 
     # Mask outside the circle
     mask = r > 1
-    rgba[mask] = 0  # clear (alpha=0.0) outside the circle
+    rgba[mask] = 0  # Clear outside the circle
 
     # Add inset axes
     size = 0.215  # Size of the inset axes as a fraction of the main axes
@@ -1759,7 +1785,7 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
     print(f"... saved proper motions on sky plot to {file_proper_motions_on_sky_path}.\n")
 
 
-# === Define reusable methods for comparing to existing catalogues ===
+# === Define reusable methods for comparing to and plotting existing catalogues ===
 def load_cds_table(readme_path, data_path):
     """
     Load a CDS/VizieR fixed-width .dat.gz file into a pandas DataFrame
@@ -1816,6 +1842,12 @@ def load_cds_table(readme_path, data_path):
     # Read fixed-width file
     df = pd.read_fwf(data_path, compression="gzip", colspecs=colspecs, names=names)
     return df
+
+def plot_catalogue_structure_on_sky():
+    """
+    Plot the structure of a catalogue on the sky.
+    """
+    pass  # Implementation would go here
 
 def compare_to_catalogue_helper(members_cluster_ids_subsample,
                                 members_cluster_probs_subsample,
@@ -2343,42 +2375,74 @@ def plot_Hunt2024_comparison_results(overwrite=False):
         if not np.any(mask):
             continue
 
-        #E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
-        J_full, J_union  = RPJE[:, mask, 0, 2], RPJE[:, mask, 1, 2]
-        C = coverage[mask]  # (N_clusters,)
-
-        # Weighted means
+        # Extract and weight-average curves
+        J_full, J_union = RPJE[:, mask, 0, 2], RPJE[:, mask, 1, 2]
+        C = coverage[mask]
         Jbar_full  = np.sum(J_full * C, axis=1) / np.sum(C)
         Jbar_union = np.sum(J_union * C, axis=1) / np.sum(C)
 
-        # Plot both bounds + hatched region
+        # Plot Jaccard index curves
         ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
-                color=type_colour, linestyle='solid', linewidth=0.75, alpha=0.8,
-                label=f"J ({cluster_type})", zorder=2)
+                color=type_colour, linestyle='solid', linewidth=1, zorder=2)
         ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
-                color=type_colour, linestyle='solid', linewidth=0.75, alpha=0.8, zorder=2)
+                color=type_colour, linestyle='solid', linewidth=1, zorder=2)
         ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
-                        color=type_colour, alpha=0.3, zorder=2)
+                color=type_colour, alpha=0.3, zorder=2)
 
-        # Matched fractions
+        # Compute and plot matched fraction curves
         fraction_matched_union = np.mean(J_union > 0.5, axis=1)
         fraction_matched_full = np.mean(J_full > 0.5, axis=1)
 
-        # Plot fraction of clusters of this type matched to above J=0.5
         ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_union,
-                color=type_colour, linestyle='dashed', linewidth=0.75, alpha=0.8,
-                label=f"N({cluster_type} | J > 0.5)/N({cluster_type})", zorder=2)
+                color=type_colour, linestyle='dashed', linewidth=1, zorder=2)
         ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full,
-                color=type_colour, linestyle='dashed', linewidth=0.75, alpha=0.8, zorder=2)
+                color=type_colour, linestyle='dashed', linewidth=1, zorder=2)
         ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full, fraction_matched_union,
-                        facecolor='none', hatch='//', edgecolor=type_colour, linewidth=0.0, alpha=0.3, zorder=2)
+                facecolor='none', hatch='//', edgecolor=type_colour, linewidth=1, zorder=2)
 
-    # ========== Final formatting ==========
+    # Plot optimal S value on top
+    ax.axvline(OPTIMAL_SIGMA_THRESHOLD, color='grey', linestyle='dotted', linewidth=0.75, zorder=4)
+    ax.text(
+        OPTIMAL_SIGMA_THRESHOLD, 1.01,
+        f"S = {OPTIMAL_SIGMA_THRESHOLD}",
+        color='grey', fontsize=10, ha='center', va='bottom', zorder=4
+    )
+
+    # ========= Final formatting ==========
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
     ax.set_ylim(0, 1)
-    ax.set_xlabel("Significance Level")
-    ax.set_ylabel("Comparison Statistic")
-    ax.legend()
+    ax.set_xlabel(r"Significance, $S$")
+    ax.set_ylabel("Comparison statistic")
+
+    # Dummy handles for the legend
+    handles = [
+        Rectangle((0,0), 1, 1, facecolor=mcolors.to_rgba('k', alpha=0.3), edgecolor='k', linewidth=1, label='Jaccard index'),
+        Rectangle((0,0), 1, 1, facecolor='none', hatch='//', edgecolor='k', linewidth=1, label='Matched fraction'),
+        plt.Line2D([], [], color='none', label='Open clusters'),
+        plt.Line2D([], [], color='none', label='Moving groups'),
+        plt.Line2D([], [], color='none', label='Globular clusters'),
+        plt.Line2D([], [], color='none', label='Too distant'),
+        plt.Line2D([], [], color='none', label='Rejected'),
+    ]
+
+    # Create the legend
+    leg = ax.legend(handles=handles, loc='upper right', frameon=False)
+
+    # Define cluster type colors
+    cluster_type_colors = {
+        'Open clusters': 'C0',
+        'Moving groups': 'C2',
+        'Globular clusters': 'C1',
+        'Too distant': 'C4',
+        'Rejected': 'C3'
+    }
+
+    # Recolor legend text entries for cluster types
+    for text in leg.get_texts():
+        label = text.get_text()
+        if label in cluster_type_colors:
+            text.set_color(cluster_type_colors[label])
+            text.set_fontweight('bold')
 
     print("... saving figure.\n")
     plt.tight_layout()
@@ -2678,51 +2742,9 @@ def plot_UCC_comparison_results(overwrite=False):
 
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
-    """
-    # ========== ALL CLUSTERS ==========
-    print("... plotting overall cluster-match statistics vs significance level")
 
-    # Extract per-assumption and per-statistic arrays
-    R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
-    P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
-    J_full,  J_union  = RPJE[:, :, 0, 2], RPJE[:, :, 1, 2]
-    #E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
-
-    # Evidence-weighted means
-    Rbar_full  = np.sum(R_full * coverage, axis=1) / np.sum(coverage)
-    Rbar_union = np.sum(R_union * coverage, axis=1) / np.sum(coverage)
-    Pbar_full  = np.sum(P_full * coverage, axis=1) / np.sum(coverage)
-    Pbar_union = np.sum(P_union * coverage, axis=1) / np.sum(coverage)
-    Jbar_full  = np.sum(J_full * coverage, axis=1) / np.sum(coverage)
-    Jbar_union = np.sum(J_union * coverage, axis=1) / np.sum(coverage)
-
-    # Recovery
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
-            color='k', linestyle='dashed', linewidth=1.5, label='R (all)', zorder=3)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full,
-            color='k', linestyle='dashed', linewidth=1.5, zorder=3)
-    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full, Rbar_union,
-                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
-
-    # Purity
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_union,
-            color='k', linestyle='dotted', linewidth=1.5, label='P (all)', zorder=3)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
-            color='k', linestyle='dotted', linewidth=1.5, zorder=3)
-    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
-                    facecolor='none', hatch='\\', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
-
-    # Jaccard
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
-            color='k', linestyle='solid', linewidth=1.5, label='J (all)', zorder=3)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
-            color='k', linestyle='solid', linewidth=1.5, zorder=3)
-    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
-                    color='k', alpha=0.3, zorder=3)
-    """
     # ========== QUALITY CLASS GROUPS ==========
     print("... plotting statistics vs significance level for UCC quality ranges")
-
     cluster_class_lists = [
         ['AA', 'AB', 'BA'],
         ['AC', 'BB', 'CA'],
@@ -2730,8 +2752,13 @@ def plot_UCC_comparison_results(overwrite=False):
         ['BD', 'CC', 'DB'],
         ['CD', 'DC', 'DD']
     ]
-    cmap = plt.get_cmap('coolwarm')
+    cmap = mcolors.LinearSegmentedColormap.from_list("cluster_classes_cmap", [(0, 'C0'), (1, 'C3')])
     cluster_class_colours = [cmap(i / (len(cluster_class_lists) - 1)) for i in range(len(cluster_class_lists))]
+
+    # Containers for legend handles
+    handles_jaccard = []
+    handles_matched = []
+    labels = []
 
     for class_list, colour in zip(cluster_class_lists, cluster_class_colours):
         mask = np.zeros(RPJE.shape[1], dtype=bool)
@@ -2740,10 +2767,11 @@ def plot_UCC_comparison_results(overwrite=False):
         if not np.any(mask):
             continue
 
-        class_list_string = f"({'\\{' + ','.join(class_list) + '\\}'})"
+        # String representation for labels
+        class_list_string = f"{{{', '.join(class_list)}}}"
 
         # Extract Jaccard + evidence per assumption
-        #E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
+        # E_full,  E_union  = RPJE[:, mask, 0, 3], RPJE[:, mask, 1, 3]
         J_full,  J_union  = RPJE[:, mask, 0, 2], RPJE[:, mask, 1, 2]
         C = coverage[mask]  # (N_clusters,)
 
@@ -2751,35 +2779,71 @@ def plot_UCC_comparison_results(overwrite=False):
         Jbar_full  = np.sum(J_full * C, axis=1) / np.sum(C)
         Jbar_union = np.sum(J_union * C, axis=1) / np.sum(C)
 
-        # Plot both bounds + hatched region
+        # Plot both bounds + hatched region (Jaccard)
         ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
-                color=colour, linestyle='solid', linewidth=0.75, alpha=0.8,
-                label='J' + class_list_string, zorder=2)
+                color=colour, linestyle='solid', linewidth=1, zorder=2)
         ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
-                color=colour, linestyle='solid', linewidth=0.75, alpha=0.8, zorder=2)
+                color=colour, linestyle='solid', linewidth=1, zorder=2)
         ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
-                        color=colour, alpha=0.3, zorder=2)
+                color=colour, alpha=0.3, zorder=2)
 
         # Matched fractions
         fraction_matched_union = np.mean(J_union > 0.5, axis=1)
         fraction_matched_full = np.mean(J_full > 0.5, axis=1)
 
-        # Plot fraction of clusters of this type matched to above J=0.5
+        # Plot matched fractions (dashed)
         ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_union,
-                color=type_colour, linestyle='dashed', linewidth=0.75, alpha=0.8,
-                label="N(" + class_list_string + " | J > 0.5)/N(" + class_list_string + ")", zorder=2)
+                color=colour, linestyle='dashed', linewidth=1, zorder=2)
         ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full,
-                color=type_colour, linestyle='dashed', linewidth=0.75, alpha=0.8, zorder=2)
+                color=colour, linestyle='dashed', linewidth=1, zorder=2)
         ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full, fraction_matched_union,
-                        facecolor='none', hatch='//', edgecolor=type_colour, linewidth=0.0, alpha=0.3, zorder=2)
+                facecolor='none', hatch='//', edgecolor=colour, linewidth=1, zorder=2)
+    
+    # Plot optimal S value on top
+    ax.axvline(OPTIMAL_SIGMA_THRESHOLD, color='grey', linestyle='dotted', linewidth=0.75, zorder=4)
+    ax.text(
+        OPTIMAL_SIGMA_THRESHOLD, 1.01,
+        f"S = {OPTIMAL_SIGMA_THRESHOLD}",
+        color='grey', fontsize=10, ha='center', va='bottom', zorder=4
+    )
 
     # ========== Final formatting ==========
-    print('... saving figure.\n')
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
     ax.set_ylim(0, 1)
-    ax.set_xlabel("Significance Level")
-    ax.set_ylabel("Comparison Statistic")
-    ax.legend()
+    ax.set_xlabel(r"Significance, $S$")
+    ax.set_ylabel("Comparison statistic")
+
+    # Dummy handles for the legend
+    handles = [
+        Rectangle((0,0), 1, 1, facecolor=mcolors.to_rgba('k', alpha=0.3), edgecolor='k', linewidth=1, label='Jaccard index'),
+        Rectangle((0,0), 1, 1, facecolor='none', hatch='//', edgecolor='k', linewidth=1, label='Matched fraction'),
+        plt.Line2D([], [], color='none', label='AA, AB, BA'),
+        plt.Line2D([], [], color='none', label='AC, BB, CA'),
+        plt.Line2D([], [], color='none', label='AD, BC, CB, DA'),
+        plt.Line2D([], [], color='none', label='BD, CC, DB'),
+        plt.Line2D([], [], color='none', label='CD, DC, DD'),
+    ]
+
+    # Create the legend
+    leg = ax.legend(handles=handles, loc='upper right', frameon=False)
+
+    # Define cluster type colors
+    cluster_type_colors = {
+        'AA, AB, BA': cluster_class_colours[0],
+        'AC, BB, CA': cluster_class_colours[1],
+        'AD, BC, CB, DA': cluster_class_colours[2],
+        'BD, CC, DB': cluster_class_colours[3],
+        'CD, DC, DD': cluster_class_colours[4]
+    }
+
+    # Recolor legend text entries for cluster types
+    for text in leg.get_texts():
+        label = text.get_text()
+        if label in cluster_type_colors:
+            text.set_color(cluster_type_colors[label])
+            text.set_fontweight('bold')
+
+    print("... saving figure.\n")
     plt.tight_layout()
     plt.savefig(file_path, dpi=500)
     plt.close(fig)
@@ -2796,18 +2860,21 @@ def prepare_galstreams_for_comparison(overwrite=False):
     os.makedirs(galstreams_path, exist_ok=True)
     
     # Check if files already exist
+    file_path_galstreams_stream_track_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_track_names.npy")
     file_path_galstreams_members_stream_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_ids_subsample.npy")
     file_path_galstreams_members_stream_probs_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_probs_subsample.npy")
     file_path_galstreams_streams_probability_sums_total = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_streams_probability_sums_total.npy")
     file_path_galstreams_streams_probability_sums_overlap = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_streams_probability_sums_overlap.npy")
 
     # Skip processing if all merged output files already exist
-    all_exist = (os.path.exists(file_path_galstreams_members_stream_ids_subsample) and
+    all_exist = (os.path.exists(file_path_galstreams_stream_track_names) and
+                 os.path.exists(file_path_galstreams_members_stream_ids_subsample) and
                  os.path.exists(file_path_galstreams_members_stream_probs_subsample) and
                  os.path.exists(file_path_galstreams_streams_probability_sums_total) and
                  os.path.exists(file_path_galstreams_streams_probability_sums_overlap))
     if all_exist and not overwrite:
         print("Galstreams reduced data already exists at:")
+        print(f"\t{file_path_galstreams_stream_track_names} ,")
         print(f"\t{file_path_galstreams_members_stream_ids_subsample} ,")
         print(f"\t{file_path_galstreams_members_stream_probs_subsample} ,")
         print(f"\t{file_path_galstreams_streams_probability_sums_total} , and")
@@ -2829,6 +2896,13 @@ def prepare_galstreams_for_comparison(overwrite=False):
     print('... creating MWStreams object')
     with printout_suppressor():  # Suppress the printout from galstreams
         mws = galstreams.MWStreams(print_topcat_friendly_files=False)
+
+    # Save an array of stream track names
+    print('... saving stream track names')
+    stream_track_names = np.array(list(mws.keys()), dtype=np.str_)
+    np.save(file_path_galstreams_stream_track_names, stream_track_names)
+    del stream_track_names  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Manual fixes for missing width_phi2 values from galstreams
     mws.summary.loc['M30-S20', 'width_phi2'] = 0.10992290189439437 # From galstreams/tracks/track.st.M30.sollima2020.summary.ecsv (not read in automatically for some reason)
@@ -3237,6 +3311,9 @@ def plot_galstreams_comparison_results(overwrite=False):
     del galstreams_streams_probability_sums_total, galstreams_streams_probability_sums_overlap  # Free memory
     gc.collect()  # Force garbage collection
 
+    # Load stream track names
+    galstreams_stream_track_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_track_names.npy"))  # (N_streams,)
+
     # Extract per-assumption and per-statistic arrays
     R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
     P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
@@ -3253,55 +3330,79 @@ def plot_galstreams_comparison_results(overwrite=False):
 
     print("... plotting combined statistics vs significance level")
 
+    # Define streams and colors
+    best_matching_streams = np.argsort(np.max(J_union, axis=0))[::-1][:9]
+    stream_type_colors = {
+        stream_name: f"C{index}"
+        for index, stream_name in enumerate(galstreams_stream_track_names[best_matching_streams])
+    }
+
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
 
-    """
-    # Recovery
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
-            color='k', linestyle='dashed', linewidth=1.5, label='R', zorder=3)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full,
-            color='k', linestyle='dashed', linewidth=1.5, zorder=3)
-    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full, Rbar_union,
-                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
-
-    # Purity
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_union,
-            color='k', linestyle='dotted', linewidth=1.5, label='P', zorder=3)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
-            color='k', linestyle='dotted', linewidth=1.5, zorder=3)
-    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
-                    facecolor='none', hatch='\\', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
-    """
-
     # Jaccard
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
-            color='k', linestyle='solid', linewidth=1.5, label='J', zorder=3)
+            color='k', linestyle='solid', linewidth=1, zorder=3)
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
-            color='k', linestyle='solid', linewidth=1.5, zorder=3)
+            color='k', linestyle='solid', linewidth=1, zorder=3)
     ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
-                    color='k', alpha=0.3, zorder=3)
-    
+            color='k', alpha=0.3, zorder=3)
+
+    # Cycle through specific streams and plot their Jaccard indices vs significance level
+    for stream_name, color in stream_type_colors.items():
+        # Find index of this stream
+        stream_index = np.where(galstreams_stream_track_names == stream_name)[0][0]
+
+        # Plot Jaccard indices for this stream
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_union[:, stream_index],
+                color=color, linestyle='solid', linewidth=1, zorder=4)
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_full[:, stream_index],
+                color=color, linestyle='solid', linewidth=1, zorder=4)
+        ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_full[:, stream_index], J_union[:, stream_index],
+                color=color, alpha=0.3, zorder=4)
+
     # Matched fractions
     fraction_matched_union = np.mean(J_union > 0.5, axis=1)
     fraction_matched_full = np.mean(J_full > 0.5, axis=1)
 
     # Plot fraction of clusters of this type matched to above J=0.5
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_union,
-            color='k', linestyle='dashed', linewidth=0.75, alpha=0.8,
-            label="N(J > 0.5)/N", zorder=2)
+            color='k', linestyle='dashed', linewidth=1, zorder=2)
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full,
-            color='k', linestyle='dashed', linewidth=0.75, alpha=0.8, zorder=2)
+            color='k', linestyle='dashed', linewidth=1, zorder=2)
     ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full, fraction_matched_union,
-                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=2)
+            facecolor='none', hatch='//', edgecolor='k', linewidth=1, zorder=2)
+
+    # Plot optimal S value on top
+    ax.axvline(OPTIMAL_SIGMA_THRESHOLD, color='grey', linestyle='dotted', linewidth=0.75, zorder=4)
+    ax.text(
+        OPTIMAL_SIGMA_THRESHOLD, 1.01,
+        f"S = {OPTIMAL_SIGMA_THRESHOLD}",
+        color='grey', fontsize=10, ha='center', va='bottom', zorder=4
+    )
+
+    # Dummy handles for the legend
+    handles = [
+        Rectangle((0,0), 1, 1, facecolor=mcolors.to_rgba('k', alpha=0.3), edgecolor='k', linewidth=1, label='Jaccard index'),
+        Rectangle((0,0), 1, 1, facecolor='none', hatch='//', edgecolor='k', linewidth=1, label='Matched fraction'),
+    ] + [plt.Line2D([], [], color='none', label=stream_name) for stream_name in stream_type_colors.keys()]
+
+    # Create the legend
+    leg = ax.legend(handles=handles, loc='upper right', frameon=False)
+
+    # Recolor legend text entries for cluster types
+    for text in leg.get_texts():
+        label = text.get_text()
+        if label in stream_type_colors:
+            text.set_color(stream_type_colors[label])
+            text.set_fontweight('bold')
 
     # Final formatting
     print("... saving figure.\n")
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
     ax.set_ylim(0, 1)
-    ax.set_xlabel("Significance Level")
-    ax.set_ylabel("Comparison Statistic")
-    ax.legend()
+    ax.set_xlabel(r"Significance, $S$")
+    ax.set_ylabel("Comparison statistic")
     plt.tight_layout()
     plt.savefig(file_path, dpi=500)
     plt.close(fig)
@@ -3314,6 +3415,7 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
     Prepare the Vasiliev & Baumgardt (2021) catalogue for comparison to the clustering output.
     """
     # Check if files already exist
+    file_path_V21_clusters_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_names.npy")
     file_path_V21_members_cluster_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_ids_subsample.npy")
     file_path_V21_members_cluster_probs_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_probs_subsample.npy")
     file_path_V21_clusters_probability_sums_total = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_probability_sums_total.npy")
@@ -3350,6 +3452,12 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
             name for name in z.namelist()
             if name.startswith('catalogues/') and name.endswith('.txt')
         ]
+
+        # Save the cluster names
+        V21_clusters_names = np.array([os.path.splitext(os.path.basename(name))[0] for name in globular_cluster_files])
+        np.save(file_path_V21_clusters_names, V21_clusters_names)
+        del V21_clusters_names  # Free memory
+        gc.collect()  # Force garbage collection
         
         # Cycle through each cluster and save the star membership probabilities for that cluster
         max_V21_cluster_ID = len(globular_cluster_files) - 1
@@ -3586,6 +3694,9 @@ def plot_Vasiliev2021_comparison_results(overwrite=False):
     del V21_clusters_probability_sums_total, V21_clusters_probability_sums_overlap  # Free memory
     gc.collect()  # Force garbage collection
 
+    # Load cluster names
+    V21_clusters_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_names.npy"))  # (N_clusters,)
+
     # Extract per-assumption and per-statistic arrays
     R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
     P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
@@ -3602,34 +3713,36 @@ def plot_Vasiliev2021_comparison_results(overwrite=False):
 
     print("... plotting combined statistics vs significance level")
 
+    # Define clusters and colors
+    best_matching_clusters = np.argsort(np.max(J_union, axis=0))[::-1][:5]
+    cluster_type_colors = {
+        cluster_name: f"C{index}"
+        for index, cluster_name in enumerate(V21_clusters_names[best_matching_clusters])
+    }
+
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
 
-    """
-    # Recovery
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
-            color='k', linestyle='dashed', linewidth=1.5, label='R', zorder=3)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full,
-            color='k', linestyle='dashed', linewidth=1.5, zorder=3)
-    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full, Rbar_union,
-                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
-
-    # Purity
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_union,
-            color='k', linestyle='dotted', linewidth=1.5, label='P', zorder=3)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
-            color='k', linestyle='dotted', linewidth=1.5, zorder=3)
-    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
-                    facecolor='none', hatch='\\', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
-    """
-
     # Jaccard
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
-            color='k', linestyle='solid', linewidth=1.5, label='J', zorder=3)
+            color='k', linestyle='solid', linewidth=1, zorder=3)
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
-            color='k', linestyle='solid', linewidth=1.5, zorder=3)
+            color='k', linestyle='solid', linewidth=1, zorder=3)
     ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
-                    color='k', alpha=0.3, zorder=3)
+            color='k', alpha=0.3, zorder=3)
+
+    # Cycle through specific clusters and plot their Jaccard indices vs significance level
+    for cluster_name, color in cluster_type_colors.items():
+        # Find index of this cluster
+        cluster_index = np.where(V21_clusters_names == cluster_name)[0][0]
+
+        # Plot Jaccard indices for this cluster
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_union[:, cluster_index],
+                color=color, linestyle='solid', linewidth=1, zorder=4)
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_full[:, cluster_index],
+                color=color, linestyle='solid', linewidth=1, zorder=4)
+        ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_full[:, cluster_index], J_union[:, cluster_index],
+                color=color, alpha=0.3, zorder=4)
     
     # Matched fractions
     fraction_matched_union = np.mean(J_union > 0.5, axis=1)
@@ -3637,20 +3750,42 @@ def plot_Vasiliev2021_comparison_results(overwrite=False):
 
     # Plot fraction of clusters of this type matched to above J=0.5
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_union,
-            color='k', linestyle='dashed', linewidth=0.75, alpha=0.8,
-            label="N(J > 0.5)/N", zorder=2)
+            color='k', linestyle='dashed', linewidth=1, zorder=2)
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full,
-            color='k', linestyle='dashed', linewidth=0.75, alpha=0.8, zorder=2)
+            color='k', linestyle='dashed', linewidth=1, zorder=2)
     ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full, fraction_matched_union,
-                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=2)
+            facecolor='none', hatch='//', edgecolor='k', linewidth=1, zorder=2)
+
+    # Plot optimal S value on top
+    ax.axvline(OPTIMAL_SIGMA_THRESHOLD, color='grey', linestyle='dotted', linewidth=0.75, zorder=4)
+    ax.text(
+        OPTIMAL_SIGMA_THRESHOLD, 1.01,
+        f"S = {OPTIMAL_SIGMA_THRESHOLD}",
+        color='grey', fontsize=10, ha='center', va='bottom', zorder=4
+    )
+
+    # Dummy handles for the legend
+    handles = [
+        Rectangle((0,0), 1, 1, facecolor=mcolors.to_rgba('k', alpha=0.3), edgecolor='k', linewidth=1, label='Jaccard index'),
+        Rectangle((0,0), 1, 1, facecolor='none', hatch='//', edgecolor='k', linewidth=1, label='Matched fraction'),
+    ] + [plt.Line2D([], [], color='none', label=cluster_name) for cluster_name in cluster_type_colors.keys()]
+
+    # Create the legend
+    leg = ax.legend(handles=handles, loc='upper right', frameon=False)
+
+    # Recolor legend text entries for cluster types
+    for text in leg.get_texts():
+        label = text.get_text()
+        if label in cluster_type_colors:
+            text.set_color(cluster_type_colors[label])
+            text.set_fontweight('bold')
 
     # Final formatting
     print("... saving figure.\n")
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
     ax.set_ylim(0, 1)
-    ax.set_xlabel("Significance Level")
-    ax.set_ylabel("Comparison Statistic")
-    ax.legend()
+    ax.set_xlabel(r"Significance, $S$")
+    ax.set_ylabel("Comparison statistic")
     plt.tight_layout()
     plt.savefig(file_path, dpi=500)
     plt.close(fig)
@@ -3923,6 +4058,9 @@ def plot_Battaglia2021_comparison_results(overwrite=False):
     del B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_overlap  # Free memory
     gc.collect()  # Force garbage collection
 
+    # Load dwarf galaxy names
+    dwarf_galaxy_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_names.npy"), allow_pickle=True)
+
     # Extract per-assumption and per-statistic arrays
     R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
     P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
@@ -3938,6 +4076,13 @@ def plot_Battaglia2021_comparison_results(overwrite=False):
     Jbar_union = np.sum(J_union * coverage, axis=1) / np.sum(coverage)
 
     print("... plotting combined statistics vs significance level")
+
+    # Define dwarf galaxy names and colors
+    best_matching_dwarf_galaxies = np.argsort(np.max(J_union, axis=0))[::-1][:5]
+    dwarf_galaxy_colors = {
+        dwarf_galaxy_name: f"C{index}"
+        for index, dwarf_galaxy_name in enumerate(dwarf_galaxy_names[best_matching_dwarf_galaxies])
+    }
 
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -3962,11 +4107,24 @@ def plot_Battaglia2021_comparison_results(overwrite=False):
 
     # Jaccard
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
-            color='k', linestyle='solid', linewidth=1.5, label='J', zorder=3)
+            color='k', linestyle='solid', linewidth=1, zorder=2)
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
-            color='k', linestyle='solid', linewidth=1.5, zorder=3)
+            color='k', linestyle='solid', linewidth=1, zorder=2)
     ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
-                    color='k', alpha=0.3, zorder=3)
+            color='k', alpha=0.3, zorder=3)
+
+    # Cycle through specific streams and plot their Jaccard indices vs significance level
+    for dwarf_galaxy_name, color in dwarf_galaxy_colors.items():
+        # Find index of this stream
+        dwarf_galaxy_index = np.where(dwarf_galaxy_names == dwarf_galaxy_name)[0][0]
+
+        # Plot Jaccard indices for this stream
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_union[:, dwarf_galaxy_index],
+                color=color, linestyle='solid', linewidth=1, zorder=3)
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_full[:, dwarf_galaxy_index],
+                color=color, linestyle='solid', linewidth=1, zorder=3)
+        ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_full[:, dwarf_galaxy_index], J_union[:, dwarf_galaxy_index],
+                color=color, alpha=0.3, zorder=3)
     
     # Matched fractions
     fraction_matched_union = np.mean(J_union > 0.5, axis=1)
@@ -3974,20 +4132,42 @@ def plot_Battaglia2021_comparison_results(overwrite=False):
 
     # Plot fraction of clusters of this type matched to above J=0.5
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_union,
-            color='k', linestyle='dashed', linewidth=0.75, alpha=0.8,
-            label="N(J > 0.5)/N", zorder=2)
+            color='k', linestyle='dashed', linewidth=1, zorder=2)
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full,
-            color='k', linestyle='dashed', linewidth=0.75, alpha=0.8, zorder=2)
+            color='k', linestyle='dashed', linewidth=1, zorder=2)
     ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full, fraction_matched_union,
-                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=2)
+            facecolor='none', hatch='//', edgecolor='k', linewidth=1, zorder=2)
+
+    # Plot optimal S value on top
+    ax.axvline(OPTIMAL_SIGMA_THRESHOLD, color='grey', linestyle='dotted', linewidth=0.75, zorder=4)
+    ax.text(
+        OPTIMAL_SIGMA_THRESHOLD, 1.01,
+        f"S = {OPTIMAL_SIGMA_THRESHOLD}",
+        color='grey', fontsize=10, ha='center', va='bottom', zorder=4
+    )
+
+    # Dummy handles for the legend
+    handles = [
+        Rectangle((0,0), 1, 1, facecolor=mcolors.to_rgba('k', alpha=0.3), edgecolor='k', linewidth=1, label='Jaccard index'),
+        Rectangle((0,0), 1, 1, facecolor='none', hatch='//', edgecolor='k', linewidth=1, label='Matched fraction'),
+    ] + [plt.Line2D([], [], color='none', label=dwarf_galaxy_name) for dwarf_galaxy_name in dwarf_galaxy_colors.keys()]
+
+    # Create the legend
+    leg = ax.legend(handles=handles, loc='upper right', frameon=False)
+
+    # Recolor legend text entries for cluster types
+    for text in leg.get_texts():
+        label = text.get_text()
+        if label in dwarf_galaxy_colors:
+            text.set_color(dwarf_galaxy_colors[label])
+            text.set_fontweight('bold')
 
     # Final formatting
     print("... saving figure.\n")
     ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
     ax.set_ylim(0, 1)
-    ax.set_xlabel("Significance Level")
-    ax.set_ylabel("Comparison Statistic")
-    ax.legend()
+    ax.set_xlabel(r"Significance, $S$")
+    ax.set_ylabel("Comparison statistic")
     plt.tight_layout()
     plt.savefig(file_path, dpi=500)
     plt.close(fig)
@@ -4007,21 +4187,21 @@ if __name__ == "__main__":
     prepare_bailerjones_gedr3_distances()
 
     # Calculate empirical selection function
-    calculate_empirical_survey_selection_function(True)
-    plot_limiting_g_band_magnitude_on_sky(True)
+    calculate_empirical_survey_selection_function()
+    plot_limiting_g_band_magnitude_on_sky()
     
     # Construct subsample and subsample selection function
-    construct_subsample_from_full_catalogue(True)
-    calculate_subsample_selection_function(True)
+    construct_subsample_from_full_catalogue()
+    calculate_subsample_selection_function()
 
     # Calculate total selection function for subsample
-    calculate_total_selection_function_for_subsample(True)
-    plot_total_selection_function_for_subsample(True)
-    
+    calculate_total_selection_function_for_subsample()
+    plot_total_selection_function_for_subsample()
+
     # Construct input data to be passed to AstroLink
-    calculate_distance_contraction_for_subsample(True)
-    calculate_contracted_data_and_errors_for_subsample(True)
-    construct_data_space_for_subsample(True)
+    calculate_distance_contraction_for_subsample()
+    calculate_contracted_data_and_errors_for_subsample()
+    construct_data_space_for_subsample()
 
     # Apply AstroLink to subsample and plot of cluster properties
     apply_astrolink_to_subsample(True)
@@ -4030,31 +4210,31 @@ if __name__ == "__main__":
     plot_cluster_proper_motions_on_sky(True)
 
     # Compare to Hunt & Reffert (2024)
-    prepare_Hunt2024_for_comparison(True)
-    plot_Hunt2024_clusters_on_sky(True)
+    prepare_Hunt2024_for_comparison()
+    plot_Hunt2024_clusters_on_sky()
     compare_to_Hunt2024(True)
     plot_Hunt2024_comparison_results(True)
 
     # Compare to Unified Cluster Catalogue
-    prepare_UCC_for_comparison(True)
-    plot_UCC_clusters_on_sky(True)
+    prepare_UCC_for_comparison()
+    plot_UCC_clusters_on_sky()
     compare_to_UCC(True)
     plot_UCC_comparison_results(True)
 
     # Compare to galstreams catalogue
-    prepare_galstreams_for_comparison(True)
-    plot_galstreams_streams_on_sky(True)
+    prepare_galstreams_for_comparison()
+    plot_galstreams_streams_on_sky()
     compare_to_galstreams(True)
     plot_galstreams_comparison_results(True)
 
     # Compare to Vasiliev & Baumgardt (2021)
-    prepare_Vasiliev2021_for_comparison(True)
-    plot_Vasiliev2021_clusters_on_sky(True)
+    prepare_Vasiliev2021_for_comparison()
+    plot_Vasiliev2021_clusters_on_sky()
     compare_to_Vasiliev2021(True)
     plot_Vasiliev2021_comparison_results(True)
 
     # Compare to Battaglia et al. (2021)
-    prepare_Battaglia2021_for_comparison(True)
-    plot_Battaglia2021_dwarfgalaxies_on_sky(True)
+    prepare_Battaglia2021_for_comparison()
+    plot_Battaglia2021_dwarfgalaxies_on_sky()
     compare_to_Battaglia2021(True)
     plot_Battaglia2021_comparison_results(True)

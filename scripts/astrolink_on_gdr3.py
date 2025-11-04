@@ -295,9 +295,9 @@ def calculate_empirical_survey_selection_function(overwrite=False):
     and save each as a .npy files aligned with the G-band photometry array.
     """
     # Check if selection function already exists
-    file_path_m10_stars = os.path.join(REDUCED_CATALOGUE_PATH, "m10_stars.npy")
-    file_path_sf = os.path.join(REDUCED_CATALOGUE_PATH, "empirical_survey_selection_function.npy")
-    file_path_m10_healpix = os.path.join(REDUCED_CATALOGUE_PATH, "m10_healpix.npy")
+    file_path_m10_stars = os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_selection_function_m10_stars.npy")
+    file_path_sf = os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_selection_function.npy")
+    file_path_m10_healpix = os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_selection_function_m10_healpix.npy")
     if os.path.exists(file_path_m10_stars) and os.path.exists(file_path_sf) and os.path.exists(file_path_m10_healpix) and not overwrite:
         print(f"Empirical selection function and m10 values for the centre of HEALPix pixels already exist at:")
         print(f"\t{file_path_sf} and")
@@ -445,8 +445,8 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
     Plot the limiting G-band magnitude across the sky using HEALPix.
     """
     # Check if plot already exists
-    file_m10_path = os.path.join(FIGURES_PATH, "m10_map.png")
-    file_limiting_g_mag_path = os.path.join(FIGURES_PATH, "limiting_g_mag.png")
+    file_m10_path = os.path.join(FIGURES_PATH, "gdr3_selection_function_m10_map.png")
+    file_limiting_g_mag_path = os.path.join(FIGURES_PATH, "gdr3_selection_function_limiting_g_mag.png")
     if os.path.exists(file_m10_path) and os.path.exists(file_limiting_g_mag_path) and not overwrite:
         print(f"Plots of m10 map and limiting G-band magnitude already exist at:")
         print(f"\t{file_m10_path} and")
@@ -456,7 +456,7 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
     print("Plotting M10 map across the sky...")
 
     # Load m10 values for HEALPix pixels
-    m10 = np.load(f"{REDUCED_CATALOGUE_PATH}/m10_healpix.npy")  # (npix,)
+    m10 = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_selection_function_m10_healpix.npy")  # (npix,)
 
     # Create a Mollweide projection plot of the limiting G-band magnitude
     plt.figure(figsize=(12, 6))
@@ -545,7 +545,7 @@ def construct_subsample_from_full_catalogue(overwrite=False):
 
     # Load selection function and galactic coordinates
     print("... loading required arrays from reduced catalogue")
-    selection_function = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "empirical_survey_selection_function.npy"))  # (n,)
+    selection_function = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_selection_function_.npy"))  # (n,)
     galactic_coords = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (n, 2) in degrees
     r_med_photogeo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_photogeo.npy"))  # (n,)
     proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))  # (n, 2) in mas/yr
@@ -699,7 +699,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     print("... loading required arrays from reduced catalogue")
     galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))
     G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]
-    survey_sf = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "empirical_survey_selection_function.npy"))
+    survey_sf = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_selection_function_.npy"))
     subsample_sf = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_selection_function.npy"))
 
     # Identify stars with valid G magnitude
@@ -953,6 +953,7 @@ def plot_total_selection_function_for_subsample(overwrite=False):
     gc.collect()  # Free memory
 
     print(f"... saved mollview plot to {file_total_sf_se_over_mean_path}.\n")
+
 
 # === Construct input data to be passed to AstroLink ===
 def calculate_distance_contraction_for_subsample(overwrite=False):
@@ -1340,7 +1341,7 @@ def plot_prominence_model_fit(overwrite=False):
     Plot the prominence model fit from AstroLink.
     """
     # Check if plots already exist
-    file_prominence_model_fit_path = os.path.join(FIGURES_PATH, "prominence_model_fit.png")
+    file_prominence_model_fit_path = os.path.join(FIGURES_PATH, "AstroLink_prominence_model_fit.png")
     if os.path.exists(file_prominence_model_fit_path) and not overwrite:
         print(f"Prominence model fit plot already exists at:\n\t{file_prominence_model_fit_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -1510,7 +1511,7 @@ def plot_cluster_labels_on_sky(overwrite=False):
     Plot the clustering output from AstroLink.
     """
     # Check if plots already exist
-    file_clusters_on_sky_path = os.path.join(FIGURES_PATH, "clusters_on_sky.png")
+    file_clusters_on_sky_path = os.path.join(FIGURES_PATH, "AstroLink_clusters_on_sky.png")
     if os.path.exists(file_clusters_on_sky_path) and not overwrite:
         print(f"Clusters on sky plot already exists at:\n\t{file_clusters_on_sky_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -1571,7 +1572,7 @@ def plot_cluster_proper_motions_on_sky(overwrite=False):
     Plot the proper motions of the clusters on the sky.
     """
     # Check if plots already exist
-    file_proper_motions_on_sky_path = os.path.join(FIGURES_PATH, "proper_motions_on_sky.png")
+    file_proper_motions_on_sky_path = os.path.join(FIGURES_PATH, "AstroLink_cluster_proper_motions_on_sky.png")
     if os.path.exists(file_proper_motions_on_sky_path) and not overwrite:
         print(f"Proper motions on sky plot already exists at:\n\t{file_proper_motions_on_sky_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -1843,11 +1844,71 @@ def load_cds_table(readme_path, data_path):
     df = pd.read_fwf(data_path, compression="gzip", colspecs=colspecs, names=names)
     return df
 
-def plot_catalogue_structure_on_sky():
+def plot_catalogue_structure_on_sky(members_cluster_ids_subsample, 
+                                    members_cluster_probs_subsample,
+                                    file_path_clusters_on_sky):
     """
     Plot the structure of a catalogue on the sky.
     """
-    pass  # Implementation would go here
+    # Load the required arrays
+    print("... loading required arrays for plotting")
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
+    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
+    del subsample_mask  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Convert (l, b) in degrees to radians for Mollweide projection
+    print("... converting galactic coordinates to radians for Mollweide projection")
+    galactic_coordinates = np.deg2rad(galactic_coordinates)
+
+    # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
+    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
+    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
+    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
+
+    # Simplify the catalogue
+    print("... simplifying Hunt & Reffert (2024) catalogue for plotting")
+    plottable_bool = np.any(members_cluster_probs_subsample > 0.5, axis=1)
+    no_cluster_id = members_cluster_ids_subsample.max()  # Define "no cluster" ID
+    members_cluster_ids_subsample = members_cluster_ids_subsample[plottable_bool]
+    galactic_coordinates = galactic_coordinates[plottable_bool]
+    print(f"... {plottable_bool.sum()} plottable stars")
+    del members_cluster_probs_subsample, plottable_bool  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Create a Mollweide projection plot and plot clusters on the sky
+    fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
+
+    # Cycle through the clusters and plot them
+    print("... plotting clusters on the sky")
+    for i in range(no_cluster_id):
+        clusterMembers = np.any(members_cluster_ids_subsample == i, axis=1)
+
+        # Filter out excess members for better plotting
+        n_cluster = clusterMembers.sum()
+        if n_cluster > 5000:
+            clusterMembers_indices = np.where(clusterMembers)[0]
+            removed_indices = np.random.choice(clusterMembers_indices, size=n_cluster-5000, replace=False)
+            clusterMembers[removed_indices] = False
+
+        # Plot the cluster members
+        ax.scatter(
+            *galactic_coordinates[clusterMembers].T,
+            facecolor=f"C{i}", edgecolor='k',
+            s=0.75, lw=0.075
+        )  # Plot each cluster with a different color
+
+    # Remove grid, ticks, and labels
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(file_path_clusters_on_sky, dpi=500)
+    plt.close()
+    gc.collect()  # Free memory
+    print(f"... saved clusters on sky plot to {file_path_clusters_on_sky}.\n")
 
 def compare_to_catalogue_helper(members_cluster_ids_subsample,
                                 members_cluster_probs_subsample,
@@ -2179,68 +2240,24 @@ def plot_Hunt2024_clusters_on_sky(overwrite=False):
     Plot the Hunt & Reffert (2024) clusters on the sky.
     """
     # Check if plot already exists
-    file_clusters_on_sky_path = os.path.join(FIGURES_PATH, "Hunt2024_clusters_on_sky.png")
-    if os.path.exists(file_clusters_on_sky_path) and not overwrite:
-        print(f"Hunt & Reffert (2024) clusters plot already exists at:\n\t{file_clusters_on_sky_path} .")
+    file_path_clusters_on_sky = os.path.join(FIGURES_PATH, "Hunt2024_clusters_on_sky.png")
+    if os.path.exists(file_path_clusters_on_sky) and not overwrite:
+        print(f"Hunt & Reffert (2024) clusters plot already exists at:\n\t{file_path_clusters_on_sky} .")
         print("Use overwrite=True to force replotting.\n")
         return
     print("Plotting Hunt & Reffert (2024) clusters...")
-
-    # Load the required arrays
-    print("... loading required arrays for plotting")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
-    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
-    del subsample_mask  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Convert (l, b) in degrees to radians for Mollweide projection
-    print("... converting galactic coordinates to radians for Mollweide projection")
-    galactic_coordinates = np.deg2rad(galactic_coordinates)
-
-     # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
-    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
-    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
-    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
 
     # Load the Hunt & Reffert (2024) clustering output
     print("... loading Hunt & Reffert (2024) catalogue")
     H24_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_members_cluster_ids_subsample.npy"))
     H24_members_cluster_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_members_cluster_probs_subsample.npy"))
 
-    # Simplify the catalogue
-    print("... simplifying Hunt & Reffert (2024) catalogue for plotting")
-    plottable_bool = np.any(H24_members_cluster_probs_subsample > 0.5, axis=1)
-    no_cluster_id = H24_members_cluster_ids_subsample.max()  # Define "no cluster" ID
-    H24_members_cluster_ids_subsample = H24_members_cluster_ids_subsample[plottable_bool]
-    galactic_coordinates = galactic_coordinates[plottable_bool]
-    print(f"... {plottable_bool.sum()} plottable stars")
-    del H24_members_cluster_probs_subsample, plottable_bool  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Create a Mollweide projection plot and plot clusters on the sky
-    fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
-
-    # Cycle through the clusters and plot them
-    print("... plotting clusters on the sky")
-    for i in range(no_cluster_id):
-        clusterMembers = np.any(H24_members_cluster_ids_subsample == i, axis=1)
-        ax.scatter(
-            *galactic_coordinates[clusterMembers].T,
-            facecolor=f"C{i}", edgecolor='k',
-            s=0.75, lw=0.075
-        )  # Plot each cluster with a different color
-
-    # Remove grid, ticks, and labels
-    ax.grid(False)
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    # Save the figure
-    plt.tight_layout()
-    plt.savefig(file_clusters_on_sky_path, dpi=500)
-    plt.close()
-    gc.collect()  # Free memory
-    print(f"... saved clusters on sky plot to {file_clusters_on_sky_path}.\n")
+    # Plot the structure on the sky
+    plot_catalogue_structure_on_sky(
+        H24_members_cluster_ids_subsample,
+        H24_members_cluster_probs_subsample,
+        file_path_clusters_on_sky
+    )
 
 def compare_to_Hunt2024(overwrite=False):
     """
@@ -2601,68 +2618,24 @@ def plot_UCC_clusters_on_sky(overwrite=False):
     Plot the Unified Cluster Catalogue clusters on the sky.
     """
     # Check if plot already exists
-    file_clusters_on_sky_path = os.path.join(FIGURES_PATH, "UCC_clusters_on_sky.png")
-    if os.path.exists(file_clusters_on_sky_path) and not overwrite:
-        print(f"Unified Cluster Catalogue clusters plot already exists at:\n\t{file_clusters_on_sky_path} .")
+    file_path_clusters_on_sky = os.path.join(FIGURES_PATH, "UCC_clusters_on_sky.png")
+    if os.path.exists(file_path_clusters_on_sky) and not overwrite:
+        print(f"Unified Cluster Catalogue clusters plot already exists at:\n\t{file_path_clusters_on_sky} .")
         print("Use overwrite=True to force replotting.\n")
         return
     print("Plotting Unified Cluster Catalogue clusters...")
-
-    # Load the required arrays
-    print("... loading required arrays for plotting")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
-    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
-    del subsample_mask  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Convert (l, b) in degrees to radians for Mollweide projection
-    print("... converting galactic coordinates to radians for Mollweide projection")
-    galactic_coordinates = np.deg2rad(galactic_coordinates)
-
-     # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
-    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
-    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
-    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
 
     # Load the UCC clustering output
     print("... loading Unified Cluster Catalogue catalogue")
     UCC_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_members_cluster_ids_subsample.npy"))
     UCC_members_cluster_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_members_cluster_probs_subsample.npy"))
 
-    # Simplify the catalogue
-    print("... simplifying Unified Cluster Catalogue catalogue for plotting")
-    plottable_bool = np.any(UCC_members_cluster_probs_subsample > 0.5, axis=1)
-    no_cluster_id = UCC_members_cluster_ids_subsample.max()  # Define "no cluster" ID
-    UCC_members_cluster_ids_subsample = UCC_members_cluster_ids_subsample[plottable_bool]
-    galactic_coordinates = galactic_coordinates[plottable_bool]
-    print(f"... {plottable_bool.sum()} plottable stars")
-    del UCC_members_cluster_probs_subsample, plottable_bool  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Create a Mollweide projection plot and plot clusters on the sky
-    fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
-
-    # Cycle through the clusters and plot them
-    print("... plotting clusters on the sky")
-    for i in range(no_cluster_id):
-        clusterMembers = np.any(UCC_members_cluster_ids_subsample == i, axis=1)
-        ax.scatter(
-            *galactic_coordinates[clusterMembers].T,
-            facecolor=f"C{i}", edgecolor='k',
-            s=0.75, lw=0.075
-        )  # Plot each cluster with a different color
-
-    # Remove grid, ticks, and labels
-    ax.grid(False)
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    # Save the figure
-    plt.tight_layout()
-    plt.savefig(file_clusters_on_sky_path, dpi=500)
-    plt.close()
-    gc.collect()  # Free memory
-    print(f"... saved clusters on sky plot to {file_clusters_on_sky_path}.\n")
+    # Plot the open clusters on the sky
+    plot_catalogue_structure_on_sky(
+        UCC_members_cluster_ids_subsample,
+        UCC_members_cluster_probs_subsample,
+        file_path_clusters_on_sky
+    )
 
 def compare_to_UCC(overwrite=False):
     """
@@ -2844,6 +2817,683 @@ def plot_UCC_comparison_results(overwrite=False):
             text.set_fontweight('bold')
 
     print("... saving figure.\n")
+    plt.tight_layout()
+    plt.savefig(file_path, dpi=500)
+    plt.close(fig)
+    gc.collect()
+
+
+# === Compare clustering output to Vasiliev & Baumgardt (2021) ===
+def prepare_Vasiliev2021_for_comparison(overwrite=False):
+    """
+    Prepare the Vasiliev & Baumgardt (2021) catalogue for comparison to the clustering output.
+    """
+    # Check if files already exist
+    file_path_V21_clusters_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_names.npy")
+    file_path_V21_members_cluster_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_ids_subsample.npy")
+    file_path_V21_members_cluster_probs_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_probs_subsample.npy")
+    file_path_V21_clusters_probability_sums_total = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_probability_sums_total.npy")
+    file_path_V21_clusters_probability_sums_overlap = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_probability_sums_overlap.npy")
+
+    # Skip processing if all merged output files already exist
+    all_exist = (os.path.exists(file_path_V21_members_cluster_ids_subsample) and
+                 os.path.exists(file_path_V21_members_cluster_probs_subsample) and
+                 os.path.exists(file_path_V21_clusters_probability_sums_total) and
+                 os.path.exists(file_path_V21_clusters_probability_sums_overlap))
+    if all_exist and not overwrite:
+        print("Vasiliev & Baumgardt (2021) reduced data already exists at:")
+        print(f"\t{file_path_V21_members_cluster_ids_subsample} ,")
+        print(f"\t{file_path_V21_members_cluster_probs_subsample} ,")
+        print(f"\t{file_path_V21_clusters_probability_sums_total} , and")
+        print(f"\t{file_path_V21_clusters_probability_sums_overlap} .")
+        print("Use overwrite=True to force recomputation.\n")
+        return
+    print("Preparing data for comparison with the Vasiliev & Baumgardt (2021) catalogue...")
+
+    # Load required arrays
+    print('... loading required arrays')
+    source_ids = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_source_ids.npy"))  # (N_gdr3,)
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, 'subsample_mask.npy'))  # (N_gdr3,)
+
+    # Load the Vasiliev & Baumgardt (2021) catalogue
+    print("... loading the Vasiliev & Baumgardt (2021) catalogue")
+    cat_path = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/clusters.zip")
+
+    # Open the zip file and read the catalogue
+    with zipfile.ZipFile(cat_path, 'r') as z:
+        # Find all text files inside 'clusters/catalogues/'
+        globular_cluster_files = [
+            name for name in z.namelist()
+            if name.startswith('catalogues/') and name.endswith('.txt')
+        ]
+
+        # Save the cluster names
+        V21_clusters_names = np.array([os.path.splitext(os.path.basename(name))[0] for name in globular_cluster_files])
+        np.save(file_path_V21_clusters_names, V21_clusters_names)
+        del V21_clusters_names  # Free memory
+        gc.collect()  # Force garbage collection
+        
+        # Cycle through each cluster and save the star membership probabilities for that cluster
+        max_V21_cluster_ID = len(globular_cluster_files) - 1
+        V21_members_cluster_ids_gdr3 = np.full((subsample_mask.size, 1), max_V21_cluster_ID + 1, dtype=np.int64)  # (N,) Initialize with max_V21_cluster_ID + 1, representing no cluster
+        V21_members_cluster_probs_gdr3 = np.zeros((subsample_mask.size, 1), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
+        for i, name in enumerate(globular_cluster_files):
+            with z.open(name) as f:
+                text_stream = TextIOWrapper(f, encoding='utf-8')
+
+                # Read until we find the header line (starts with '#')
+                for line in text_stream:
+                    if line.startswith('#'):
+                        # Strip the '#' and whitespace, then split into column names
+                        colnames = line.strip('#').strip().split()
+                        break
+
+                # Now read the remaining lines as data with those column names
+                df = pd.read_csv(
+                    text_stream,
+                    sep=r"\s+",
+                    names=colnames,
+                    engine="python"  # optional: allows regex separator, ensures compatibility
+                )
+
+            # Extract only the columns of interest
+            cluster_source_ids = df['source_id'].to_numpy().astype(np.int64)  # (N_cluster,)
+            cluster_member_probs = df['memberprob'].to_numpy().astype(np.float32)  # (N_cluster,)
+            
+            # Find which stars in the full GDR3 catalogue are in this cluster
+            indices = np.searchsorted(source_ids, cluster_source_ids)  # Assumes source_ids is sorted
+            indices = indices[(indices < source_ids.size) & (source_ids[indices] == cluster_source_ids)]  # Keep only valid matches
+
+            # Assign the cluster IDs and probabilities to the members
+            unassigned_bool = True
+            cluster_source_ids_indices = V21_members_cluster_ids_gdr3[indices]
+            for j in range(V21_members_cluster_ids_gdr3.shape[1]):
+                # Find which members can be assigned to this column
+                unassigned_indices_bool = cluster_source_ids_indices[:, j] == max_V21_cluster_ID + 1
+
+                # Assign the cluster IDs and probabilities to the unassigned members for this column
+                unassigned_indices = indices[unassigned_indices_bool]
+                V21_members_cluster_ids_gdr3[unassigned_indices, j] = i
+                V21_members_cluster_probs_gdr3[unassigned_indices, j] = cluster_member_probs[unassigned_indices_bool]
+
+                # Update the arrays to only include those that are still unassigned
+                indices = indices[~unassigned_indices_bool]
+                cluster_source_ids_indices = cluster_source_ids_indices[~unassigned_indices_bool]
+                cluster_member_probs = cluster_member_probs[~unassigned_indices_bool]
+
+                # If all members have been assigned, break
+                if cluster_source_ids_indices.shape[0] == 0:
+                    unassigned_bool = False
+                    break
+            del cluster_source_ids_indices, unassigned_indices_bool, unassigned_indices  # Free memory
+            gc.collect()  # Force garbage collection
+            
+            if unassigned_bool:
+                # Add another column to the arrays
+                V21_members_cluster_ids_gdr3 = np.concatenate(
+                    (V21_members_cluster_ids_gdr3, np.full((subsample_mask.size, 1), max_V21_cluster_ID + 1, dtype=np.int64)),
+                    axis=1
+                )
+                V21_members_cluster_probs_gdr3 = np.concatenate(
+                    (V21_members_cluster_probs_gdr3, np.zeros((subsample_mask.size, 1), dtype=np.float32)),
+                    axis=1
+                )
+
+                # Assign the cluster IDs and probabilities to the members
+                V21_members_cluster_ids_gdr3[indices, -1] = i
+                V21_members_cluster_probs_gdr3[indices, -1] = cluster_member_probs
+    del source_ids  # Free memory
+    gc.collect()  # Force garbage collection
+    
+    # Get the cluster IDs and probabilities for the subsample in this work
+    V21_members_cluster_ids_subsample = V21_members_cluster_ids_gdr3[subsample_mask]
+    V21_members_cluster_probs_subsample = V21_members_cluster_probs_gdr3[subsample_mask]
+    del subsample_mask  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Pre-compute the total sum of probabilities for each globular cluster in Vasiliev & Baumgardt (2021)
+    print("... pre-computing the total sum of probabilities for each Vasiliev & Baumgardt (2021) globular cluster")
+    V21_clusters_probability_sums_total = np.bincount(V21_members_cluster_ids_gdr3.ravel(),
+                                        weights=V21_members_cluster_probs_gdr3.ravel(),
+                                        minlength=max_V21_cluster_ID + 1)[:max_V21_cluster_ID + 1]  # (N_clusters,)
+    del V21_members_cluster_ids_gdr3, V21_members_cluster_probs_gdr3  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Pre-compute the sum of probabilities for each globular cluster in the overlap with the subsample
+    print("... pre-computing the total sum of probabilities for each Vasiliev & Baumgardt (2021) globular cluster in the subsample of this work")
+    V21_clusters_probability_sums_overlap = np.bincount(V21_members_cluster_ids_subsample.ravel(),
+                                        weights=V21_members_cluster_probs_subsample.ravel(),
+                                        minlength=max_V21_cluster_ID + 1)[:max_V21_cluster_ID + 1]  # (N_clusters,)
+
+    # Save the intermediary results
+    print('... saving intermediary results.\n')
+    np.save(file_path_V21_members_cluster_ids_subsample, V21_members_cluster_ids_subsample)
+    np.save(file_path_V21_members_cluster_probs_subsample, V21_members_cluster_probs_subsample)
+    np.save(file_path_V21_clusters_probability_sums_total, V21_clusters_probability_sums_total)
+    np.save(file_path_V21_clusters_probability_sums_overlap, V21_clusters_probability_sums_overlap)
+    del V21_members_cluster_ids_subsample, V21_members_cluster_probs_subsample, V21_clusters_probability_sums_total, V21_clusters_probability_sums_overlap  # Free memory
+    gc.collect()  # Force garbage collection
+
+def plot_Vasiliev2021_clusters_on_sky(overwrite=False):
+    """
+    Plot the Vasiliev & Baumgardt (2021) globular clusters on the sky.
+    """
+    # Check if plot already exists
+    file_path_clusters_on_sky = os.path.join(FIGURES_PATH, "Vasiliev2021_clusters_on_sky.png")
+    if os.path.exists(file_path_clusters_on_sky) and not overwrite:
+        print(f"Vasiliev & Baumgardt (2021) globular clusters on sky plot already exists at:\n\t{file_path_clusters_on_sky} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting Vasiliev & Baumgardt (2021) globular clusters on the sky...")
+
+    # Load the Vasiliev & Baumgardt (2021) clustering output
+    print("... loading Vasiliev & Baumgardt (2021) clustering output for plotting")
+    V21_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_ids_subsample.npy"))  # (N,)
+    V21_members_cluster_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_probs_subsample.npy"))  # (N,)
+
+    # Plot the globular clusters on the sky
+    plot_catalogue_structure_on_sky(
+        V21_members_cluster_ids_subsample,
+        V21_members_cluster_probs_subsample,
+        file_path_clusters_on_sky
+    )
+
+def compare_to_Vasiliev2021(overwrite=False):
+    """
+    Compare the clustering output to the Vasiliev & Baumgardt (2021) catalogue.
+    """
+    # Check if comparison results already exist
+    file_path_best_match_astrolink_clusters = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev2021_best_match_astrolink_clusters.npy")
+    file_path_cluster_rpje = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev2021_rpje.npy")
+
+    # Skip processing if all merged output files already exist
+    all_exist = (os.path.exists(file_path_best_match_astrolink_clusters) and
+                 os.path.exists(file_path_cluster_rpje))
+    if all_exist and not overwrite:
+        print("Vasiliev & Baumgardt (2021) comparison results already exist at:")
+        print(f"\t{file_path_best_match_astrolink_clusters} and")
+        print(f"\t{file_path_cluster_rpje} .")
+        print("Use overwrite=True to force recomputation.\n")
+        return
+    print("Comparing clustering output to the Vasiliev & Baumgardt (2021) catalogue...")
+
+    # Load the reduced Vasiliev & Baumgardt (2021) data
+    print("... loading reduced Vasiliev & Baumgardt (2021) data")
+    V21_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_ids_subsample.npy"))  # (N,)
+    V21_members_cluster_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_probs_subsample.npy"))  # (N,)
+    V21_clusters_probability_sums_total = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_probability_sums_total.npy"))  # (N_clusters,)
+    V21_clusters_probability_sums_overlap = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_probability_sums_overlap.npy"))  # (N_clusters,)
+    
+    # Make the comparison
+    whichClusters, RPJE = compare_to_catalogue_helper(
+        V21_members_cluster_ids_subsample,
+        V21_members_cluster_probs_subsample,
+        V21_clusters_probability_sums_total,
+        V21_clusters_probability_sums_overlap
+    )
+    del V21_members_cluster_ids_subsample, V21_members_cluster_probs_subsample, V21_clusters_probability_sums_total, V21_clusters_probability_sums_overlap  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save the results
+    print("... saving comparison results.\n")
+    np.save(file_path_best_match_astrolink_clusters, whichClusters)
+    np.save(file_path_cluster_rpje, RPJE)
+    del whichClusters, RPJE  # Free memory
+    gc.collect()  # Force garbage collection
+
+def plot_Vasiliev2021_comparison_results(overwrite=False):
+    """
+    Plot the results of the comparison between clustering output and the Vasiliev & Baumgardt (2021) catalogue,
+    showing recovery, purity, and Jaccard index under both subsample assumptions
+    ('full' and 'union'), with hatched regions indicating the bounds between them.
+    """
+    # Check if plot already exists
+    file_path = os.path.join(FIGURES_PATH, "Vasiliev2021_comparison_results.png")
+    if os.path.exists(file_path) and not overwrite:
+        print(f"Vasiliev & Baumgardt (2021) comparison results plot already exists at:\n\t{file_path} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting Vasiliev & Baumgardt (2021) comparison results...")
+
+    # Load comparison results
+    print("... loading comparison results")
+    RPJE = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev2021_rpje.npy"))  # (N_sigmas, N_clusters, 2, 4)
+    V21_clusters_probability_sums_total = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_probability_sums_total.npy"))  # (N_clusters,)
+    V21_clusters_probability_sums_overlap = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_probability_sums_overlap.npy"))  # (N_clusters,)
+    coverage = V21_clusters_probability_sums_overlap / V21_clusters_probability_sums_total  # (N_clusters,)
+    del V21_clusters_probability_sums_total, V21_clusters_probability_sums_overlap  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Load cluster names
+    V21_clusters_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_names.npy"))  # (N_clusters,)
+
+    # Extract per-assumption and per-statistic arrays
+    R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
+    P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
+    J_full,  J_union  = RPJE[:, :, 0, 2], RPJE[:, :, 1, 2]
+    #E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
+
+    # Evidence-weighted averages
+    Rbar_full  = np.sum(R_full * coverage, axis=1) / np.sum(coverage)
+    Rbar_union = np.sum(R_union * coverage, axis=1) / np.sum(coverage)
+    Pbar_full  = np.sum(P_full * coverage, axis=1) / np.sum(coverage)
+    Pbar_union = np.sum(P_union * coverage, axis=1) / np.sum(coverage)
+    Jbar_full  = np.sum(J_full * coverage, axis=1) / np.sum(coverage)
+    Jbar_union = np.sum(J_union * coverage, axis=1) / np.sum(coverage)
+
+    print("... plotting combined statistics vs significance level")
+
+    # Define clusters and colors
+    best_matching_clusters = np.argsort(np.max(J_union, axis=0))[::-1][:5]
+    cluster_type_colors = {
+        cluster_name: f"C{index}"
+        for index, cluster_name in enumerate(V21_clusters_names[best_matching_clusters])
+    }
+
+    # Make figure
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Jaccard
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
+            color='k', linestyle='solid', linewidth=1, zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
+            color='k', linestyle='solid', linewidth=1, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
+            color='k', alpha=0.3, zorder=3)
+
+    # Cycle through specific clusters and plot their Jaccard indices vs significance level
+    for cluster_name, color in cluster_type_colors.items():
+        # Find index of this cluster
+        cluster_index = np.where(V21_clusters_names == cluster_name)[0][0]
+
+        # Plot Jaccard indices for this cluster
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_union[:, cluster_index],
+                color=color, linestyle='solid', linewidth=1, zorder=4)
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_full[:, cluster_index],
+                color=color, linestyle='solid', linewidth=1, zorder=4)
+        ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_full[:, cluster_index], J_union[:, cluster_index],
+                color=color, alpha=0.3, zorder=4)
+    
+    # Matched fractions
+    fraction_matched_union = np.mean(J_union > 0.5, axis=1)
+    fraction_matched_full = np.mean(J_full > 0.5, axis=1)
+
+    # Plot fraction of clusters of this type matched to above J=0.5
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_union,
+            color='k', linestyle='dashed', linewidth=1, zorder=2)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full,
+            color='k', linestyle='dashed', linewidth=1, zorder=2)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full, fraction_matched_union,
+            facecolor='none', hatch='//', edgecolor='k', linewidth=1, zorder=2)
+
+    # Plot optimal S value on top
+    ax.axvline(OPTIMAL_SIGMA_THRESHOLD, color='grey', linestyle='dotted', linewidth=0.75, zorder=4)
+    ax.text(
+        OPTIMAL_SIGMA_THRESHOLD, 1.01,
+        f"S = {OPTIMAL_SIGMA_THRESHOLD}",
+        color='grey', fontsize=10, ha='center', va='bottom', zorder=4
+    )
+
+    # Dummy handles for the legend
+    handles = [
+        Rectangle((0,0), 1, 1, facecolor=mcolors.to_rgba('k', alpha=0.3), edgecolor='k', linewidth=1, label='Jaccard index'),
+        Rectangle((0,0), 1, 1, facecolor='none', hatch='//', edgecolor='k', linewidth=1, label='Matched fraction'),
+    ] + [plt.Line2D([], [], color='none', label=cluster_name) for cluster_name in cluster_type_colors.keys()]
+
+    # Create the legend
+    leg = ax.legend(handles=handles, loc='upper right', frameon=False)
+
+    # Recolor legend text entries for cluster types
+    for text in leg.get_texts():
+        label = text.get_text()
+        if label in cluster_type_colors:
+            text.set_color(cluster_type_colors[label])
+            text.set_fontweight('bold')
+
+    # Final formatting
+    print("... saving figure.\n")
+    ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
+    ax.set_ylim(0, 1)
+    ax.set_xlabel(r"Significance, $S$")
+    ax.set_ylabel("Comparison statistic")
+    plt.tight_layout()
+    plt.savefig(file_path, dpi=500)
+    plt.close(fig)
+    gc.collect()
+
+
+# === Compare clustering output to Battaglia et al. 2021 catalogue ===
+def prepare_Battaglia2021_for_comparison(overwrite=False):
+    """
+    Prepare the Battaglia et al. (2021) catalogue for comparison to the clustering output.
+    """
+    # Check if files already exist
+    file_path_dwarfgalaxies_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_names.npy")
+    file_path_B21_members_dwarfgalaxy_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_ids_subsample.npy")
+    file_path_B21_members_dwarfgalaxy_probs_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_probs_subsample.npy")
+    file_path_B21_dwarfgalaxies_probability_sums_total = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_total.npy")
+    file_path_B21_dwarfgalaxies_probability_sums_overlap = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_overlap.npy")
+
+    # Skip if all files exist and overwrite is False
+    all_exist = (os.path.exists(file_path_dwarfgalaxies_names) and
+                 os.path.exists(file_path_B21_members_dwarfgalaxy_ids_subsample) and
+                 os.path.exists(file_path_B21_members_dwarfgalaxy_probs_subsample) and
+                 os.path.exists(file_path_B21_dwarfgalaxies_probability_sums_total) and
+                 os.path.exists(file_path_B21_dwarfgalaxies_probability_sums_overlap))
+    if all_exist and not overwrite:
+        print("Battaglia et al. (2021) reduced data already exists at:")
+        print(f"\t{file_path_dwarfgalaxies_names} ,")
+        print(f"\t{file_path_B21_members_dwarfgalaxy_ids_subsample} ,")
+        print(f"\t{file_path_B21_members_dwarfgalaxy_probs_subsample} ,")
+        print(f"\t{file_path_B21_dwarfgalaxies_probability_sums_total} , and")
+        print(f"\t{file_path_B21_dwarfgalaxies_probability_sums_overlap} .")
+        print("Use overwrite=True to force recomputation.\n")
+        return
+    print("Preparing data for comparison with the Battaglia et al. (2021) catalogue...")
+
+    # Read the pmem.dat.gz file
+    print("... loading pmem.dat.gz data")
+    readme_path = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/ReadMe")
+    pmem_path = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/pmem.dat.gz")
+    df_pmem = load_cds_table(readme_path, pmem_path)
+
+    # Save the names of the dwarf galaxies
+    print("... saving dwarf galaxy names")
+    B21_members_dwarfgalaxies_names = df_pmem["Galaxy"].to_numpy()  # Dwarf galaxy names
+    _, indices, inverse = np.unique(B21_members_dwarfgalaxies_names, return_index=True, return_inverse=True)
+    B21_dwarfgalaxies_names = B21_members_dwarfgalaxies_names[np.sort(indices)]  # Unique dwarf galaxy names in the original order
+    np.save(file_path_dwarfgalaxies_names, B21_dwarfgalaxies_names)
+    del B21_members_dwarfgalaxies_names, _, B21_dwarfgalaxies_names  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Get the dwarf galaxy IDs, GDR3 source IDs, and membership probabilities
+    print("... getting member information")
+    B21_members_dwarfgalaxy_ids = np.argsort(np.argsort(indices))[inverse]  # Cluster IDs per member
+    B21_members_source_ids = df_pmem['GaiaEDR3'].to_numpy()  # Source IDs of the members
+    B21_members_probs = df_pmem["Pmemb"].to_numpy()  # Membership probabilities
+    B21_members_probs[~np.isfinite(B21_members_probs)] = 0.0  # Set non-finite probabilities to 0
+    del df_pmem, inverse, indices  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Load Gaia DR3 source_ids
+    print("... loading Gaia DR3 source IDs")
+    gdr3_source_ids = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_source_ids.npy"))  # (N,)
+
+    # Load subsample mask
+    print("... loading subsample mask")
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
+
+    # Save the membership mask
+    print("... making membership mask")
+    indices = np.searchsorted(gdr3_source_ids, B21_members_source_ids) # Assumes gdr3_source_ids is sorted
+    B21_members_mask = np.zeros_like(gdr3_source_ids, dtype=np.bool_)  # Create a mask of the same shape as gdr3_source_ids
+    B21_members_mask[indices] = True  # Set the indices of the members to True
+    del gdr3_source_ids, indices  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Get Battaglia+2021 dwarf galaxy IDs for this subsample (multiple columns since stars can be in multiple Battaglia+2021 dwarf galaxies)
+    print("... getting Battaglia+2024 dwarf galaxy IDs and membership probabilities for the subsample in this work")
+    max_appearances = np.unique(B21_members_source_ids, return_counts=True)[1].max()
+    max_B21_dwarfgalaxy_ID = B21_members_dwarfgalaxy_ids.max()
+    B21_members_dwarfgalaxy_ids_gdr3 = np.full((B21_members_mask.size, max_appearances), max_B21_dwarfgalaxy_ID + 1, dtype=np.int64)  # (N,) Initialize with max_B21_dwarfgalaxy_ID + 1, representing no cluster
+    B21_members_dwarfgalaxy_probs_gdr3 = np.zeros((B21_members_mask.size, max_appearances), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
+    B21_members_mask_where = np.where(B21_members_mask)[0]  # Use indices of members in the full catalogue from now on to do efficient slicing/indexing
+    del B21_members_mask  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Assign dwarf galaxy IDs / membership probabilities to each of the members
+    unique_B21_source_ids, indices, counts = np.unique(B21_members_source_ids, return_index=True, return_counts=True)
+    for num_count in range(1, max_appearances + 1):
+        # Get the relative position of the members in the full catalogue for this count
+        num_count_bool = counts == num_count
+
+        # Get the dwarf galaxy IDs and probabilities for the members with this count
+        if num_count == 1:
+            cluster_ids = B21_members_dwarfgalaxy_ids[indices[num_count_bool]][:, None]
+            members_probs = B21_members_probs[indices[num_count_bool]][:, None]
+        else: # There are not too many of these so what follows is efficient enough
+            cluster_ids = np.zeros((num_count_bool.sum(), num_count), dtype=np.int64)
+            members_probs = np.zeros((num_count_bool.sum(), num_count), dtype=np.float32)
+            for i, sid in enumerate(unique_B21_source_ids[num_count_bool]):
+                # Get the indices of the members with this source ID
+                source_id_match = np.where(B21_members_source_ids == sid)[0]
+
+                # Get the dwarf galaxy IDs and probabilities for these members
+                cluster_ids[i] = B21_members_dwarfgalaxy_ids[source_id_match]
+                members_probs[i] = B21_members_probs[source_id_match]
+
+        # Assign the dwarf galaxy IDs and probabilities to the members
+        B21_members_dwarfgalaxy_ids_gdr3[B21_members_mask_where[num_count_bool], :num_count] = cluster_ids
+        B21_members_dwarfgalaxy_probs_gdr3[B21_members_mask_where[num_count_bool], :num_count] = members_probs
+
+    B21_members_dwarfgalaxy_ids_subsample = B21_members_dwarfgalaxy_ids_gdr3[subsample_mask]
+    B21_members_dwarfgalaxy_probs_subsample = B21_members_dwarfgalaxy_probs_gdr3[subsample_mask]
+    del subsample_mask, B21_members_source_ids, B21_members_dwarfgalaxy_ids_gdr3, B21_members_dwarfgalaxy_probs_gdr3, B21_members_mask_where, unique_B21_source_ids, indices, counts  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Pre-compute the total sum of probabilities for each Battaglia+2021 dwarf galaxy
+    print("... pre-computing the total sum of probabilities for each Battaglia+2021 dwarf galaxy")
+    B21_dwarfgalaxies_probability_sums_total = np.bincount(B21_members_dwarfgalaxy_ids.ravel(), 
+                                        weights=B21_members_probs.ravel(),
+                                        minlength=max_B21_dwarfgalaxy_ID + 1)  # (N_dwarfgalaxies,)
+    del B21_members_dwarfgalaxy_ids, B21_members_probs  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Pre-compute the sum of probabilities for each Battaglia+2021 dwarf galaxy in the overlap with the subsample
+    print("... pre-computing the total sum of probabilities for each Battaglia+2021 dwarf galaxy in the subsample of this work")
+    B21_dwarfgalaxies_probability_sums_overlap = np.bincount(B21_members_dwarfgalaxy_ids_subsample.ravel(),
+                                        weights=B21_members_dwarfgalaxy_probs_subsample.ravel(),
+                                        minlength=max_B21_dwarfgalaxy_ID + 1)[:max_B21_dwarfgalaxy_ID + 1]  # (N_dwarfgalaxies,)
+
+    # Save the intermediary results
+    print('... saving intermediary results.\n')
+    np.save(file_path_B21_members_dwarfgalaxy_ids_subsample, B21_members_dwarfgalaxy_ids_subsample)
+    np.save(file_path_B21_members_dwarfgalaxy_probs_subsample, B21_members_dwarfgalaxy_probs_subsample)
+    np.save(file_path_B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_total)
+    np.save(file_path_B21_dwarfgalaxies_probability_sums_overlap, B21_dwarfgalaxies_probability_sums_overlap)
+    del B21_members_dwarfgalaxy_ids_subsample, B21_members_dwarfgalaxy_probs_subsample, B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_overlap  # Free memory
+    gc.collect()  # Force garbage collection
+
+def plot_Battaglia2021_dwarfgalaxies_on_sky(overwrite=False):
+    """
+    Plot the Battaglia et al. (2021) dwarf galaxies on the sky.
+    """
+    # Check if plot already exists
+    file_path_clusters_on_sky = os.path.join(FIGURES_PATH, "Battaglia2021_dwarfgalaxies_on_sky.png")
+    if os.path.exists(file_path_clusters_on_sky) and not overwrite:
+        print(f"Battaglia et al. (2021) dwarf galaxies on sky plot already exists at:\n\t{file_path_clusters_on_sky} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting Battaglia et al. (2021) dwarf galaxies on the sky...")
+
+    # Load the Battaglia et al. (2021) clustering output
+    print("... loading Battaglia et al. (2021) clustering output for plotting")
+    B21_members_dwarfgalaxy_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_ids_subsample.npy"))  # (N,)
+    B21_members_dwarfgalaxy_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_probs_subsample.npy"))  # (N,)
+
+    # Plot the dwarf galaxies on the sky
+    plot_catalogue_structure_on_sky(
+        B21_members_dwarfgalaxy_ids_subsample,
+        B21_members_dwarfgalaxy_probs_subsample,
+        file_path_clusters_on_sky
+    )
+
+def compare_to_Battaglia2021(overwrite=False):
+    """
+    Compare the clustering output to the Battaglia et al. (2021) catalogue.
+    """
+    # Check if comparison results already exist
+    file_path_best_match_astrolink_clusters = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_best_match_astrolink_clusters.npy")
+    file_path_cluster_rpje = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_rpje.npy")
+
+    # Skip processing if all merged output files already exist
+    all_exist = (os.path.exists(file_path_cluster_rpje) and
+                 os.path.exists(file_path_best_match_astrolink_clusters))
+    if all_exist and not overwrite:
+        print("Battaglia et al. (2021) comparison results already exist at:")
+        print(f"\t{file_path_best_match_astrolink_clusters} and")
+        print(f"\t{file_path_cluster_rpje} .")
+        print("Use overwrite=True to force recomputation.\n")
+        return
+    print("Comparing clustering output to Battaglia et al. (2021)...")
+
+    # Load required arrays
+    print("... loading required arrays for comparison")
+    B21_members_dwarfgalaxy_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_ids_subsample.npy"))  # (N,)
+    B21_members_dwarfgalaxy_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_probs_subsample.npy"))  # (N,)
+    B21_dwarfgalaxies_probability_sums_total = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_total.npy"))  # (N_clusters,)
+    B21_dwarfgalaxies_probability_sums_overlap = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_overlap.npy"))  # (N_clusters,)
+
+    # Make the comparison
+    whichClusters, RPJE = compare_to_catalogue_helper(
+        B21_members_dwarfgalaxy_ids_subsample,
+        B21_members_dwarfgalaxy_probs_subsample,
+        B21_dwarfgalaxies_probability_sums_total,
+        B21_dwarfgalaxies_probability_sums_overlap
+    )
+    del B21_members_dwarfgalaxy_ids_subsample, B21_members_dwarfgalaxy_probs_subsample, B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_overlap  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save the results
+    print("... saving comparison results.\n")
+    np.save(file_path_best_match_astrolink_clusters, whichClusters)
+    np.save(file_path_cluster_rpje, RPJE)
+    del whichClusters, RPJE  # Free memory
+    gc.collect()  # Force garbage collection
+
+def plot_Battaglia2021_comparison_results(overwrite=False):
+    """
+    Plot the results of the comparison between clustering output and the Battaglia et al. (2021) catalogue,
+    showing recovery, purity, and Jaccard index under both subsample assumptions
+    ('full' and 'union'), with hatched regions indicating the bounds between them.
+    """
+    # Check if plot already exists
+    file_path = os.path.join(FIGURES_PATH, "Battaglia2021_comparison_results.png")
+    if os.path.exists(file_path) and not overwrite:
+        print(f"Battaglia et al. (2021) comparison results plot already exists at:\n\t{file_path} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting Battaglia et al. (2021) comparison results...")
+
+    # Load comparison results
+    print("... loading comparison results")
+    RPJE = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_rpje.npy"))  # (N_sigmas, N_dwarfgalaxies, 2, 4)
+    B21_dwarfgalaxies_probability_sums_total = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_total.npy"))  # (N_dwarfgalaxies,)
+    B21_dwarfgalaxies_probability_sums_overlap = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_overlap.npy"))  # (N_dwarfgalaxies,)
+    coverage = B21_dwarfgalaxies_probability_sums_overlap / B21_dwarfgalaxies_probability_sums_total  # (N_dwarfgalaxies,)
+    del B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_overlap  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Load dwarf galaxy names
+    dwarf_galaxy_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_names.npy"), allow_pickle=True)
+
+    # Extract per-assumption and per-statistic arrays
+    R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
+    P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
+    J_full,  J_union  = RPJE[:, :, 0, 2], RPJE[:, :, 1, 2]
+    #E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
+
+    # Evidence-weighted averages
+    Rbar_full  = np.sum(R_full * coverage, axis=1) / np.sum(coverage)
+    Rbar_union = np.sum(R_union * coverage, axis=1) / np.sum(coverage)
+    Pbar_full  = np.sum(P_full * coverage, axis=1) / np.sum(coverage)
+    Pbar_union = np.sum(P_union * coverage, axis=1) / np.sum(coverage)
+    Jbar_full  = np.sum(J_full * coverage, axis=1) / np.sum(coverage)
+    Jbar_union = np.sum(J_union * coverage, axis=1) / np.sum(coverage)
+
+    print("... plotting combined statistics vs significance level")
+
+    # Define dwarf galaxy names and colors
+    best_matching_dwarf_galaxies = np.argsort(np.max(J_union, axis=0))[::-1][:5]
+    dwarf_galaxy_colors = {
+        dwarf_galaxy_name: f"C{index}"
+        for index, dwarf_galaxy_name in enumerate(dwarf_galaxy_names[best_matching_dwarf_galaxies])
+    }
+
+    # Make figure
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    """
+    # Recovery
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
+            color='k', linestyle='dashed', linewidth=1.5, label='R', zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full,
+            color='k', linestyle='dashed', linewidth=1.5, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full, Rbar_union,
+                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+
+    # Purity
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_union,
+            color='k', linestyle='dotted', linewidth=1.5, label='P', zorder=3)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
+            color='k', linestyle='dotted', linewidth=1.5, zorder=3)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
+                    facecolor='none', hatch='\\', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
+    """
+
+    # Jaccard
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
+            color='k', linestyle='solid', linewidth=1, zorder=2)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
+            color='k', linestyle='solid', linewidth=1, zorder=2)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
+            color='k', alpha=0.3, zorder=3)
+
+    # Cycle through specific streams and plot their Jaccard indices vs significance level
+    for dwarf_galaxy_name, color in dwarf_galaxy_colors.items():
+        # Find index of this stream
+        dwarf_galaxy_index = np.where(dwarf_galaxy_names == dwarf_galaxy_name)[0][0]
+
+        # Plot Jaccard indices for this stream
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_union[:, dwarf_galaxy_index],
+                color=color, linestyle='solid', linewidth=1, zorder=3)
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_full[:, dwarf_galaxy_index],
+                color=color, linestyle='solid', linewidth=1, zorder=3)
+        ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_full[:, dwarf_galaxy_index], J_union[:, dwarf_galaxy_index],
+                color=color, alpha=0.3, zorder=3)
+    
+    # Matched fractions
+    fraction_matched_union = np.mean(J_union > 0.5, axis=1)
+    fraction_matched_full = np.mean(J_full > 0.5, axis=1)
+
+    # Plot fraction of clusters of this type matched to above J=0.5
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_union,
+            color='k', linestyle='dashed', linewidth=1, zorder=2)
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full,
+            color='k', linestyle='dashed', linewidth=1, zorder=2)
+    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full, fraction_matched_union,
+            facecolor='none', hatch='//', edgecolor='k', linewidth=1, zorder=2)
+
+    # Plot optimal S value on top
+    ax.axvline(OPTIMAL_SIGMA_THRESHOLD, color='grey', linestyle='dotted', linewidth=0.75, zorder=4)
+    ax.text(
+        OPTIMAL_SIGMA_THRESHOLD, 1.01,
+        f"S = {OPTIMAL_SIGMA_THRESHOLD}",
+        color='grey', fontsize=10, ha='center', va='bottom', zorder=4
+    )
+
+    # Dummy handles for the legend
+    handles = [
+        Rectangle((0,0), 1, 1, facecolor=mcolors.to_rgba('k', alpha=0.3), edgecolor='k', linewidth=1, label='Jaccard index'),
+        Rectangle((0,0), 1, 1, facecolor='none', hatch='//', edgecolor='k', linewidth=1, label='Matched fraction'),
+    ] + [plt.Line2D([], [], color='none', label=dwarf_galaxy_name) for dwarf_galaxy_name in dwarf_galaxy_colors.keys()]
+
+    # Create the legend
+    leg = ax.legend(handles=handles, loc='upper right', frameon=False)
+
+    # Recolor legend text entries for cluster types
+    for text in leg.get_texts():
+        label = text.get_text()
+        if label in dwarf_galaxy_colors:
+            text.set_color(dwarf_galaxy_colors[label])
+            text.set_fontweight('bold')
+
+    # Final formatting
+    print("... saving figure.\n")
+    ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
+    ax.set_ylim(0, 1)
+    ax.set_xlabel(r"Significance, $S$")
+    ax.set_ylabel("Comparison statistic")
     plt.tight_layout()
     plt.savefig(file_path, dpi=500)
     plt.close(fig)
@@ -3175,73 +3825,24 @@ def plot_galstreams_streams_on_sky(overwrite=False):
     Plot the galstreams streams on the sky.
     """
     # Check if plot already exists
-    file_streams_on_sky_path = os.path.join(FIGURES_PATH, "galstreams_streams_on_sky.png")
-    if os.path.exists(file_streams_on_sky_path) and not overwrite:
-        print(f"Galstreams streams on sky plot already exists at:\n\t{file_streams_on_sky_path} .")
+    file_path_streams_on_sky = os.path.join(FIGURES_PATH, "galstreams_streams_on_sky.png")
+    if os.path.exists(file_path_streams_on_sky) and not overwrite:
+        print(f"Galstreams streams on sky plot already exists at:\n\t{file_path_streams_on_sky} .")
         print("Use overwrite=True to force replotting.\n")
         return
     print("Plotting galstreams streams on the sky...")
-
-    # Load the required arrays
-    print("... loading required arrays for plotting")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
-    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
-    del subsample_mask  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Convert (l, b) in degrees to radians for Mollweide projection
-    print("... converting galactic coordinates to radians for Mollweide projection")
-    galactic_coordinates = np.deg2rad(galactic_coordinates)
-
-     # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
-    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
-    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
-    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
 
     # Load the galstreams clustering output
     print("... loading galstreams clustering output for plotting")
     galstreams_members_stream_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_ids_subsample.npy"))  # (N,)
     galstreams_members_stream_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_probs_subsample.npy"))  # (N,)
 
-    # Simplify the catalogue
-    print("... simplifying the galstreams catalogue for plotting")
-    plottable_bool = np.any(galstreams_members_stream_probs_subsample > 0.5, axis=1)
-    no_stream_id = galstreams_members_stream_ids_subsample.max()
-    galstreams_members_stream_ids_subsample = galstreams_members_stream_ids_subsample[plottable_bool]
-    galactic_coordinates = galactic_coordinates[plottable_bool]
-    print(f"... {plottable_bool.sum()} plottable stars")
-    del galstreams_members_stream_probs_subsample, plottable_bool  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Create a Mollweide projection plot and plot streams on the sky
-    fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
-
-    # Cycle through the streams and plot them
-    print("... plotting streams on the sky")
-    for i in range(no_stream_id):
-        streamMembers = np.any(galstreams_members_stream_ids_subsample == i, axis=1)
-        n_stream = streamMembers.sum()
-        if n_stream > 5000:
-            streamMembers_indices = np.where(streamMembers)[0]
-            removed_indices = np.random.choice(streamMembers_indices, size=n_stream-5000, replace=False)
-            streamMembers[removed_indices] = False
-        ax.scatter(
-            *galactic_coordinates[streamMembers].T,
-            facecolor=f"C{i}", edgecolor='k',
-            s=0.75, lw=0.075
-        )  # Plot each stream with a different color
-
-    # Remove grid, ticks, and labels
-    ax.grid(False)
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    # Save the figure
-    plt.tight_layout()
-    plt.savefig(file_streams_on_sky_path, dpi=500)
-    plt.close()
-    gc.collect()  # Free memory
-    print(f"... saved clusters on sky plot to {file_streams_on_sky_path}.\n")
+    # Plot the streams on the sky
+    plot_catalogue_structure_on_sky(
+        galstreams_members_stream_ids_subsample,
+        galstreams_members_stream_probs_subsample,
+        file_path_streams_on_sky
+    )
 
 def compare_to_galstreams(overwrite=False):
     """
@@ -3409,770 +4010,6 @@ def plot_galstreams_comparison_results(overwrite=False):
     gc.collect()
 
 
-# === Compare clustering output to Vasiliev & Baumgardt (2021) ===
-def prepare_Vasiliev2021_for_comparison(overwrite=False):
-    """
-    Prepare the Vasiliev & Baumgardt (2021) catalogue for comparison to the clustering output.
-    """
-    # Check if files already exist
-    file_path_V21_clusters_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_names.npy")
-    file_path_V21_members_cluster_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_ids_subsample.npy")
-    file_path_V21_members_cluster_probs_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_probs_subsample.npy")
-    file_path_V21_clusters_probability_sums_total = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_probability_sums_total.npy")
-    file_path_V21_clusters_probability_sums_overlap = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_probability_sums_overlap.npy")
-
-    # Skip processing if all merged output files already exist
-    all_exist = (os.path.exists(file_path_V21_members_cluster_ids_subsample) and
-                 os.path.exists(file_path_V21_members_cluster_probs_subsample) and
-                 os.path.exists(file_path_V21_clusters_probability_sums_total) and
-                 os.path.exists(file_path_V21_clusters_probability_sums_overlap))
-    if all_exist and not overwrite:
-        print("Vasiliev & Baumgardt (2021) reduced data already exists at:")
-        print(f"\t{file_path_V21_members_cluster_ids_subsample} ,")
-        print(f"\t{file_path_V21_members_cluster_probs_subsample} ,")
-        print(f"\t{file_path_V21_clusters_probability_sums_total} , and")
-        print(f"\t{file_path_V21_clusters_probability_sums_overlap} .")
-        print("Use overwrite=True to force recomputation.\n")
-        return
-    print("Preparing data for comparison with the Vasiliev & Baumgardt (2021) catalogue...")
-
-    # Load required arrays
-    print('... loading required arrays')
-    source_ids = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_source_ids.npy"))  # (N_gdr3,)
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, 'subsample_mask.npy'))  # (N_gdr3,)
-
-    # Load the Vasiliev & Baumgardt (2021) catalogue
-    print("... loading the Vasiliev & Baumgardt (2021) catalogue")
-    cat_path = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/clusters.zip")
-
-    # Open the zip file and read the catalogue
-    with zipfile.ZipFile(cat_path, 'r') as z:
-        # Find all text files inside 'clusters/catalogues/'
-        globular_cluster_files = [
-            name for name in z.namelist()
-            if name.startswith('catalogues/') and name.endswith('.txt')
-        ]
-
-        # Save the cluster names
-        V21_clusters_names = np.array([os.path.splitext(os.path.basename(name))[0] for name in globular_cluster_files])
-        np.save(file_path_V21_clusters_names, V21_clusters_names)
-        del V21_clusters_names  # Free memory
-        gc.collect()  # Force garbage collection
-        
-        # Cycle through each cluster and save the star membership probabilities for that cluster
-        max_V21_cluster_ID = len(globular_cluster_files) - 1
-        V21_members_cluster_ids_gdr3 = np.full((subsample_mask.size, 1), max_V21_cluster_ID + 1, dtype=np.int64)  # (N,) Initialize with max_V21_cluster_ID + 1, representing no cluster
-        V21_members_cluster_probs_gdr3 = np.zeros((subsample_mask.size, 1), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
-        for i, name in enumerate(globular_cluster_files):
-            with z.open(name) as f:
-                text_stream = TextIOWrapper(f, encoding='utf-8')
-
-                # Read until we find the header line (starts with '#')
-                for line in text_stream:
-                    if line.startswith('#'):
-                        # Strip the '#' and whitespace, then split into column names
-                        colnames = line.strip('#').strip().split()
-                        break
-
-                # Now read the remaining lines as data with those column names
-                df = pd.read_csv(
-                    text_stream,
-                    sep=r"\s+",
-                    names=colnames,
-                    engine="python"  # optional: allows regex separator, ensures compatibility
-                )
-
-            # Extract only the columns of interest
-            cluster_source_ids = df['source_id'].to_numpy().astype(np.int64)  # (N_cluster,)
-            cluster_member_probs = df['memberprob'].to_numpy().astype(np.float32)  # (N_cluster,)
-            
-            # Find which stars in the full GDR3 catalogue are in this cluster
-            indices = np.searchsorted(source_ids, cluster_source_ids)  # Assumes source_ids is sorted
-            indices = indices[(indices < source_ids.size) & (source_ids[indices] == cluster_source_ids)]  # Keep only valid matches
-
-            # Assign the cluster IDs and probabilities to the members
-            unassigned_bool = True
-            cluster_source_ids_indices = V21_members_cluster_ids_gdr3[indices]
-            for j in range(V21_members_cluster_ids_gdr3.shape[1]):
-                # Find which members can be assigned to this column
-                unassigned_indices_bool = cluster_source_ids_indices[:, j] == max_V21_cluster_ID + 1
-
-                # Assign the cluster IDs and probabilities to the unassigned members for this column
-                unassigned_indices = indices[unassigned_indices_bool]
-                V21_members_cluster_ids_gdr3[unassigned_indices, j] = i
-                V21_members_cluster_probs_gdr3[unassigned_indices, j] = cluster_member_probs[unassigned_indices_bool]
-
-                # Update the arrays to only include those that are still unassigned
-                indices = indices[~unassigned_indices_bool]
-                cluster_source_ids_indices = cluster_source_ids_indices[~unassigned_indices_bool]
-                cluster_member_probs = cluster_member_probs[~unassigned_indices_bool]
-
-                # If all members have been assigned, break
-                if cluster_source_ids_indices.shape[0] == 0:
-                    unassigned_bool = False
-                    break
-            del cluster_source_ids_indices, unassigned_indices_bool, unassigned_indices  # Free memory
-            gc.collect()  # Force garbage collection
-            
-            if unassigned_bool:
-                # Add another column to the arrays
-                V21_members_cluster_ids_gdr3 = np.concatenate(
-                    (V21_members_cluster_ids_gdr3, np.full((subsample_mask.size, 1), max_V21_cluster_ID + 1, dtype=np.int64)),
-                    axis=1
-                )
-                V21_members_cluster_probs_gdr3 = np.concatenate(
-                    (V21_members_cluster_probs_gdr3, np.zeros((subsample_mask.size, 1), dtype=np.float32)),
-                    axis=1
-                )
-
-                # Assign the cluster IDs and probabilities to the members
-                V21_members_cluster_ids_gdr3[indices, -1] = i
-                V21_members_cluster_probs_gdr3[indices, -1] = cluster_member_probs
-    del source_ids  # Free memory
-    gc.collect()  # Force garbage collection
-    
-    # Get the cluster IDs and probabilities for the subsample in this work
-    V21_members_cluster_ids_subsample = V21_members_cluster_ids_gdr3[subsample_mask]
-    V21_members_cluster_probs_subsample = V21_members_cluster_probs_gdr3[subsample_mask]
-    del subsample_mask  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Pre-compute the total sum of probabilities for each globular cluster in Vasiliev & Baumgardt (2021)
-    print("... pre-computing the total sum of probabilities for each Vasiliev & Baumgardt (2021) globular cluster")
-    V21_clusters_probability_sums_total = np.bincount(V21_members_cluster_ids_gdr3.ravel(),
-                                        weights=V21_members_cluster_probs_gdr3.ravel(),
-                                        minlength=max_V21_cluster_ID + 1)[:max_V21_cluster_ID + 1]  # (N_clusters,)
-    del V21_members_cluster_ids_gdr3, V21_members_cluster_probs_gdr3  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Pre-compute the sum of probabilities for each globular cluster in the overlap with the subsample
-    print("... pre-computing the total sum of probabilities for each Vasiliev & Baumgardt (2021) globular cluster in the subsample of this work")
-    V21_clusters_probability_sums_overlap = np.bincount(V21_members_cluster_ids_subsample.ravel(),
-                                        weights=V21_members_cluster_probs_subsample.ravel(),
-                                        minlength=max_V21_cluster_ID + 1)[:max_V21_cluster_ID + 1]  # (N_clusters,)
-
-    # Save the intermediary results
-    print('... saving intermediary results.\n')
-    np.save(file_path_V21_members_cluster_ids_subsample, V21_members_cluster_ids_subsample)
-    np.save(file_path_V21_members_cluster_probs_subsample, V21_members_cluster_probs_subsample)
-    np.save(file_path_V21_clusters_probability_sums_total, V21_clusters_probability_sums_total)
-    np.save(file_path_V21_clusters_probability_sums_overlap, V21_clusters_probability_sums_overlap)
-    del V21_members_cluster_ids_subsample, V21_members_cluster_probs_subsample, V21_clusters_probability_sums_total, V21_clusters_probability_sums_overlap  # Free memory
-    gc.collect()  # Force garbage collection
-
-def plot_Vasiliev2021_clusters_on_sky(overwrite=False):
-    """
-    Plot the Vasiliev & Baumgardt (2021) globular clusters on the sky.
-    """
-    # Check if plot already exists
-    file_clusters_on_sky_path = os.path.join(FIGURES_PATH, "Vasiliev2021_clusters_on_sky.png")
-    if os.path.exists(file_clusters_on_sky_path) and not overwrite:
-        print(f"Vasiliev & Baumgardt (2021) globular clusters on sky plot already exists at:\n\t{file_clusters_on_sky_path} .")
-        print("Use overwrite=True to force replotting.\n")
-        return
-    print("Plotting Vasiliev & Baumgardt (2021) globular clusters on the sky...")
-
-    # Load the required arrays
-    print("... loading required arrays for plotting")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
-    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
-    del subsample_mask  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Convert (l, b) in degrees to radians for Mollweide projection
-    print("... converting galactic coordinates to radians for Mollweide projection")
-    galactic_coordinates = np.deg2rad(galactic_coordinates)
-
-     # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
-    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
-    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
-    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
-
-    # Load the Vasiliev & Baumgardt (2021) clustering output
-    print("... loading Vasiliev & Baumgardt (2021) clustering output for plotting")
-    V21_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_ids_subsample.npy"))  # (N,)
-    V21_members_cluster_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_probs_subsample.npy"))  # (N,)
-
-    # Simplify the catalogue
-    print("... simplifying the Vasiliev & Baumgardt (2021) catalogue for plotting")
-    plottable_bool = np.any(V21_members_cluster_probs_subsample > 0.5, axis=1)
-    no_cluster_id = V21_members_cluster_ids_subsample.max()
-    V21_members_cluster_ids_subsample = V21_members_cluster_ids_subsample[plottable_bool]
-    galactic_coordinates = galactic_coordinates[plottable_bool]
-    print(f"... {plottable_bool.sum()} plottable stars")
-    del V21_members_cluster_probs_subsample, plottable_bool  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Create a Mollweide projection plot and plot clusters on the sky
-    fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
-
-    # Cycle through the clusters and plot them
-    print("... plotting clusters on the sky")
-    for i in range(no_cluster_id):
-        clusterMembers = np.any(V21_members_cluster_ids_subsample == i, axis=1)
-        ax.scatter(
-            *galactic_coordinates[clusterMembers].T,
-            facecolor=f"C{i}", edgecolor='k',
-            s=0.75, lw=0.075
-        )  # Plot each cluster with a different color
-
-    # Remove grid, ticks, and labels
-    ax.grid(False)
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    # Save the figure
-    plt.tight_layout()
-    plt.savefig(file_clusters_on_sky_path, dpi=500)
-    plt.close()
-    gc.collect()  # Free memory
-    print(f"... saved clusters on sky plot to {file_clusters_on_sky_path}.\n")
-
-def compare_to_Vasiliev2021(overwrite=False):
-    """
-    Compare the clustering output to the Vasiliev & Baumgardt (2021) catalogue.
-    """
-    # Check if comparison results already exist
-    file_path_best_match_astrolink_clusters = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev2021_best_match_astrolink_clusters.npy")
-    file_path_cluster_rpje = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev2021_rpje.npy")
-
-    # Skip processing if all merged output files already exist
-    all_exist = (os.path.exists(file_path_best_match_astrolink_clusters) and
-                 os.path.exists(file_path_cluster_rpje))
-    if all_exist and not overwrite:
-        print("Vasiliev & Baumgardt (2021) comparison results already exist at:")
-        print(f"\t{file_path_best_match_astrolink_clusters} and")
-        print(f"\t{file_path_cluster_rpje} .")
-        print("Use overwrite=True to force recomputation.\n")
-        return
-    print("Comparing clustering output to the Vasiliev & Baumgardt (2021) catalogue...")
-
-    # Load the reduced Vasiliev & Baumgardt (2021) data
-    print("... loading reduced Vasiliev & Baumgardt (2021) data")
-    V21_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_ids_subsample.npy"))  # (N,)
-    V21_members_cluster_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_probs_subsample.npy"))  # (N,)
-    V21_clusters_probability_sums_total = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_probability_sums_total.npy"))  # (N_clusters,)
-    V21_clusters_probability_sums_overlap = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_probability_sums_overlap.npy"))  # (N_clusters,)
-    
-    # Make the comparison
-    whichClusters, RPJE = compare_to_catalogue_helper(
-        V21_members_cluster_ids_subsample,
-        V21_members_cluster_probs_subsample,
-        V21_clusters_probability_sums_total,
-        V21_clusters_probability_sums_overlap
-    )
-    del V21_members_cluster_ids_subsample, V21_members_cluster_probs_subsample, V21_clusters_probability_sums_total, V21_clusters_probability_sums_overlap  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Save the results
-    print("... saving comparison results.\n")
-    np.save(file_path_best_match_astrolink_clusters, whichClusters)
-    np.save(file_path_cluster_rpje, RPJE)
-    del whichClusters, RPJE  # Free memory
-    gc.collect()  # Force garbage collection
-
-def plot_Vasiliev2021_comparison_results(overwrite=False):
-    """
-    Plot the results of the comparison between clustering output and the Vasiliev & Baumgardt (2021) catalogue,
-    showing recovery, purity, and Jaccard index under both subsample assumptions
-    ('full' and 'union'), with hatched regions indicating the bounds between them.
-    """
-    # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "Vasiliev2021_comparison_results.png")
-    if os.path.exists(file_path) and not overwrite:
-        print(f"Vasiliev & Baumgardt (2021) comparison results plot already exists at:\n\t{file_path} .")
-        print("Use overwrite=True to force replotting.\n")
-        return
-    print("Plotting Vasiliev & Baumgardt (2021) comparison results...")
-
-    # Load comparison results
-    print("... loading comparison results")
-    RPJE = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev2021_rpje.npy"))  # (N_sigmas, N_clusters, 2, 4)
-    V21_clusters_probability_sums_total = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_probability_sums_total.npy"))  # (N_clusters,)
-    V21_clusters_probability_sums_overlap = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_probability_sums_overlap.npy"))  # (N_clusters,)
-    coverage = V21_clusters_probability_sums_overlap / V21_clusters_probability_sums_total  # (N_clusters,)
-    del V21_clusters_probability_sums_total, V21_clusters_probability_sums_overlap  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Load cluster names
-    V21_clusters_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_names.npy"))  # (N_clusters,)
-
-    # Extract per-assumption and per-statistic arrays
-    R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
-    P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
-    J_full,  J_union  = RPJE[:, :, 0, 2], RPJE[:, :, 1, 2]
-    #E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
-
-    # Evidence-weighted averages
-    Rbar_full  = np.sum(R_full * coverage, axis=1) / np.sum(coverage)
-    Rbar_union = np.sum(R_union * coverage, axis=1) / np.sum(coverage)
-    Pbar_full  = np.sum(P_full * coverage, axis=1) / np.sum(coverage)
-    Pbar_union = np.sum(P_union * coverage, axis=1) / np.sum(coverage)
-    Jbar_full  = np.sum(J_full * coverage, axis=1) / np.sum(coverage)
-    Jbar_union = np.sum(J_union * coverage, axis=1) / np.sum(coverage)
-
-    print("... plotting combined statistics vs significance level")
-
-    # Define clusters and colors
-    best_matching_clusters = np.argsort(np.max(J_union, axis=0))[::-1][:5]
-    cluster_type_colors = {
-        cluster_name: f"C{index}"
-        for index, cluster_name in enumerate(V21_clusters_names[best_matching_clusters])
-    }
-
-    # Make figure
-    fig, ax = plt.subplots(figsize=(6, 6))
-
-    # Jaccard
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
-            color='k', linestyle='solid', linewidth=1, zorder=3)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
-            color='k', linestyle='solid', linewidth=1, zorder=3)
-    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
-            color='k', alpha=0.3, zorder=3)
-
-    # Cycle through specific clusters and plot their Jaccard indices vs significance level
-    for cluster_name, color in cluster_type_colors.items():
-        # Find index of this cluster
-        cluster_index = np.where(V21_clusters_names == cluster_name)[0][0]
-
-        # Plot Jaccard indices for this cluster
-        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_union[:, cluster_index],
-                color=color, linestyle='solid', linewidth=1, zorder=4)
-        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_full[:, cluster_index],
-                color=color, linestyle='solid', linewidth=1, zorder=4)
-        ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_full[:, cluster_index], J_union[:, cluster_index],
-                color=color, alpha=0.3, zorder=4)
-    
-    # Matched fractions
-    fraction_matched_union = np.mean(J_union > 0.5, axis=1)
-    fraction_matched_full = np.mean(J_full > 0.5, axis=1)
-
-    # Plot fraction of clusters of this type matched to above J=0.5
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_union,
-            color='k', linestyle='dashed', linewidth=1, zorder=2)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full,
-            color='k', linestyle='dashed', linewidth=1, zorder=2)
-    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full, fraction_matched_union,
-            facecolor='none', hatch='//', edgecolor='k', linewidth=1, zorder=2)
-
-    # Plot optimal S value on top
-    ax.axvline(OPTIMAL_SIGMA_THRESHOLD, color='grey', linestyle='dotted', linewidth=0.75, zorder=4)
-    ax.text(
-        OPTIMAL_SIGMA_THRESHOLD, 1.01,
-        f"S = {OPTIMAL_SIGMA_THRESHOLD}",
-        color='grey', fontsize=10, ha='center', va='bottom', zorder=4
-    )
-
-    # Dummy handles for the legend
-    handles = [
-        Rectangle((0,0), 1, 1, facecolor=mcolors.to_rgba('k', alpha=0.3), edgecolor='k', linewidth=1, label='Jaccard index'),
-        Rectangle((0,0), 1, 1, facecolor='none', hatch='//', edgecolor='k', linewidth=1, label='Matched fraction'),
-    ] + [plt.Line2D([], [], color='none', label=cluster_name) for cluster_name in cluster_type_colors.keys()]
-
-    # Create the legend
-    leg = ax.legend(handles=handles, loc='upper right', frameon=False)
-
-    # Recolor legend text entries for cluster types
-    for text in leg.get_texts():
-        label = text.get_text()
-        if label in cluster_type_colors:
-            text.set_color(cluster_type_colors[label])
-            text.set_fontweight('bold')
-
-    # Final formatting
-    print("... saving figure.\n")
-    ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
-    ax.set_ylim(0, 1)
-    ax.set_xlabel(r"Significance, $S$")
-    ax.set_ylabel("Comparison statistic")
-    plt.tight_layout()
-    plt.savefig(file_path, dpi=500)
-    plt.close(fig)
-    gc.collect()
-
-
-# === Compare clustering output to Battaglia et al. 2021 catalogue ===
-def prepare_Battaglia2021_for_comparison(overwrite=False):
-    """
-    Prepare the Battaglia et al. (2021) catalogue for comparison to the clustering output.
-    """
-    # Check if files already exist
-    file_path_dwarfgalaxies_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_names.npy")
-    file_path_B21_members_dwarfgalaxy_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_ids_subsample.npy")
-    file_path_B21_members_dwarfgalaxy_probs_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_probs_subsample.npy")
-    file_path_B21_dwarfgalaxies_probability_sums_total = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_total.npy")
-    file_path_B21_dwarfgalaxies_probability_sums_overlap = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_overlap.npy")
-
-    # Skip if all files exist and overwrite is False
-    all_exist = (os.path.exists(file_path_dwarfgalaxies_names) and
-                 os.path.exists(file_path_B21_members_dwarfgalaxy_ids_subsample) and
-                 os.path.exists(file_path_B21_members_dwarfgalaxy_probs_subsample) and
-                 os.path.exists(file_path_B21_dwarfgalaxies_probability_sums_total) and
-                 os.path.exists(file_path_B21_dwarfgalaxies_probability_sums_overlap))
-    if all_exist and not overwrite:
-        print("Battaglia et al. (2021) reduced data already exists at:")
-        print(f"\t{file_path_dwarfgalaxies_names} ,")
-        print(f"\t{file_path_B21_members_dwarfgalaxy_ids_subsample} ,")
-        print(f"\t{file_path_B21_members_dwarfgalaxy_probs_subsample} ,")
-        print(f"\t{file_path_B21_dwarfgalaxies_probability_sums_total} , and")
-        print(f"\t{file_path_B21_dwarfgalaxies_probability_sums_overlap} .")
-        print("Use overwrite=True to force recomputation.\n")
-        return
-    print("Preparing data for comparison with the Battaglia et al. (2021) catalogue...")
-
-    # Read the pmem.dat.gz file
-    print("... loading pmem.dat.gz data")
-    readme_path = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/ReadMe")
-    pmem_path = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/pmem.dat.gz")
-    df_pmem = load_cds_table(readme_path, pmem_path)
-
-    # Save the names of the dwarf galaxies
-    print("... saving dwarf galaxy names")
-    B21_members_dwarfgalaxies_names = df_pmem["Galaxy"].to_numpy()  # Dwarf galaxy names
-    _, indices, inverse = np.unique(B21_members_dwarfgalaxies_names, return_index=True, return_inverse=True)
-    B21_dwarfgalaxies_names = B21_members_dwarfgalaxies_names[np.sort(indices)]  # Unique dwarf galaxy names in the original order
-    np.save(file_path_dwarfgalaxies_names, B21_dwarfgalaxies_names)
-    del B21_members_dwarfgalaxies_names, _, B21_dwarfgalaxies_names  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Get the dwarf galaxy IDs, GDR3 source IDs, and membership probabilities
-    print("... getting member information")
-    B21_members_dwarfgalaxy_ids = np.argsort(np.argsort(indices))[inverse]  # Cluster IDs per member
-    B21_members_source_ids = df_pmem['GaiaEDR3'].to_numpy()  # Source IDs of the members
-    B21_members_probs = df_pmem["Pmemb"].to_numpy()  # Membership probabilities
-    B21_members_probs[~np.isfinite(B21_members_probs)] = 0.0  # Set non-finite probabilities to 0
-    del df_pmem, inverse, indices  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Load Gaia DR3 source_ids
-    print("... loading Gaia DR3 source IDs")
-    gdr3_source_ids = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_source_ids.npy"))  # (N,)
-
-    # Load subsample mask
-    print("... loading subsample mask")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
-
-    # Save the membership mask
-    print("... making membership mask")
-    indices = np.searchsorted(gdr3_source_ids, B21_members_source_ids) # Assumes gdr3_source_ids is sorted
-    B21_members_mask = np.zeros_like(gdr3_source_ids, dtype=np.bool_)  # Create a mask of the same shape as gdr3_source_ids
-    B21_members_mask[indices] = True  # Set the indices of the members to True
-    del gdr3_source_ids, indices  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Get Battaglia+2021 dwarf galaxy IDs for this subsample (multiple columns since stars can be in multiple Battaglia+2021 dwarf galaxies)
-    print("... getting Battaglia+2024 dwarf galaxy IDs and membership probabilities for the subsample in this work")
-    max_appearances = np.unique(B21_members_source_ids, return_counts=True)[1].max()
-    max_B21_dwarfgalaxy_ID = B21_members_dwarfgalaxy_ids.max()
-    B21_members_dwarfgalaxy_ids_gdr3 = np.full((B21_members_mask.size, max_appearances), max_B21_dwarfgalaxy_ID + 1, dtype=np.int64)  # (N,) Initialize with max_B21_dwarfgalaxy_ID + 1, representing no cluster
-    B21_members_dwarfgalaxy_probs_gdr3 = np.zeros((B21_members_mask.size, max_appearances), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
-    B21_members_mask_where = np.where(B21_members_mask)[0]  # Use indices of members in the full catalogue from now on to do efficient slicing/indexing
-    del B21_members_mask  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Assign dwarf galaxy IDs / membership probabilities to each of the members
-    unique_B21_source_ids, indices, counts = np.unique(B21_members_source_ids, return_index=True, return_counts=True)
-    for num_count in range(1, max_appearances + 1):
-        # Get the relative position of the members in the full catalogue for this count
-        num_count_bool = counts == num_count
-
-        # Get the dwarf galaxy IDs and probabilities for the members with this count
-        if num_count == 1:
-            cluster_ids = B21_members_dwarfgalaxy_ids[indices[num_count_bool]][:, None]
-            members_probs = B21_members_probs[indices[num_count_bool]][:, None]
-        else: # There are not too many of these so what follows is efficient enough
-            cluster_ids = np.zeros((num_count_bool.sum(), num_count), dtype=np.int64)
-            members_probs = np.zeros((num_count_bool.sum(), num_count), dtype=np.float32)
-            for i, sid in enumerate(unique_B21_source_ids[num_count_bool]):
-                # Get the indices of the members with this source ID
-                source_id_match = np.where(B21_members_source_ids == sid)[0]
-
-                # Get the dwarf galaxy IDs and probabilities for these members
-                cluster_ids[i] = B21_members_dwarfgalaxy_ids[source_id_match]
-                members_probs[i] = B21_members_probs[source_id_match]
-
-        # Assign the dwarf galaxy IDs and probabilities to the members
-        B21_members_dwarfgalaxy_ids_gdr3[B21_members_mask_where[num_count_bool], :num_count] = cluster_ids
-        B21_members_dwarfgalaxy_probs_gdr3[B21_members_mask_where[num_count_bool], :num_count] = members_probs
-
-    B21_members_dwarfgalaxy_ids_subsample = B21_members_dwarfgalaxy_ids_gdr3[subsample_mask]
-    B21_members_dwarfgalaxy_probs_subsample = B21_members_dwarfgalaxy_probs_gdr3[subsample_mask]
-    del subsample_mask, B21_members_source_ids, B21_members_dwarfgalaxy_ids_gdr3, B21_members_dwarfgalaxy_probs_gdr3, B21_members_mask_where, unique_B21_source_ids, indices, counts  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Pre-compute the total sum of probabilities for each Battaglia+2021 dwarf galaxy
-    print("... pre-computing the total sum of probabilities for each Battaglia+2021 dwarf galaxy")
-    B21_dwarfgalaxies_probability_sums_total = np.bincount(B21_members_dwarfgalaxy_ids.ravel(), 
-                                        weights=B21_members_probs.ravel(),
-                                        minlength=max_B21_dwarfgalaxy_ID + 1)  # (N_dwarfgalaxies,)
-    del B21_members_dwarfgalaxy_ids, B21_members_probs  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Pre-compute the sum of probabilities for each Battaglia+2021 dwarf galaxy in the overlap with the subsample
-    print("... pre-computing the total sum of probabilities for each Battaglia+2021 dwarf galaxy in the subsample of this work")
-    B21_dwarfgalaxies_probability_sums_overlap = np.bincount(B21_members_dwarfgalaxy_ids_subsample.ravel(),
-                                        weights=B21_members_dwarfgalaxy_probs_subsample.ravel(),
-                                        minlength=max_B21_dwarfgalaxy_ID + 1)[:max_B21_dwarfgalaxy_ID + 1]  # (N_dwarfgalaxies,)
-
-    # Save the intermediary results
-    print('... saving intermediary results.\n')
-    np.save(file_path_B21_members_dwarfgalaxy_ids_subsample, B21_members_dwarfgalaxy_ids_subsample)
-    np.save(file_path_B21_members_dwarfgalaxy_probs_subsample, B21_members_dwarfgalaxy_probs_subsample)
-    np.save(file_path_B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_total)
-    np.save(file_path_B21_dwarfgalaxies_probability_sums_overlap, B21_dwarfgalaxies_probability_sums_overlap)
-    del B21_members_dwarfgalaxy_ids_subsample, B21_members_dwarfgalaxy_probs_subsample, B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_overlap  # Free memory
-    gc.collect()  # Force garbage collection
-
-def plot_Battaglia2021_dwarfgalaxies_on_sky(overwrite=False):
-    """
-    Plot the Battaglia et al. (2021) dwarf galaxies on the sky.
-    """
-    # Check if plot already exists
-    file_clusters_on_sky_path = os.path.join(FIGURES_PATH, "Battaglia2021_dwarfgalaxies_on_sky.png")
-    if os.path.exists(file_clusters_on_sky_path) and not overwrite:
-        print(f"Battaglia et al. (2021) dwarf galaxies on sky plot already exists at:\n\t{file_clusters_on_sky_path} .")
-        print("Use overwrite=True to force replotting.\n")
-        return
-    print("Plotting Battaglia et al. (2021) dwarf galaxies on the sky...")
-
-    # Load the required arrays
-    print("... loading required arrays for plotting")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
-    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
-    del subsample_mask  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Convert (l, b) in degrees to radians for Mollweide projection
-    print("... converting galactic coordinates to radians for Mollweide projection")
-    galactic_coordinates = np.deg2rad(galactic_coordinates)
-
-     # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
-    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
-    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
-    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
-
-    # Load the Battaglia et al. (2021) clustering output
-    print("... loading Battaglia et al. (2021) clustering output for plotting")
-    B21_members_dwarfgalaxy_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_ids_subsample.npy"))  # (N,)
-    B21_members_dwarfgalaxy_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_probs_subsample.npy"))  # (N,)
-
-    # Simplify the catalogue
-    print("... simplifying the Battaglia et al. (2021) catalogue for plotting")
-    plottable_bool = np.any(B21_members_dwarfgalaxy_probs_subsample > 0.5, axis=1)
-    no_dwarfgalaxy_id = B21_members_dwarfgalaxy_ids_subsample.max()
-    B21_members_dwarfgalaxy_ids_subsample = B21_members_dwarfgalaxy_ids_subsample[plottable_bool]
-    galactic_coordinates = galactic_coordinates[plottable_bool]
-    print(f"... {plottable_bool.sum()} plottable stars")
-    del B21_members_dwarfgalaxy_probs_subsample, plottable_bool  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Create a Mollweide projection plot and plot dwarf galaxies on the sky
-    fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
-
-    # Cycle through the dwarf galaxies and plot them
-    print("... plotting dwarf galaxies on the sky")
-    for i in range(no_dwarfgalaxy_id):
-        dwarfgalaxyMembers = np.any(B21_members_dwarfgalaxy_ids_subsample == i, axis=1)
-        ax.scatter(
-            *galactic_coordinates[dwarfgalaxyMembers].T,
-            facecolor=f"C{i}", edgecolor='k',
-            s=0.75, lw=0.075
-        )  # Plot each dwarf galaxy with a different color
-
-    # Remove grid, ticks, and labels
-    ax.grid(False)
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    # Save the figure
-    plt.tight_layout()
-    plt.savefig(file_clusters_on_sky_path, dpi=500)
-    plt.close()
-    gc.collect()  # Free memory
-    print(f"... saved dwarf galaxies on sky plot to {file_clusters_on_sky_path}.\n")
-
-def compare_to_Battaglia2021(overwrite=False):
-    """
-    Compare the clustering output to the Battaglia et al. (2021) catalogue.
-    """
-    # Check if comparison results already exist
-    file_path_best_match_astrolink_clusters = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_best_match_astrolink_clusters.npy")
-    file_path_cluster_rpje = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_rpje.npy")
-
-    # Skip processing if all merged output files already exist
-    all_exist = (os.path.exists(file_path_cluster_rpje) and
-                 os.path.exists(file_path_best_match_astrolink_clusters))
-    if all_exist and not overwrite:
-        print("Battaglia et al. (2021) comparison results already exist at:")
-        print(f"\t{file_path_best_match_astrolink_clusters} and")
-        print(f"\t{file_path_cluster_rpje} .")
-        print("Use overwrite=True to force recomputation.\n")
-        return
-    print("Comparing clustering output to Battaglia et al. (2021)...")
-
-    # Load required arrays
-    print("... loading required arrays for comparison")
-    B21_members_dwarfgalaxy_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_ids_subsample.npy"))  # (N,)
-    B21_members_dwarfgalaxy_probs_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_probs_subsample.npy"))  # (N,)
-    B21_dwarfgalaxies_probability_sums_total = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_total.npy"))  # (N_clusters,)
-    B21_dwarfgalaxies_probability_sums_overlap = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_overlap.npy"))  # (N_clusters,)
-
-    # Make the comparison
-    whichClusters, RPJE = compare_to_catalogue_helper(
-        B21_members_dwarfgalaxy_ids_subsample,
-        B21_members_dwarfgalaxy_probs_subsample,
-        B21_dwarfgalaxies_probability_sums_total,
-        B21_dwarfgalaxies_probability_sums_overlap
-    )
-    del B21_members_dwarfgalaxy_ids_subsample, B21_members_dwarfgalaxy_probs_subsample, B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_overlap  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Save the results
-    print("... saving comparison results.\n")
-    np.save(file_path_best_match_astrolink_clusters, whichClusters)
-    np.save(file_path_cluster_rpje, RPJE)
-    del whichClusters, RPJE  # Free memory
-    gc.collect()  # Force garbage collection
-
-def plot_Battaglia2021_comparison_results(overwrite=False):
-    """
-    Plot the results of the comparison between clustering output and the Battaglia et al. (2021) catalogue,
-    showing recovery, purity, and Jaccard index under both subsample assumptions
-    ('full' and 'union'), with hatched regions indicating the bounds between them.
-    """
-    # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "Battaglia2021_comparison_results.png")
-    if os.path.exists(file_path) and not overwrite:
-        print(f"Battaglia et al. (2021) comparison results plot already exists at:\n\t{file_path} .")
-        print("Use overwrite=True to force replotting.\n")
-        return
-    print("Plotting Battaglia et al. (2021) comparison results...")
-
-    # Load comparison results
-    print("... loading comparison results")
-    RPJE = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_rpje.npy"))  # (N_sigmas, N_dwarfgalaxies, 2, 4)
-    B21_dwarfgalaxies_probability_sums_total = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_total.npy"))  # (N_dwarfgalaxies,)
-    B21_dwarfgalaxies_probability_sums_overlap = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_probability_sums_overlap.npy"))  # (N_dwarfgalaxies,)
-    coverage = B21_dwarfgalaxies_probability_sums_overlap / B21_dwarfgalaxies_probability_sums_total  # (N_dwarfgalaxies,)
-    del B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_overlap  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Load dwarf galaxy names
-    dwarf_galaxy_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_names.npy"), allow_pickle=True)
-
-    # Extract per-assumption and per-statistic arrays
-    R_full,  R_union  = RPJE[:, :, 0, 0], RPJE[:, :, 1, 0]
-    P_full,  P_union  = RPJE[:, :, 0, 1], RPJE[:, :, 1, 1]
-    J_full,  J_union  = RPJE[:, :, 0, 2], RPJE[:, :, 1, 2]
-    #E_full,  E_union  = RPJE[:, :, 0, 3], RPJE[:, :, 1, 3]
-
-    # Evidence-weighted averages
-    Rbar_full  = np.sum(R_full * coverage, axis=1) / np.sum(coverage)
-    Rbar_union = np.sum(R_union * coverage, axis=1) / np.sum(coverage)
-    Pbar_full  = np.sum(P_full * coverage, axis=1) / np.sum(coverage)
-    Pbar_union = np.sum(P_union * coverage, axis=1) / np.sum(coverage)
-    Jbar_full  = np.sum(J_full * coverage, axis=1) / np.sum(coverage)
-    Jbar_union = np.sum(J_union * coverage, axis=1) / np.sum(coverage)
-
-    print("... plotting combined statistics vs significance level")
-
-    # Define dwarf galaxy names and colors
-    best_matching_dwarf_galaxies = np.argsort(np.max(J_union, axis=0))[::-1][:5]
-    dwarf_galaxy_colors = {
-        dwarf_galaxy_name: f"C{index}"
-        for index, dwarf_galaxy_name in enumerate(dwarf_galaxy_names[best_matching_dwarf_galaxies])
-    }
-
-    # Make figure
-    fig, ax = plt.subplots(figsize=(6, 6))
-
-    """
-    # Recovery
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_union,
-            color='k', linestyle='dashed', linewidth=1.5, label='R', zorder=3)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full,
-            color='k', linestyle='dashed', linewidth=1.5, zorder=3)
-    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Rbar_full, Rbar_union,
-                    facecolor='none', hatch='//', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
-
-    # Purity
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_union,
-            color='k', linestyle='dotted', linewidth=1.5, label='P', zorder=3)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full,
-            color='k', linestyle='dotted', linewidth=1.5, zorder=3)
-    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_full, Pbar_union,
-                    facecolor='none', hatch='\\', edgecolor='k', linewidth=0.0, alpha=0.3, zorder=3)
-    """
-
-    # Jaccard
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
-            color='k', linestyle='solid', linewidth=1, zorder=2)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full,
-            color='k', linestyle='solid', linewidth=1, zorder=2)
-    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_full, Jbar_union,
-            color='k', alpha=0.3, zorder=3)
-
-    # Cycle through specific streams and plot their Jaccard indices vs significance level
-    for dwarf_galaxy_name, color in dwarf_galaxy_colors.items():
-        # Find index of this stream
-        dwarf_galaxy_index = np.where(dwarf_galaxy_names == dwarf_galaxy_name)[0][0]
-
-        # Plot Jaccard indices for this stream
-        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_union[:, dwarf_galaxy_index],
-                color=color, linestyle='solid', linewidth=1, zorder=3)
-        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_full[:, dwarf_galaxy_index],
-                color=color, linestyle='solid', linewidth=1, zorder=3)
-        ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, J_full[:, dwarf_galaxy_index], J_union[:, dwarf_galaxy_index],
-                color=color, alpha=0.3, zorder=3)
-    
-    # Matched fractions
-    fraction_matched_union = np.mean(J_union > 0.5, axis=1)
-    fraction_matched_full = np.mean(J_full > 0.5, axis=1)
-
-    # Plot fraction of clusters of this type matched to above J=0.5
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_union,
-            color='k', linestyle='dashed', linewidth=1, zorder=2)
-    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full,
-            color='k', linestyle='dashed', linewidth=1, zorder=2)
-    ax.fill_between(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched_full, fraction_matched_union,
-            facecolor='none', hatch='//', edgecolor='k', linewidth=1, zorder=2)
-
-    # Plot optimal S value on top
-    ax.axvline(OPTIMAL_SIGMA_THRESHOLD, color='grey', linestyle='dotted', linewidth=0.75, zorder=4)
-    ax.text(
-        OPTIMAL_SIGMA_THRESHOLD, 1.01,
-        f"S = {OPTIMAL_SIGMA_THRESHOLD}",
-        color='grey', fontsize=10, ha='center', va='bottom', zorder=4
-    )
-
-    # Dummy handles for the legend
-    handles = [
-        Rectangle((0,0), 1, 1, facecolor=mcolors.to_rgba('k', alpha=0.3), edgecolor='k', linewidth=1, label='Jaccard index'),
-        Rectangle((0,0), 1, 1, facecolor='none', hatch='//', edgecolor='k', linewidth=1, label='Matched fraction'),
-    ] + [plt.Line2D([], [], color='none', label=dwarf_galaxy_name) for dwarf_galaxy_name in dwarf_galaxy_colors.keys()]
-
-    # Create the legend
-    leg = ax.legend(handles=handles, loc='upper right', frameon=False)
-
-    # Recolor legend text entries for cluster types
-    for text in leg.get_texts():
-        label = text.get_text()
-        if label in dwarf_galaxy_colors:
-            text.set_color(dwarf_galaxy_colors[label])
-            text.set_fontweight('bold')
-
-    # Final formatting
-    print("... saving figure.\n")
-    ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
-    ax.set_ylim(0, 1)
-    ax.set_xlabel(r"Significance, $S$")
-    ax.set_ylabel("Comparison statistic")
-    plt.tight_layout()
-    plt.savefig(file_path, dpi=500)
-    plt.close(fig)
-    gc.collect()
-
 
 # === Run script ===
 if __name__ == "__main__":
@@ -4204,37 +4041,37 @@ if __name__ == "__main__":
     construct_data_space_for_subsample()
 
     # Apply AstroLink to subsample and plot of cluster properties
-    apply_astrolink_to_subsample(True)
-    plot_prominence_model_fit(True)
-    plot_cluster_labels_on_sky(True)
-    plot_cluster_proper_motions_on_sky(True)
+    apply_astrolink_to_subsample()
+    plot_prominence_model_fit()
+    plot_cluster_labels_on_sky()
+    plot_cluster_proper_motions_on_sky()
 
     # Compare to Hunt & Reffert (2024)
     prepare_Hunt2024_for_comparison()
     plot_Hunt2024_clusters_on_sky()
-    compare_to_Hunt2024(True)
-    plot_Hunt2024_comparison_results(True)
+    compare_to_Hunt2024()
+    plot_Hunt2024_comparison_results()
 
     # Compare to Unified Cluster Catalogue
     prepare_UCC_for_comparison()
     plot_UCC_clusters_on_sky()
-    compare_to_UCC(True)
-    plot_UCC_comparison_results(True)
-
-    # Compare to galstreams catalogue
-    prepare_galstreams_for_comparison()
-    plot_galstreams_streams_on_sky()
-    compare_to_galstreams(True)
-    plot_galstreams_comparison_results(True)
+    compare_to_UCC()
+    plot_UCC_comparison_results()
 
     # Compare to Vasiliev & Baumgardt (2021)
     prepare_Vasiliev2021_for_comparison()
     plot_Vasiliev2021_clusters_on_sky()
-    compare_to_Vasiliev2021(True)
+    compare_to_Vasiliev2021()
     plot_Vasiliev2021_comparison_results(True)
 
     # Compare to Battaglia et al. (2021)
     prepare_Battaglia2021_for_comparison()
     plot_Battaglia2021_dwarfgalaxies_on_sky()
-    compare_to_Battaglia2021(True)
-    plot_Battaglia2021_comparison_results(True)
+    compare_to_Battaglia2021()
+    plot_Battaglia2021_comparison_results()
+
+    # Compare to galstreams catalogue
+    prepare_galstreams_for_comparison()
+    plot_galstreams_streams_on_sky()
+    compare_to_galstreams()
+    plot_galstreams_comparison_results()

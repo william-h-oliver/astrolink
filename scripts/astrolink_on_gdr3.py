@@ -69,7 +69,7 @@ CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to Astr
 FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
-WORKING_MEMORY = 200  # GB for max memory usage by k nearest neighbour retrieval 
+WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
 
 # Pipeline constants
 WITH_PROPER_MOTIONS = True # Whether to use proper motions in the input data space for AstroLink clustering
@@ -344,7 +344,7 @@ def calculate_empirical_survey_selection_function(overwrite=False):
     tree = KDTree(xyz_stars[valid_for_kNN])
 
     # Batching for memory efficiency
-    chunk_n_rows = min(int(WORKING_MEMORY * (2**30) // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
+    chunk_n_rows = min(int(WORKING_MEMORY // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
 
     # Compute m10 for each star as median G of neighbors with <11 transits
     for start in range(0, n, chunk_n_rows):
@@ -406,7 +406,7 @@ def calculate_empirical_survey_selection_function(overwrite=False):
 
     # Update chunking for HEALPix
     print("... updating chunk size for HEALPix pixels")
-    chunk_n_rows = min(int(WORKING_MEMORY * (2**30) // (16 * KNN_FOR_SELECTION_FUNCTION)), npix)
+    chunk_n_rows = min(int(WORKING_MEMORY // (16 * KNN_FOR_SELECTION_FUNCTION)), npix)
 
     # Initialize m10 array for HEALPix pixels
     print("... initializing m10 array for HEALPix pixels")
@@ -545,7 +545,7 @@ def construct_subsample_from_full_catalogue(overwrite=False):
 
     # Load selection function and galactic coordinates
     print("... loading required arrays from reduced catalogue")
-    selection_function = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_selection_function_.npy"))  # (n,)
+    selection_function = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_selection_function.npy"))  # (n,)
     galactic_coords = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (n, 2) in degrees
     r_med_photogeo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_photogeo.npy"))  # (n,)
     proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))  # (n, 2) in mas/yr
@@ -640,7 +640,7 @@ def calculate_subsample_selection_function(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Batching for memory efficiency
-    chunk_n_rows = min(int(WORKING_MEMORY * (2**30) // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
+    chunk_n_rows = min(int(WORKING_MEMORY // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
 
     # Compute subsample selection function for each star as fraction of neighbourhood in subsample
     for start in range(0, n, chunk_n_rows):
@@ -699,7 +699,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     print("... loading required arrays from reduced catalogue")
     galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))
     G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]
-    survey_sf = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_selection_function_.npy"))
+    survey_sf = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_selection_function.npy"))
     subsample_sf = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_selection_function.npy"))
 
     # Identify stars with valid G magnitude
@@ -742,7 +742,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     tree = KDTree(xyz_stars) # Build KDTree with all stars with valid G-band magnitudes
 
     # Batching for memory efficiency
-    chunk_n_rows = min(int(WORKING_MEMORY * (2**30) // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
+    chunk_n_rows = min(int(WORKING_MEMORY // (16 * KNN_FOR_SELECTION_FUNCTION)), n)
 
     # Initialize total selection function array for stars in the subsample
     print("... initializing total selection function arrays for stars in the subsample")
@@ -808,7 +808,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
 
     # Update chunking for HEALPix
     print("... updating chunk size for HEALPix pixels")
-    chunk_n_rows = min(int(WORKING_MEMORY * (2**30) // (16 * KNN_FOR_SELECTION_FUNCTION)), npix)
+    chunk_n_rows = min(int(WORKING_MEMORY // (16 * KNN_FOR_SELECTION_FUNCTION)), npix)
 
     # Initialize arrays for HEALPix pixels
     print("... initializing total selection function arrays for HEALPix pixels")
@@ -1258,8 +1258,8 @@ def apply_astrolink_to_subsample(overwrite=False):
     if STOCHASTIC_RUN:
         # Batched sampling from the posterior distribution of S_total^{-1} ~ 1 + BetaPrime(n_mw - n_sub - 1, n_sub + 1)
         n_rows = nsub.shape[0]
-        chunk_n_rows = min(int(WORKING_MEMORY * (2**30) // (4 * 5)), n_rows)  # Number of rows to process in each batch
-        weights = np.empty(n_rows, dtype=np.float32)
+        chunk_n_rows = min(int(WORKING_MEMORY // (8 * 5)), n_rows)  # Number of rows to process in each batch
+        weights = np.empty(n_rows)
         for start in range(0, n_rows, chunk_n_rows):
             end = min(start + chunk_n_rows, n_rows)
 
@@ -1272,11 +1272,11 @@ def apply_astrolink_to_subsample(overwrite=False):
             b = nmw_batch - nsub_batch - 1
 
             # Sample from the Beta Prime distribution using its Gamma representation
-            g1 = np.random.gamma(shape=b, scale=1.0).astype(np.float32)
-            g2 = np.random.gamma(shape=a, scale=1.0).astype(np.float32)
+            g1 = np.random.gamma(shape=b, scale=1.0)
+            g2 = np.random.gamma(shape=a, scale=1.0)
             weights[start:end] = 1 + (a * g1) / (b * g2)
     else:
-        weights = nmw.astype(np.float32) / (nsub.astype(np.float32) + 2)  # Mode of the posterior distribution of S_total^{-1}
+        weights = nmw / (nsub + 2)  # Mode of the posterior distribution of S_total^{-1}
     del nsub, nmw  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -1290,7 +1290,8 @@ def apply_astrolink_to_subsample(overwrite=False):
         adaptive=0,
         S=OPTIMAL_SIGMA_THRESHOLD,
         workers=MAX_PARALLEL_WORKERS,
-        verbose=0
+        verbose=0,
+        working_memory=WORKING_MEMORY
     )
     del input_data, weights  # Free memory
     gc.collect()  # Force garbage collection
@@ -4024,12 +4025,12 @@ if __name__ == "__main__":
     prepare_bailerjones_gedr3_distances()
 
     # Calculate empirical selection function
-    calculate_empirical_survey_selection_function(True)
-    plot_limiting_g_band_magnitude_on_sky(True)
+    calculate_empirical_survey_selection_function()
+    plot_limiting_g_band_magnitude_on_sky()
     
     # Construct subsample and subsample selection function
-    construct_subsample_from_full_catalogue(True)
-    calculate_subsample_selection_function(True)
+    construct_subsample_from_full_catalogue()
+    calculate_subsample_selection_function()
 
     # Calculate total selection function for subsample
     calculate_total_selection_function_for_subsample(True)

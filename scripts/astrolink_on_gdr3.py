@@ -709,7 +709,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Calculate the inverse of the empirical survey selection function for the subsample
-    inverse_survey_sf = 1 / np.sqrt(survey_sf[valid_gmag]**2 + 1 / 100**2)  # Soft floor to avoid diverging values
+    inverse_survey_sf = 1 / np.sqrt(survey_sf[valid_gmag]**2 + 1 / KNN_FOR_SELECTION_FUNCTION**2)  # Soft floor to avoid diverging values
     del survey_sf  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -998,7 +998,7 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     variances[zero_variances, 0] = variances[zero_variances, 1:].sum(axis=1) / 2  # Prevent zero variance in distance
 
     # Weights for each star in the average
-    weights = nmw / (nsub + 2)  # Mode of the posterior of the inverse total selection function
+    weights = nmw / (nsub + 2)  # Mode of the posterior distribution of S_total^{-1} ~ 1 + BetaPrime(n_mw - n_sub - 1, n_sub + 1)
     del lo, high, drSqr, ra, dec, dra, ddec, nsub, nmw  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -1276,7 +1276,7 @@ def apply_astrolink_to_subsample(overwrite=False):
             g2 = np.random.gamma(shape=a, scale=1.0)
             weights[start:end] = 1 + (a * g1) / (b * g2)
     else:
-        weights = nmw / (nsub + 2)  # Mode of the posterior distribution of S_total^{-1}
+        weights = nmw / (nsub + 2)  # Mode of the posterior distribution of S_total^{-1} ~ 1 + BetaPrime(n_mw - n_sub - 1, n_sub + 1)
     del nsub, nmw  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -4048,31 +4048,31 @@ if __name__ == "__main__":
     plot_cluster_proper_motions_on_sky(True)
 
     # Compare to Hunt & Reffert (2024)
-    prepare_Hunt2024_for_comparison(True)
-    plot_Hunt2024_clusters_on_sky(True)
+    prepare_Hunt2024_for_comparison()
+    plot_Hunt2024_clusters_on_sky()
     compare_to_Hunt2024(True)
     plot_Hunt2024_comparison_results(True)
 
     # Compare to Unified Cluster Catalogue
-    prepare_UCC_for_comparison(True)
-    plot_UCC_clusters_on_sky(True)
+    prepare_UCC_for_comparison()
+    plot_UCC_clusters_on_sky()
     compare_to_UCC(True)
     plot_UCC_comparison_results(True)
 
     # Compare to Vasiliev & Baumgardt (2021)
-    prepare_Vasiliev2021_for_comparison(True)
-    plot_Vasiliev2021_clusters_on_sky(True)
+    prepare_Vasiliev2021_for_comparison()
+    plot_Vasiliev2021_clusters_on_sky()
     compare_to_Vasiliev2021(True)
     plot_Vasiliev2021_comparison_results(True)
 
     # Compare to Battaglia et al. (2021)
-    prepare_Battaglia2021_for_comparison(True)
-    plot_Battaglia2021_dwarfgalaxies_on_sky(True)
+    prepare_Battaglia2021_for_comparison()
+    plot_Battaglia2021_dwarfgalaxies_on_sky()
     compare_to_Battaglia2021(True)
     plot_Battaglia2021_comparison_results(True)
 
     # Compare to galstreams catalogue
-    prepare_galstreams_for_comparison(True)
-    plot_galstreams_streams_on_sky(True)
+    prepare_galstreams_for_comparison()
+    plot_galstreams_streams_on_sky()
     compare_to_galstreams(True)
     plot_galstreams_comparison_results(True)

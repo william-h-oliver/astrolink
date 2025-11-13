@@ -66,7 +66,7 @@ OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output file
 REDUCED_CATALOGUE_PATH = os.path.join(OUTPUT_PATH, "catalogue_files/")  # Path to reduced catalogue numpy files
 SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files/")  # Path to numpy files of subsample from full catalogue
 CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to AstroLink output files
-FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_rhalf75/")  # Path to figures
+FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_rhalf60/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
@@ -1029,7 +1029,7 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     gc.collect()  # Force garbage collection
     """
 
-    r_half = np.array(75.0)  # TEMPORARY FIX: Use fixed value of r_{1/2} = 75 pc here instead of global script parameter
+    r_half = np.array(60.0)  # TEMPORARY FIX: Use fixed value of r_{1/2} = 60 pc here instead of global script parameter
     
     # Save the best fit r_{1/2}
     print("... saving best fit r_{1/2} " + f"to {file_path_r_half} (shape: {r_half.shape})")
@@ -3677,8 +3677,6 @@ def prepare_galstreams_for_comparison(overwrite=False):
 
         # Total variance in phi2 due to astrometric uncertainties and width of stream
         var_phi2 = var_angularpos[in_footprint_mask] + sigma_phi2**2
-        q = np.sqrt(var_angularpos[in_footprint_mask]) / sigma_phi2 + 1
-        print(f"sigma_phi2={sigma_phi2:.3f}, ratio in [{q.min():.3f}, {q.max():.3f}], mu={q.mean():.3f}")
 
         # Compute chi2 value for position perpendicular to stream
         chi2 = (stars_phi2 - interp_phi2)**2 / var_phi2# - np.log(2 * np.pi) - np.log(var_phi2)
@@ -4097,31 +4095,31 @@ if __name__ == "__main__":
     plot_cluster_proper_motions_on_sky(True)
 
     # Compare to Hunt & Reffert (2024)
-    prepare_Hunt2024_for_comparison(True)
-    plot_Hunt2024_clusters_on_sky(True)
+    prepare_Hunt2024_for_comparison()
+    plot_Hunt2024_clusters_on_sky()
     compare_to_Hunt2024(True)
     plot_Hunt2024_comparison_results(True)
 
     # Compare to Unified Cluster Catalogue
-    prepare_UCC_for_comparison(True)
-    plot_UCC_clusters_on_sky(True)
+    prepare_UCC_for_comparison()
+    plot_UCC_clusters_on_sky()
     compare_to_UCC(True)
     plot_UCC_comparison_results(True)
 
     # Compare to Vasiliev & Baumgardt (2021)
-    prepare_Vasiliev2021_for_comparison(True)
-    plot_Vasiliev2021_clusters_on_sky(True)
+    prepare_Vasiliev2021_for_comparison()
+    plot_Vasiliev2021_clusters_on_sky()
     compare_to_Vasiliev2021(True)
     plot_Vasiliev2021_comparison_results(True)
 
     # Compare to Battaglia et al. (2021)
-    prepare_Battaglia2021_for_comparison(True)
-    plot_Battaglia2021_dwarfgalaxies_on_sky(True)
+    prepare_Battaglia2021_for_comparison()
+    plot_Battaglia2021_dwarfgalaxies_on_sky()
     compare_to_Battaglia2021(True)
     plot_Battaglia2021_comparison_results(True)
 
     # Compare to galstreams catalogue
-    prepare_galstreams_for_comparison(True)
-    plot_galstreams_streams_on_sky(True)
+    prepare_galstreams_for_comparison()
+    plot_galstreams_streams_on_sky()
     compare_to_galstreams(True)
     plot_galstreams_comparison_results(True)

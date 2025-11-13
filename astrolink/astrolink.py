@@ -283,18 +283,18 @@ class AstroLink:
         chunk_n_rows = max(min(int(working_memory // (16*self.k_den)), self.n_samples), 1)
 
         # Estimate densities and find kNN in a memory efficient way using batches
-        for start in range(0, self.n_samples, chunk_n_rows):
-            end = min(start + chunk_n_rows, self.n_samples)
+        for start_idx in range(0, self.n_samples, chunk_n_rows):
+            end_idx = min(start_idx + chunk_n_rows, self.n_samples)
 
             # k-nearest neighbours query
-            sqr_distances, indices = nbrs.query(self.P_transform[start:end], k = self.k_den, sqr_dists = True)
+            sqr_distances, indices = nbrs.query(self.P_transform[start_idx:end_idx], k = self.k_den, sqr_dists = True)
 
             # Compute logRho for this slice
-            if self.weights is None: self.logRho[start:end] = self._compute_logRho_njit(sqr_distances, self.k_den, self.d_intrinsic)
-            else: self.logRho[start:end] = self._compute_weighted_logRho_njit(sqr_distances, self.weights[indices], self.d_intrinsic)
-
+            if self.weights is None: self.logRho[start_idx:end_idx] = self._compute_logRho_njit(sqr_distances, self.k_den, self.d_intrinsic)
+            else: self.logRho[start_idx:end_idx] = self._compute_weighted_logRho_njit(sqr_distances, self.weights[indices], self.d_intrinsic)
+            
             # Keep only the k_link nearest neighbours
-            self.kNN[start:end] = indices[:, :self.k_link]
+            self.kNN[start_idx:end_idx] = indices[:, :self.k_link]
         del self.P_transform
 
         # Normalise logRho

@@ -66,7 +66,7 @@ OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output file
 REDUCED_CATALOGUE_PATH = os.path.join(OUTPUT_PATH, "catalogue_files/")  # Path to reduced catalogue numpy files
 SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files/")  # Path to numpy files of subsample from full catalogue
 CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to AstroLink output files
-FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_rhalf60/")  # Path to figures
+FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_rhalf90/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
@@ -1029,7 +1029,7 @@ def calculate_distance_contraction_for_subsample(overwrite=False):
     gc.collect()  # Force garbage collection
     """
 
-    r_half = np.array(60.0)  # TEMPORARY FIX: Use fixed value of r_{1/2} = 60 pc here instead of global script parameter
+    r_half = np.array(90.0)  # TEMPORARY FIX: Use fixed value of r_{1/2} = 90 pc here instead of global script parameter
     
     # Save the best fit r_{1/2}
     print("... saving best fit r_{1/2} " + f"to {file_path_r_half} (shape: {r_half.shape})")

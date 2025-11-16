@@ -13,7 +13,7 @@ if "THREAD_CONTROL_INIT" not in os.environ:
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 from numba import njit, set_num_threads
-set_num_threads(MAX_PARALLEL_WORKERS) # For some reason this is necessary to get pykdtree to use the correct number of threads
+set_num_threads(MAX_PARALLEL_WORKERS) # For some reason this is necessary to get both numba AND pykdtree to use the correct number of threads
 
 # Remaining standard imports
 import gc
@@ -40,7 +40,7 @@ from astropy.table import Table # Works using v6.1.2, but v7.1.0 seems to try an
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from gaiaunlimited.selectionfunctions import m10_to_completeness
-import galstreams # Also needs astropy==6.1.2 as well as gala==1.9.1
+import galstreams # Also seems to need astropy==6.1.2 as also(?) gala==1.9.1
 
 # Plotting imports
 import matplotlib.pyplot as plt
@@ -66,22 +66,37 @@ OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output file
 REDUCED_CATALOGUE_PATH = os.path.join(OUTPUT_PATH, "catalogue_files/")  # Path to reduced catalogue numpy files
 SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files/")  # Path to numpy files of subsample from full catalogue
 CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to AstroLink output files
-FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_rhalf90/")  # Path to figures
+FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_new_contraction/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
 
-# Pipeline constants
+# HEALPix level for on-sky plotting of selection function maps
+HEALPIX_LEVEL_FOR_MAPS = 12
+
+# Pipeline setup
 WITH_PROPER_MOTIONS = True # Whether to use proper motions in the input data space for AstroLink clustering
 WITH_RADIAL_VELOCITIES = False # Whether to use radial velocities in the input data space for AstroLink clustering
-STOCHASTIC_RUN = False # Whether to sample stochastic values from their uncertainties / posterior
+STOCHASTIC_RUN = False # Whether to sample stochastic values from their distributions
+
+# Subsample construction parameters
 KNN_FOR_SELECTION_FUNCTION = 128 # Number of nearest neighbors for selection function calculations
 SURVEY_SF_LOWER_LIMIT = 0.99 # Empirical survey selection function lower limit for subsample stars
 RUWE_UPPER_LIMIT = 1.2 # RUWE threshold for subsample stars
-HEALPIX_LEVEL = 12 # HEALPix level for on-sky plotting
+
+# Data space construction parameters
+#R_HALF = 90  # Distances are contracted according to R_HALF * np.arctan(distance / R_HALF), R_HALF (in pc) marks the half-way point between full and zero Cartesian influence of the distance estimate on the clustering output
+#PM_METRIC_MULTIPLIER = 1.0  # Multiplier for the influence of proper motions in the data space metric (after being rescaled by their uncertainties)
+#VRAD_METRIC_MULTIPLIER = 1.0  # Multiplier for the influence of radial velocities in the data space metric (after being rescaled by their uncertainties)
+
+# AstroLink parameters
 KNN_FOR_ASTROLINK = 16 # Number of nearest neighbors for AstroLink
-SIGMA_THRESHOLDS_FOR_COMPARISONS = np.linspace(2, 10, 81)  # Significance levels from 2 to 10 to be used when comparing to existing cluster catalogues (must be increasing!)
 OPTIMAL_SIGMA_THRESHOLD = 3.8 + STOCHASTIC_RUN * np.random.normal(0, 0.1, 1)[0]  # Optimal significance threshold determined from prominence model fitting
+
+# Comparison parameters
+SIGMA_THRESHOLDS_FOR_COMPARISONS = np.linspace(2, 10, 81)  # Significance levels from 2 to 10 to be used when comparing to existing cluster catalogues
+if OPTIMAL_SIGMA_THRESHOLD not in SIGMA_THRESHOLDS_FOR_COMPARISONS:
+    SIGMA_THRESHOLDS_FOR_COMPARISONS = np.sort(np.append(SIGMA_THRESHOLDS_FOR_COMPARISONS, OPTIMAL_SIGMA_THRESHOLD))
 
 
 # === Reduce GDR3 and Bailer-Jones GEDR3 catalogues to numpy files ===
@@ -388,7 +403,7 @@ def calculate_empirical_survey_selection_function(overwrite=False):
 
     # Also calculate m10 values at the centre of each HEALPix pixel for plotting
     print("Calculating m10 values for HEALPix pixels...")
-    nside = 2**HEALPIX_LEVEL
+    nside = 2**HEALPIX_LEVEL_FOR_MAPS
     npix = hp.nside2npix(nside)
 
     # Convert (theta, phi) in degrees to unit 3D Cartesian coordinates
@@ -670,7 +685,7 @@ def calculate_subsample_selection_function(overwrite=False):
 
 
 # === Calculate total selection function for subsample ===
-def calculate_total_selection_function_for_subsample(overwrite=False):
+def calculate_total_selection_function(overwrite=False):
     """
     Calculate the total selection function for the subsample.
     """
@@ -787,7 +802,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
 
     # Also calculate the total selection function values at the centre of each HEALPix pixel for plotting
     print("Calculating total selection function for HEALPix pixels...")
-    nside = 2**HEALPIX_LEVEL
+    nside = 2**HEALPIX_LEVEL_FOR_MAPS
     npix = hp.nside2npix(nside)
 
     # Convert (theta, phi) in degrees to unit 3D Cartesian coordinates
@@ -849,7 +864,7 @@ def calculate_total_selection_function_for_subsample(overwrite=False):
     del nsub_healpix, nmw_healpix  # Free memory
     gc.collect()  # Force garbage collection
 
-def plot_total_selection_function_for_subsample(overwrite=False):
+def plot_total_selection_function(overwrite=False):
     """
     Plot the mean and standard error of the total selection function across the sky using HEALPix.
     """
@@ -956,255 +971,182 @@ def plot_total_selection_function_for_subsample(overwrite=False):
 
 
 # === Construct input data to be passed to AstroLink ===
-def calculate_distance_contraction_for_subsample(overwrite=False):
+def construct_cartesian_subspaces_and_uncertainties(overwrite=False):
     """
-    Calculate the distance contraction for the subsample.
+    Calculate Cartesian position and velocity subspaces and their RMS errors 
+    from astrometric solutions of stars.
     """
-    # Check if the distance contraction already exists
-    file_path_r_half = os.path.join(SUBSAMPLE_PATH, "contracted_r_half.npy")
-    file_path_fr = os.path.join(SUBSAMPLE_PATH, "contracted_distance.npy")
-    file_path_delta_fr = os.path.join(SUBSAMPLE_PATH, "contracted_distance_error.npy")
+    # Check if arrays already exists
+    file_path_positions = os.path.join(SUBSAMPLE_PATH, "positions.npy")
+    file_path_velocities = os.path.join(SUBSAMPLE_PATH, "velocities.npy")
+    file_path_delta_positions = os.path.join(SUBSAMPLE_PATH, "position_uncertainties.npy")
+    file_path_delta_velocities = os.path.join(SUBSAMPLE_PATH, "velocity_uncertainties.npy")
 
-    all_exist = all(os.path.exists(p) for p in [file_path_r_half, file_path_fr, file_path_delta_fr])
-    if all_exist and not overwrite:
-        print(f"Distance contraction arrays already exist at:")
-        print(f"\t{file_path_r_half} ,")
-        print(f"\t{file_path_fr} , and")
-        print(f"\t{file_path_delta_fr} .")
-        print("Use overwrite=True to force recomputation.\n")
-        return
-    print("Calculating distance contraction and its error for subsample...")
-
-    # Load required arrays
-    print("... loading required arrays")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (n,)
-    r = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_photogeo.npy"))[subsample_mask]  # (n,) in pc
-    del subsample_mask  # Free memory
-    gc.collect()  # Force garbage collection
-
-    """
-    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_photogeo.npy"))[subsample_mask].T  # each (n,) in pc
-    ra, dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask].T  # each (n,) in degrees
-    sigma_ra, sigma_dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask, :2].T / 3600000  # each (n,) in degrees
-    nsub = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_nsub.npy"))[subsample_mask]  # (n,)
-    nmw = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_nmw.npy"))[subsample_mask]  # (n,)
-    del subsample_mask  # Free memory
-    gc.collect()  # Force garbage collection
-    
-    # Calculate variances in spherical coordinates
-    drSqr = (high - lo)**2 / 4
-    variances = np.column_stack([
-        drSqr,  # Variance in LOS
-        (np.cos(np.deg2rad(dec)) * np.deg2rad(sigma_ra))**2,  # Variance in RA
-        np.deg2rad(sigma_dec)**2 # Variance in Dec
-    ])
-    zero_variances = drSqr == 0
-    variances[zero_variances, 0] = variances[zero_variances, 1:].sum(axis=1) / 2  # Prevent zero variance in distance
-    del lo, high, drSqr, ra, dec, sigma_ra, sigma_dec, zero_variances  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Weights for each star in the average
-    weights = (nmw + 2) / (nsub + 2)  # Mode of the posterior distribution of S_total^{-1} ~ 1 + BetaPrime(n_mw - n_sub + 1, n_sub + 1)
-    del nsub, nmw  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Define loss wrapper for minimization so that the current r_half and loss can be printed
-    def loss_wrapper(r_half, variances, r, weights):
-        loss = weighted_average_sym_kl_contracted(r_half, variances, r, weights)
-        print("\t... r_{1/2}:" + f"{r_half:10.4f} | loss: {loss:10.6f}")
-        return loss
-
-    # Fit model using a grid search for r_{1/2}
-    print("... fitting r_{1/2} to get globally isotropic spatial uncertainties")
-    bounds = (0.01, 10)  # Initial guess for r_{1/2} in pc
-    result = minimize_scalar(
-        lambda r_half: loss_wrapper(r_half, variances, r, weights),
-        bounds=bounds,
-        method='bounded',
-        options={'xatol': 0.01}      # stop when r_half is within 0.01 pc
+    # Skip processing if all output files already exist
+    all_exist = (
+        os.path.exists(file_path_positions) and
+        os.path.exists(file_path_velocities) and
+        os.path.exists(file_path_delta_positions) and
+        os.path.exists(file_path_delta_velocities)
     )
-    r_half = result.x  # Best fit characteristic scale r_{1/2} in pc
-    print("... best fit r_{1/2} = " + f"{r_half:10.4f} pc, with loss = {result.fun:10.6f}")
-    del variances, weights  # Free memory
-    gc.collect()  # Force garbage collection
-    """
-
-    r_half = np.array(90.0)  # TEMPORARY FIX: Use fixed value of r_{1/2} = 90 pc here instead of global script parameter
-    
-    # Save the best fit r_{1/2}
-    print("... saving best fit r_{1/2} " + f"to {file_path_r_half} (shape: {r_half.shape})")
-    np.save(file_path_r_half, r_half)
-
-    fr = r_half * np.arctan(r / r_half)  # shape (N,)
-    dfr = r_half ** 2 / (r_half ** 2 + r ** 2)  # Derivative of f(r) with respect to r, shape (N,)
-    del r  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Save contracted distance
-    print(f"... saving contracted distance to {file_path_fr} (shape: {fr.shape})")
-    np.save(file_path_fr, fr)
-    del fr  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Save contracted distance uncertainties
-    print(f"... saving contracted distance uncertainties to {file_path_delta_fr} (shape: {dfr.shape}).\n")
-    np.save(file_path_delta_fr, dfr)
-    del dfr  # Free memory
-    gc.collect()  # Force garbage collection
-
-@njit()
-def weighted_average_sym_kl_contracted(r_half, variances, r, weights):
-    """
-    Compute the weighted average symmetrized KL divergence between propagated 
-    spherical coordinate uncertainties and an optimal isotropic Gaussian under a 
-    contracted distance metric f(r) = r_half * arctan(r / r_half).
-
-    Parameters:
-        r_half : float
-            Contraction scale parameter r_{1/2} (in pc).
-        variances : np.ndarray of shape (N, 3)
-            Each row contains uncertainties: (delta_r^2, delta_ra*^2, delta_dec^2)
-            where delta_ra* = cos(dec) * delta_ra in radians.
-        r : np.ndarray of shape (N,)
-            Radial distances (in pc) for each source.
-        weights : np.ndarray of shape (N,)
-            Weights for each source in the average.
-
-    Returns:
-        alpha_opt : float
-            Optimal scalar variance alpha.
-        avg_kl_sym : float
-            Average symmetrized KL divergence in contracted space.
-    """
-    # Unpack uncertainties of observables
-    var_r, var_ra_star, var_dec = variances.T
-
-    # Contracted distance and its derivative
-    f_r = r_half * np.arctan(r / r_half)
-    r_half_squared = r_half**2
-    f_prime = r_half_squared / (r_half_squared + r**2)
-
-    # First-order propagated variances (diagonal)
-    var_los = f_prime**2 * var_r               # LOS direction
-    var_tan1 = f_r**2 * var_ra_star            # horizontal tangential
-    var_tan2 = f_r**2 * var_dec                # vertical tangential
-
-    # Combine into diagonal covariance matrix for each source
-    tr = var_los + var_tan1 + var_tan2
-    tr_inv = 1.0 / var_los + 1.0 / var_tan1 + 1.0 / var_tan2
-
-    # Weighted symmetrized KL divergence
-    avg_kl_sym = np.average(np.sqrt(tr * tr_inv), weights=weights) - 3.0
-
-    return avg_kl_sym
-
-def calculate_contracted_data_and_errors_for_subsample(overwrite=False):
-    """
-    Calculate Cartesian positions and velocities, and their uncertainties, 
-    under a contracted distance transform with zero radial velocity.
-    """
-    # Check if the contracted astrometric representation already exists
-    file_path_position = os.path.join(SUBSAMPLE_PATH, "contracted_positions.npy")
-    file_path_velocity = os.path.join(SUBSAMPLE_PATH, "contracted_velocities.npy")
-    file_path_sigma_pos = os.path.join(SUBSAMPLE_PATH, "contracted_position_uncertainties.npy")
-    file_path_sigma_vel = os.path.join(SUBSAMPLE_PATH, "contracted_velocity_uncertainties.npy")
-    if os.path.exists(file_path_position) and os.path.exists(file_path_velocity) and os.path.exists(file_path_sigma_pos) and os.path.exists(file_path_sigma_vel) and not overwrite:
-        print(f"Contracted astrometric representation and its uncertainties already exist at:")
-        print(f"\t{file_path_position} ,")
-        print(f"\t{file_path_velocity} ,")
-        print(f"\t{file_path_sigma_pos} , and")
-        print(f"\t{file_path_sigma_vel} .")
+    if all_exist and not overwrite:
+        print(f"Cartesian subspaces and uncertainties already exist at:")
+        print(f"\t{file_path_positions} ,")
+        print(f"\t{file_path_velocities} ,")
+        print(f"\t{file_path_delta_positions} , and")
+        print(f"\t{file_path_delta_velocities} .")
         print("Use overwrite=True to force recomputation.\n")
         return
-    print("Computing contracted astrometric representation and uncertainties for subsample...")
+    print("Computing Cartesian subspaces and errors for subsample...")
 
     # Load required arrays
-    print("... loading required arrays for positions and velocities")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
+    print("... loading subsample mask")
+    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # shape (N,)
+
+    print('... loading astrometric solution for subsample')
+    r = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_photogeo.npy"))[subsample_mask]  # shape (N,) in pc
     ra, dec = np.deg2rad(np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask]).T  # shape (N, 2) in radians
+    cos_ra, sin_ra, cos_dec, sin_dec = np.cos(ra), np.sin(ra), np.cos(dec), np.sin(dec) # Trigonemetric components
     mu_ra, mu_dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))[subsample_mask].T  # shape (N, 2) in mas/yr
-    
-    # Unit vector in the direction of the star
-    cos_ra, sin_ra = np.cos(ra), np.sin(ra)
-    cos_dec, sin_dec = np.cos(dec), np.sin(dec)
     del ra, dec  # Free memory
     gc.collect()  # Force garbage collection
+    
+    print('... loading astrometric solution uncertainties for subsample')
+    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_photogeo.npy"))[subsample_mask].T  # shape (N, 2) in pc
+    delta_r = (high - lo) / 2  # Symmetrize the distance uncertainty for first-order propagation
+    delta_ra, delta_dec, delta_mu_ra, delta_mu_dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask].T  # shape (N, 4) in [mas, mas, mas/yr, mas/yr]
+    delta_ra, delta_dec = delta_ra * (np.pi / 180 / 3600000), delta_dec * (np.pi / 180 / 3600000)  # Convert angular errors from mas to radians
+    del subsample_mask, lo, high  # Free memory
+    gc.collect()  # Force garbage collection
 
-    # Load the contracted distance
-    f_r = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_distance.npy"))  # (N,)
-
-    # Positions
-    print("... calculating transformed positions")
-    positions = f_r[:, None] * np.column_stack([cos_ra * cos_dec, sin_ra * cos_dec, sin_dec])
-
-    # Save the transformed positions
-    print(f"... saving transformed positions to {file_path_position} (shape: {positions.shape})")
-    np.save(file_path_position, positions)
+    # Save the positions
+    positions = r[:, None] * np.column_stack([cos_ra * cos_dec, sin_ra * cos_dec, sin_dec])  # shape (N, 3) in pc
+    np.save(file_path_positions, positions)
+    print(f"... saved positions to {file_path_positions} (shape: {positions.shape})")
     del positions  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Tangential velocity direction components
-    print("... calculating transformed velocities")
-    mu_ra_cos_dec = mu_ra * cos_dec  # shape (N,) in radians
-    e_alpha = np.column_stack([-sin_ra, cos_ra, np.zeros_like(cos_ra)])  # Tangential basis vector in RA direction
-    e_delta = np.column_stack([-cos_ra * sin_dec, -sin_ra * sin_dec, cos_dec])  # Tangential basis vector in Dec direction
-    velocity = f_r[:, None] * (mu_ra_cos_dec[:, None] * e_alpha + mu_dec[:, None] * e_delta)
-
-    # Save the transformed kinematics
-    print(f"... saving transformed velocities to {file_path_velocity} (shape: {velocity.shape})")
-    np.save(file_path_velocity, velocity)
-    del e_alpha, e_delta, velocity  # Free memory
+    # Save the position uncertainties
+    delta_omega_sq = (cos_dec * delta_ra)**2 + delta_dec**2  # shape (N,)
+    delta_positions = np.sqrt(delta_r**2 + r**2 * delta_omega_sq)  # shape (N,), RMS of Cartesian component errors
+    np.save(file_path_delta_positions, delta_positions)
+    print(f"... saved position uncertainties to {file_path_delta_positions} (shape: {delta_positions.shape})")
+    del delta_omega_sq, delta_positions  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Load uncertainties
-    print("... loading observational uncertainties")
-    f_r_prime = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_distance_error.npy"))  # (N,)
-    astrometric_errors = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask]  # (N, 5)
-    sigma_ra, sigma_dec = np.deg2rad(astrometric_errors[:, :2] / 3600000).T  # shape (N, 2) in radians
-    sigma_mu_ra, sigma_mu_dec = astrometric_errors[:, 2:].T  # shape (N, 2) in mas/yr
-    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_photogeo.npy"))[subsample_mask].T  # each (N,) in pc
-    sigma_r = (high - lo) / 2  # shape (N,) in pc
-    del subsample_mask, astrometric_errors  # Free memory
+    # Save the velocities
+    conversion_factor = 149597870.7 / (1000 * 365.25 * 24 * 3600)  # Conversion factor from (pc * mas/yr) to km/s
+    mu_ra_cos_dec = cos_dec * mu_ra  # shape (N,) in mas/yr
+    e_ra = np.column_stack([-sin_ra, cos_ra, np.zeros_like(cos_ra)])  # Tangential basis vector in RA direction
+    e_dec = np.column_stack([-cos_ra * sin_dec, -sin_ra * sin_dec, cos_dec])  # Tangential basis vector in Dec direction
+    velocities = conversion_factor * r[:, None] * (mu_ra_cos_dec[:, None] * e_ra + mu_dec[:, None] * e_dec)  # shape (N, 3) in km/s
+    np.save(file_path_velocities, velocities)
+    print(f"... saved velocities to {file_path_velocities} (shape: {velocities.shape})")
+    del cos_ra, sin_ra, e_ra, e_dec, velocities  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Pre-compute some terms
-    fr_sq = f_r**2  # shape (N,)
+    # Save the velocity uncertainties
     mu_magnitude_sq = mu_ra_cos_dec**2 + mu_dec**2  # shape (N,) in (mas/yr)^2
-    frprime_sigmar_sq = (f_r_prime * sigma_r)**2  # shape (N,)
-
-    # Position uncertainty (RMS of Cartesian component errors)
-    print("... calculating position uncertainties")
-    sigma_pos = np.sqrt(
-        frprime_sigmar_sq +
-        fr_sq * (
-            (cos_dec * sigma_ra)**2 +
-            sigma_dec**2
-        )
-    ) # shape (N,) in arbitrary units (doesn't matter because data given to AstroLink is normalized later)
-
-    # Save sigma_pos
-    print(f"... saving position uncertainties to {file_path_sigma_pos} (shape: {sigma_pos.shape})")
-    np.save(file_path_sigma_pos, sigma_pos)
-
-    # Velocity uncertainty (RMS of Cartesian component errors)
-    print("... calculating velocity uncertainties")
-    sigma_vel = np.sqrt(
-        frprime_sigmar_sq * mu_magnitude_sq +                           # Radial component
-        fr_sq * (
-            (mu_ra_cos_dec**2 + (mu_dec * sin_dec)**2) * sigma_ra**2 +  # Right ascension component
-            ((mu_ra * sin_dec)**2 + mu_dec**2) * sigma_dec**2 +         # Declination component
-            (cos_dec * sigma_mu_ra)**2 +                                # Proper motion in the right ascension component
-            (sigma_mu_dec)**2                                           # Proper motion in the declination component
-        )
-    ) # shape (N,) in arbitrary units (doesn't matter because data given to AstroLink is normalized later)
-    del cos_dec, sin_dec, f_r, f_r_prime, sigma_r, sigma_ra, sigma_dec, sigma_mu_ra, sigma_mu_dec  # Free memory
+    delta_pm_sq = (
+        (mu_ra_cos_dec**2 + (mu_dec * sin_dec)**2) * delta_ra**2 +  # Right ascension component
+        ((mu_ra * sin_dec)**2 + mu_dec**2) * delta_dec**2 +         # Declination component
+        (cos_dec * delta_mu_ra)**2 +                                # Proper motion in the right ascension component
+        (delta_mu_dec)**2                                           # Proper motion in the declination component
+    )  # shape (N,) in (mas/yr)^2
+    delta_velocities = conversion_factor * np.sqrt(delta_r**2 * mu_magnitude_sq + r**2 * delta_pm_sq)  # shape (N,) in km/s
+    np.save(file_path_delta_velocities, delta_velocities)
+    print(f"... saved velocity uncertainties to {file_path_delta_velocities} (shape: {delta_velocities.shape}).\n")
+    del r, cos_dec, sin_dec, mu_ra, mu_dec, delta_r, delta_ra, delta_dec, delta_mu_ra, delta_mu_dec, mu_ra_cos_dec, mu_magnitude_sq, delta_pm_sq, delta_velocities  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Save sigma_vel
-    print(f"... saving velocity uncertainties to {file_path_sigma_vel} (shape: {sigma_vel.shape}).\n")
-    np.save(file_path_sigma_vel, sigma_vel)
+def calculate_subspace_contractions(overwrite=False):
+    """
+    Calculate non-linear contractions for Cartesian positions and velocities and their uncertainties.
+    """
+    # Check if contraction arrays already exists
+    file_path_contracted_positions = os.path.join(SUBSAMPLE_PATH, "contracted_positions.npy")
+    file_path_contracted_position_uncertainties = os.path.join(SUBSAMPLE_PATH, "contracted_position_uncertainties.npy")
+    file_path_contracted_velocities = os.path.join(SUBSAMPLE_PATH, "contracted_velocities.npy")
+    file_path_contracted_velocity_uncertainties = os.path.join(SUBSAMPLE_PATH, "contracted_velocity_uncertainties.npy")
+    file_path_contraction_coefficients = os.path.join(SUBSAMPLE_PATH, "contraction_coefficients.npy")
 
-def construct_data_space_for_subsample(overwrite=False):
+    # Skip processing if all output files already exist
+    all_exist = (
+        os.path.exists(file_path_contracted_positions) and
+        os.path.exists(file_path_contracted_position_uncertainties) and
+        os.path.exists(file_path_contracted_velocities) and
+        os.path.exists(file_path_contracted_velocity_uncertainties)
+    )
+    if all_exist and not overwrite:
+        print(f"Subspace contraction arrays already exist at:")
+        print(f"\t{file_path_contracted_positions} , and")
+        print(f"\t{file_path_contracted_position_uncertainties} , and")
+        print(f"\t{file_path_contracted_velocities} , and")
+        print(f"\t{file_path_contracted_velocity_uncertainties} .")
+        print("Use overwrite=True to force recomputation.\n")
+        return
+    print("Calculating subspace contractions for subsample...")
+
+    # Load positions arrays
+    print("... loading Cartesian positions and uncertainties for subsample")
+    positions = np.load(os.path.join(SUBSAMPLE_PATH, "positions.npy"))  # shape (N, 3)
+    delta_positions = np.load(os.path.join(SUBSAMPLE_PATH, "position_uncertainties.npy"))  # shape (N,)
+
+    # Set r_half as the inverse of the quadratic coefficient and formulate contraction
+    print("... fitting positions contraction")
+    pos_magnitudes = np.linalg.norm(positions, axis=1)  # shape (N,)
+    pos_magnitudes_squared = pos_magnitudes**2
+    r_half = np.sum(pos_magnitudes_squared**2) / np.sum(pos_magnitudes_squared * delta_positions)  # Inverse coefficient of the quadratic term with constant and linear terms forced to zero
+    del pos_magnitudes_squared  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Apply contraction to positions and save
+    fpos_magnitudes = r_half * np.arctan(pos_magnitudes / r_half)  # shape (N,)
+    contracted_positions = (fpos_magnitudes / pos_magnitudes)[:, None] * positions  # shape (N, 3)
+    np.save(file_path_contracted_positions, contracted_positions)
+    print(f"... saved contracted positions to {file_path_contracted_positions} (shape: {contracted_positions.shape})")
+    del positions, fpos_magnitudes, contracted_positions  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Apply contraction to position uncertainties and save
+    dfdr_pos = r_half**2 / (r_half**2 + pos_magnitudes**2)  # shape (N,)
+    contracted_delta_positions = dfdr_pos * delta_positions  # shape (N,)
+    np.save(file_path_contracted_position_uncertainties, contracted_delta_positions)
+    print(f"... saved contracted position uncertainties to {file_path_contracted_position_uncertainties} (shape: {contracted_delta_positions.shape})")
+    del delta_positions, pos_magnitudes, dfdr_pos, contracted_delta_positions  # Free memory
+    gc.collect()  # Force garbage collection
+    
+    # Load velocities arrays
+    print("... loading Cartesian velocities and uncertainties for subsample")
+    velocities = np.load(os.path.join(SUBSAMPLE_PATH, "velocities.npy"))  # shape (N, 3)
+    delta_velocities = np.load(os.path.join(SUBSAMPLE_PATH, "velocity_uncertainties.npy"))  # shape (N,)
+
+    # Set v_half as the inverse of the linear coefficient and formulate contraction
+    print("... fitting velocities contraction")
+    vel_magnitudes = np.linalg.norm(velocities, axis=1)  # shape (N,)
+    v_half = np.sum(vel_magnitudes**2) / np.sum(vel_magnitudes * delta_velocities)   # Inverse coefficient of the linear term with constant term forced to zero
+
+    # Apply contraction to velocities and save
+    fvel_magnitudes = v_half * np.log(1 + vel_magnitudes / v_half)  # shape (N,)
+    contracted_velocities = (fvel_magnitudes / vel_magnitudes)[:, None] * velocities  # shape (N, 3)
+    np.save(file_path_contracted_velocities, contracted_velocities)
+    print(f"... saved contracted velocities to {file_path_contracted_velocities} (shape: {contracted_velocities.shape})")
+    del velocities, fvel_magnitudes, contracted_velocities  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Apply contraction to velocity uncertainties and save
+    dfdr_vel = v_half / (v_half + vel_magnitudes)  # shape (N,)
+    contracted_delta_velocities = dfdr_vel * delta_velocities  # shape (N,)
+    np.save(file_path_contracted_velocity_uncertainties, contracted_delta_velocities)
+    print(f"... saved contracted velocity uncertainties to {file_path_contracted_velocity_uncertainties} (shape: {contracted_delta_velocities.shape})")
+    del delta_velocities, vel_magnitudes, dfdr_vel, contracted_delta_velocities  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save the contraction coefficients
+    np.save(file_path_contraction_coefficients, np.array([r_half, v_half]))
+    print(f"... saved contraction coefficients to {file_path_contraction_coefficients} | (r_half, v_half) = ({r_half:.3f} pc, {v_half:.3f} km/s).\n")
+
+def construct_data_space(overwrite=False):
     """
     Calculate the data space for the subsample.
     """
@@ -1220,30 +1162,186 @@ def construct_data_space_for_subsample(overwrite=False):
     print("... loading required arrays")
     positions = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_positions.npy"))  # (N, 3)
     velocities = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocities.npy"))  # (N, 3)
-    delta_pos = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_position_uncertainties.npy"))  # (N,)
-    delta_vel = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocity_uncertainties.npy"))  # (N,)
+    delta_positions = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_position_uncertainties.npy"))  # (N,)
+    delta_velocities = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocity_uncertainties.npy"))  # (N,)
 
     # Calculate scaling factor for positions
-    norm_pos = np.median(delta_pos)  # Calculate scaling factor
+    norm_pos = np.median(delta_positions)  # Calculate scaling factor
     print(f"... scaling factor for positions: {norm_pos:.8f}")
     positions /= norm_pos  # Scale positions
+    del delta_positions  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Calculate scaling factor for velocities
-    norm_vel = np.median(delta_vel)  # Calculate scaling factor
+    norm_vel = np.median(delta_velocities)  # Calculate scaling factor
     print(f"... scaling factor for velocities: {norm_vel:.8f}")
     velocities /= norm_vel  # Scale velocities
+    del delta_velocities  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Construct data space for clustering
     print("... constructing data space")
     data_space = np.concatenate([positions, velocities], axis=1)  # shape (N, 6)
+    del positions, velocities  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Save data space
     print(f"... saving data space to {file_data_space} (shape: {data_space.shape}).\n")
     np.save(file_data_space, data_space)
+    del data_space  # Free memory
+    gc.collect()  # Force garbage collection
+
+def plot_subspace_contractions(overwrite=False):
+    """
+    Plot the Cartesian errors vs values and the contracted errors vs values.
+    """
+    # Check if plot already exists
+    file_subspace_contraction_plot_path = os.path.join(FIGURES_PATH, "subspace_contraction.png")
+
+    # Skip processing if output file already exists
+    if os.path.exists(file_subspace_contraction_plot_path) and not overwrite:
+        print(f"Subspace contraction plot already exists at:\n\t{file_subspace_contraction_plot_path} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting subspace contractions...")
+
+    # Load Cartesian subspace arrays
+    print("... loading Cartesian subspace arrays")
+    pos_magnitudes = np.linalg.norm(np.load(os.path.join(SUBSAMPLE_PATH, "positions.npy")), axis=1)  # shape (N,)
+    delta_positions = np.load(os.path.join(SUBSAMPLE_PATH, "position_uncertainties.npy"))  # shape (N,)
+    vel_magnitudes = np.linalg.norm(np.load(os.path.join(SUBSAMPLE_PATH, "velocities.npy")), axis=1)  # shape (N,)
+    delta_velocities = np.load(os.path.join(SUBSAMPLE_PATH, "velocity_uncertainties.npy"))  # shape (N,)
+
+    # Load contracted subspace arrays
+    print("... loading contracted subspace arrays")
+    contracted_pos_magnitudes = np.linalg.norm(np.load(os.path.join(SUBSAMPLE_PATH, "contracted_positions.npy")), axis=1)  # shape (N,)
+    contracted_delta_positions = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_position_uncertainties.npy"))  # shape (N,)
+    contracted_vel_magnitudes = np.linalg.norm(np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocities.npy")), axis=1)  # shape (N,)
+    contracted_delta_velocities = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocity_uncertainties.npy"))  # shape (N,)
+
+    # Load polynomial coefficients
+    print("... loading contraction polynomial coefficients")
+    r_half, v_half = np.load(os.path.join(SUBSAMPLE_PATH, "contraction_coefficients.npy"))  # shape (2,)
+
+    # Make colour map
+    cmap = plt.get_cmap("magma")
+    cmap.set_under('white')
+
+    # Make figure
+    fig, axs = plt.subplots(2, 2, figsize=(6, 6))
+
+    # Plot 2D histogram of Cartesian position errors vs values
+    print("... plotting Cartesian position errors vs values")
+    x_min, x_max = np.floor(np.log10(pos_magnitudes.min())), np.ceil(np.log10(pos_magnitudes.max()))
+    y_min, y_max = np.floor(np.log10(delta_positions.min())), np.ceil(np.log10(delta_positions.max()))
+    bins = [np.logspace(x_min, x_max, 101), np.logspace(y_min, y_max, 101)]
+    ax = axs[0, 0]
+    ax.hist2d(
+        pos_magnitudes,
+        delta_positions,
+        bins=bins,
+        norm='log',
+        cmap=cmap,
+        vmin=0.5
+    )
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlabel(r'$r$ [pc]')
+    ax.set_ylabel(r'$\Delta r$ [pc]')
+    ax.set_title('Cartesian Distance')
+    del pos_magnitudes, delta_positions  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Plot polynomial fit line for position contraction
+    r_fit = np.logspace(x_min, x_max, 1000)
+    delta_r_fit = (r_fit / r_half)**2
+    ax.plot(r_fit, delta_r_fit, color='limegreen', lw=1)
+    del r_fit, delta_r_fit  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Plot 2D histogram of Cartesian velocity errors vs values
+    print("... plotting Cartesian velocity errors vs values")
+    x_min, x_max = np.floor(np.log10(vel_magnitudes.min())), np.ceil(np.log10(vel_magnitudes.max()))
+    y_min, y_max = np.floor(np.log10(delta_velocities.min())), np.ceil(np.log10(delta_velocities.max()))
+    bins = [np.logspace(x_min, x_max, 101), np.logspace(y_min, y_max, 101)]
+    ax = axs[0, 1]
+    ax.hist2d(
+        vel_magnitudes,
+        delta_velocities,
+        bins=bins,
+        norm='log',
+        cmap=cmap,
+        vmin=0.5
+    )
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlabel(r'$v$ [km/s]')
+    ax.set_ylabel(r'$\Delta v$ [km/s]')
+    ax.set_title('Cartesian Speed')
+    del vel_magnitudes, delta_velocities  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Plot polynomial fit line for velocity contraction
+    v_fit = np.logspace(x_min, x_max, 1000)
+    delta_v_fit = v_fit / v_half
+    ax.plot(v_fit, delta_v_fit, color='limegreen', lw=1)
+    del v_fit, delta_v_fit  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Plot 2D histogram of contracted position errors vs values
+    print("... plotting contracted position errors vs values")
+    x_min, x_max = np.floor(np.log10(contracted_pos_magnitudes.min())), np.ceil(np.log10(contracted_pos_magnitudes.max()))
+    y_min, y_max = np.floor(np.log10(contracted_delta_positions.min())), np.ceil(np.log10(contracted_delta_positions.max()))
+    bins = [np.logspace(x_min, x_max, 101), np.logspace(y_min, y_max, 101)]
+    ax = axs[1, 0]
+    ax.hist2d(
+        contracted_pos_magnitudes,
+        contracted_delta_positions,
+        bins=bins,
+        norm='log',
+        cmap=cmap,
+        vmin=0.5
+    )
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlabel(r'$f(r)$')
+    ax.set_ylabel(r'$\Delta f(r)$')
+    ax.set_title('Contracted Distance')
+    del contracted_pos_magnitudes, contracted_delta_positions  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Plot 2D histogram of contracted velocity errors vs values
+    print("... plotting contracted velocity errors vs values")
+    x_min, x_max = np.floor(np.log10(contracted_vel_magnitudes.min())), np.ceil(np.log10(contracted_vel_magnitudes.max()))
+    y_min, y_max = np.floor(np.log10(contracted_delta_velocities.min())), np.ceil(np.log10(contracted_delta_velocities.max()))
+    bins = [np.logspace(x_min, x_max, 101), np.logspace(y_min, y_max, 101)]
+    ax = axs[1, 1]
+    ax.hist2d(
+        contracted_vel_magnitudes,
+        contracted_delta_velocities,
+        bins=bins,
+        norm='log',
+        cmap=cmap,
+        vmin=0.5
+    )
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlabel(r'$f(v)$')
+    ax.set_ylabel(r'$\Delta f(v)$')
+    ax.set_title('Contracted Speed')
+    del contracted_vel_magnitudes, contracted_delta_velocities  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Adjust layout and save figure
+    plt.tight_layout()
+    plt.savefig(file_subspace_contraction_plot_path, dpi=500)
+    plt.close()
+    del fig, axs, bins  # Free memory
+    gc.collect()  # Free memory
 
 
 # === Apply AstroLink to subsample and plot of cluster properties ===
-def apply_astrolink_to_subsample(overwrite=False):
+def apply_astrolink_to_data(overwrite=False):
     """
     Run AstroLink clustering on the subsample.
     """
@@ -1348,7 +1446,7 @@ def apply_astrolink_to_subsample(overwrite=False):
     print(f"... saving AstroLink clustering output to {file_astrolink_object}.\n")
     saveAstroLinkObject(clusterer, file_astrolink_object)
 
-def plot_prominence_model_fit(overwrite=False):
+def plot_astrolink_prominence_model_fit(overwrite=False):
     """
     Plot the prominence model fit from AstroLink.
     """
@@ -1518,7 +1616,7 @@ def plot_prominence_model_fit(overwrite=False):
     gc.collect()  # Force garbage collection
     print(f"... saved prominence model fit plot to {file_prominence_model_fit_path}.\n")
 
-def plot_cluster_labels_on_sky(overwrite=False):
+def plot_astrolink_cluster_labels_on_sky(overwrite=False):
     """
     Plot the clustering output from AstroLink.
     """
@@ -1579,7 +1677,7 @@ def plot_cluster_labels_on_sky(overwrite=False):
     gc.collect()  # Free memory
     print(f"... saved clusters on sky plot to {file_clusters_on_sky_path}.\n")
 
-def plot_cluster_proper_motions_on_sky(overwrite=False):
+def plot_astrolink_cluster_proper_motions_on_sky(overwrite=False):
     """
     Plot the proper motions of the clusters on the sky.
     """
@@ -3725,7 +3823,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 pass
 
         # Distance (for if / when this becomes available)
-        if False: #mws.summary.loc[stream_track_name, 'has_D']:
+        if mws.summary.loc[stream_track_name, 'has_D']:
             try:
                 # Width in distance
                 # galstreams doesn't have a 'width_dist' value, so we assume each stream to have a circular cross-section
@@ -4080,19 +4178,20 @@ if __name__ == "__main__":
     calculate_subsample_selection_function()
 
     # Calculate total selection function for subsample
-    calculate_total_selection_function_for_subsample()
-    plot_total_selection_function_for_subsample()
+    calculate_total_selection_function()
+    plot_total_selection_function()
 
     # Construct input data to be passed to AstroLink
-    calculate_distance_contraction_for_subsample(True)
-    calculate_contracted_data_and_errors_for_subsample(True)
-    construct_data_space_for_subsample(True)
+    construct_cartesian_subspaces_and_uncertainties(True)
+    calculate_subspace_contractions(True)
+    construct_data_space(True)
+    plot_subspace_contractions(True)
 
     # Apply AstroLink to subsample and plot of cluster properties
-    apply_astrolink_to_subsample(True)
-    plot_prominence_model_fit(True)
-    plot_cluster_labels_on_sky(True)
-    plot_cluster_proper_motions_on_sky(True)
+    apply_astrolink_to_data(True)
+    plot_astrolink_prominence_model_fit(True)
+    plot_astrolink_cluster_labels_on_sky(True)
+    plot_astrolink_cluster_proper_motions_on_sky(True)
 
     # Compare to Hunt & Reffert (2024)
     prepare_Hunt2024_for_comparison()

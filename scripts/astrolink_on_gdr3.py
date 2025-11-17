@@ -66,7 +66,7 @@ OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output file
 REDUCED_CATALOGUE_PATH = os.path.join(OUTPUT_PATH, "catalogue_files/")  # Path to reduced catalogue numpy files
 SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files/")  # Path to numpy files of subsample from full catalogue
 CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to AstroLink output files
-FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_new_contraction/")  # Path to figures
+FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_new_contraction_1_3/")  # Path to figures
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
@@ -1096,7 +1096,7 @@ def calculate_subspace_contractions(overwrite=False):
     print("... fitting positions contraction")
     pos_magnitudes = np.linalg.norm(positions, axis=1)  # shape (N,)
     pos_magnitudes_squared = pos_magnitudes**2
-    r_half = np.sum(pos_magnitudes_squared**2) / np.sum(pos_magnitudes_squared * delta_positions)  # Inverse coefficient of the quadratic term with constant and linear terms forced to zero
+    r_half = np.sqrt(np.sum(pos_magnitudes_squared**2) / np.sum(pos_magnitudes_squared * delta_positions))  # Square root of the inverse coefficient of the quadratic term with constant and linear terms forced to zero
     del pos_magnitudes_squared  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -1124,7 +1124,7 @@ def calculate_subspace_contractions(overwrite=False):
     # Set v_half as the inverse of the linear coefficient and formulate contraction
     print("... fitting velocities contraction")
     vel_magnitudes = np.linalg.norm(velocities, axis=1)  # shape (N,)
-    v_half = np.sum(vel_magnitudes**2) / np.sum(vel_magnitudes * delta_velocities)   # Inverse coefficient of the linear term with constant term forced to zero
+    v_half = np.sum(vel_magnitudes**2) / np.sum(vel_magnitudes * delta_velocities) / 3  # Inverse coefficient of the linear term with constant term forced to zero
 
     # Apply contraction to velocities and save
     fvel_magnitudes = v_half * np.log(1 + vel_magnitudes / v_half)  # shape (N,)
@@ -1338,6 +1338,7 @@ def plot_subspace_contractions(overwrite=False):
     plt.close()
     del fig, axs, bins  # Free memory
     gc.collect()  # Free memory
+    print(f"... saved subspace contraction plot to {file_subspace_contraction_plot_path}.\n")
 
 
 # === Apply AstroLink to subsample and plot of cluster properties ===
@@ -4182,7 +4183,7 @@ if __name__ == "__main__":
     plot_total_selection_function()
 
     # Construct input data to be passed to AstroLink
-    construct_cartesian_subspaces_and_uncertainties(True)
+    construct_cartesian_subspaces_and_uncertainties()
     calculate_subspace_contractions(True)
     construct_data_space(True)
     plot_subspace_contractions(True)

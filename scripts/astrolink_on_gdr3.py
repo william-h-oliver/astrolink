@@ -60,19 +60,14 @@ from astrolink.visualize import prominenceModel
 # User-defined paths
 GDR3_CATALOGUE_PATH = "/home/_data/Gaia/cdn.gea.esac.esa.int/Gaia/gdr3/gaia_source/"  # Path to raw gdr3 catalogue files
 AUXILLARY_CATALOGUES_PATH = "/home/williamoliver_data/gaia_clustering/auxillary_catalogues/"  # Path to auxillary catalogues (e.g. Bailer-Jones GEDR3 distances, Hunt+2024 open clusters)
-OUTPUT_PATH = "/home/williamoliver_data/gaia_clustering/"  # Path to output files
+WORKING_DIRECTORY = "/home/williamoliver_data/gaia_clustering/"  # Path to output files
 
 # Auto-defined paths
-REDUCED_CATALOGUE_PATH = os.path.join(OUTPUT_PATH, "catalogue_files/")  # Path to reduced catalogue numpy files
-SUBSAMPLE_PATH = os.path.join(OUTPUT_PATH, "subsample_files/")  # Path to numpy files of subsample from full catalogue
-CLUSTERING_PATH = os.path.join(OUTPUT_PATH, "clustering_files/")  # Path to AstroLink output files
-FIGURES_PATH = os.path.join(OUTPUT_PATH, "figures_new_contraction_1_3/")  # Path to figures
+INTERMEDIATE_FILES_PATH = os.path.join(WORKING_DIRECTORY, "intermediate_files/")  # Path to intermediary numpy files
+RESULTS_PATH = os.path.join(WORKING_DIRECTORY, "results_rhalf_median/")  # Path to AstroLink results
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
-
-# HEALPix level for on-sky plotting of selection function maps
-HEALPIX_LEVEL_FOR_MAPS = 12
 
 # Pipeline setup
 WITH_PROPER_MOTIONS = True # Whether to use proper motions in the input data space for AstroLink clustering
@@ -85,13 +80,13 @@ SURVEY_SF_LOWER_LIMIT = 0.99 # Empirical survey selection function lower limit f
 RUWE_UPPER_LIMIT = 1.2 # RUWE threshold for subsample stars
 
 # Data space construction parameters
-#R_HALF = 90  # Distances are contracted according to R_HALF * np.arctan(distance / R_HALF), R_HALF (in pc) marks the half-way point between full and zero Cartesian influence of the distance estimate on the clustering output
+#R_HALF = 75  # Distances are contracted according to R_HALF * np.arctan(distance / R_HALF), R_HALF (in pc) marks the half-way point between full and zero Cartesian influence of the distance estimate on the clustering output
 #PM_METRIC_MULTIPLIER = 1.0  # Multiplier for the influence of proper motions in the data space metric (after being rescaled by their uncertainties)
 #VRAD_METRIC_MULTIPLIER = 1.0  # Multiplier for the influence of radial velocities in the data space metric (after being rescaled by their uncertainties)
 
 # AstroLink parameters
 KNN_FOR_ASTROLINK = 16 # Number of nearest neighbors for AstroLink
-OPTIMAL_SIGMA_THRESHOLD = 3.8 + STOCHASTIC_RUN * np.random.normal(0, 0.1, 1)[0]  # Optimal significance threshold determined from prominence model fitting
+OPTIMAL_SIGMA_THRESHOLD = 4.0 + STOCHASTIC_RUN * np.random.normal(0, 0.1, 1)[0]  # Optimal significance threshold determined from prominence model fitting
 
 # Comparison parameters
 SIGMA_THRESHOLDS_FOR_COMPARISONS = np.linspace(2, 10, 81)  # Significance levels from 2 to 10 to be used when comparing to existing cluster catalogues
@@ -118,7 +113,7 @@ def prepare_gdr3_catalogue(overwrite=False):
     }
 
     file_paths = [
-        os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy')
+        os.path.join(INTERMEDIATE_FILES_PATH, f'gdr3_{group_name}.npy')
         for group_name in column_groups
     ]
 
@@ -155,11 +150,11 @@ def prepare_gdr3_catalogue(overwrite=False):
     # Merge all intermediate .npy files by group
     print("... merging temporary numpy files into final arrays and saving them")
     for group_name in column_groups.keys():
-        group_files = sorted(glob(os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}_*.npy')))
+        group_files = sorted(glob(os.path.join(INTERMEDIATE_FILES_PATH, f'gdr3_{group_name}_*.npy')))
         arrays = [np.load(f) for f in group_files]
         combined = np.concatenate(arrays).squeeze()
 
-        final_path = os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}.npy')
+        final_path = os.path.join(INTERMEDIATE_FILES_PATH, f'gdr3_{group_name}.npy')
         np.save(final_path, combined)
         print(f"... saved combined array: {final_path} (shape: {combined.shape})")
 
@@ -178,7 +173,7 @@ def _process_single_gdr3_source_file(index, file_path, column_groups):
 
     # Skip processing if all output files for this chunk already exist
     all_exist = all(
-        os.path.exists(os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}_{chunk_name}.npy'))
+        os.path.exists(os.path.join(INTERMEDIATE_FILES_PATH, f'gdr3_{group_name}_{chunk_name}.npy'))
         for group_name in column_groups
     )
     if all_exist:
@@ -196,7 +191,7 @@ def _process_single_gdr3_source_file(index, file_path, column_groups):
     for group_name, group_cols in column_groups.items():
         columns_data = [np.array(table[col]) for col in group_cols]  # each is 1D array of length n
         array = np.column_stack(columns_data)
-        file_path = os.path.join(REDUCED_CATALOGUE_PATH, f'gdr3_{group_name}_{chunk_name}.npy')
+        file_path = os.path.join(INTERMEDIATE_FILES_PATH, f'gdr3_{group_name}_{chunk_name}.npy')
         np.save(file_path, array)
 
     del table, columns_data, array  # Free memory
@@ -218,7 +213,7 @@ def prepare_bailerjones_gedr3_distances(overwrite=False):
     }
 
     file_paths = [
-        os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}.npy')
+        os.path.join(INTERMEDIATE_FILES_PATH, f'bailerjones_{group_name}.npy')
         for group_name in column_groups
         if group_name != 'source_ids'  # final *_source_ids.npy file is from the GDR3 catalogue
     ]
@@ -243,7 +238,7 @@ def prepare_bailerjones_gedr3_distances(overwrite=False):
         print(f"... processing data in chunks, {i+1} of {1467744818//chunksize + 1}", end='\r')
         # Skip processing if all output files for this chunk already exist
         all_exist = all(
-            os.path.exists(os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}_{i}.npy'))
+            os.path.exists(os.path.join(INTERMEDIATE_FILES_PATH, f'bailerjones_{group_name}_{i}.npy'))
             for group_name in column_groups
         )
         if all_exist:
@@ -253,7 +248,7 @@ def prepare_bailerjones_gedr3_distances(overwrite=False):
         for group_name, group_cols in column_groups.items():
             columns_data = [np.array(chunk[col]) for col in group_cols]  # each is 1D array of length n
             array = np.column_stack(columns_data).squeeze()
-            file_path = os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}_{i}.npy')
+            file_path = os.path.join(INTERMEDIATE_FILES_PATH, f'bailerjones_{group_name}_{i}.npy')
             np.save(file_path, array)
         
         del chunk, columns_data, array, file_path  # Free memory
@@ -262,14 +257,14 @@ def prepare_bailerjones_gedr3_distances(overwrite=False):
     # Merge all intermediate .npy files by group
     print("... merging temporary numpy files into final arrays (indexed with respect to the gdr3 catalogue)")
     for i, group_name in enumerate(column_groups.keys()):
-        group_files = sorted(glob(os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}_*.npy')))
+        group_files = sorted(glob(os.path.join(INTERMEDIATE_FILES_PATH, f'bailerjones_{group_name}_*.npy')))
         arrays = [np.load(f) for f in group_files]
         combined = np.concatenate(arrays)
 
         if i == 0:  # source_id is the first group, so we can use it to re-index
             # Load GDR3 source IDs and Bailer-Jones source IDs
             print("... loading GDR3 and Bailer-Jones source IDs")
-            gdr3_source_ids = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_source_ids.npy"))  # (n,)
+            gdr3_source_ids = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_source_ids.npy"))  # (n,)
             n = gdr3_source_ids.size
 
             # Compute index lookup for Bailer-Jones source IDs in GDR3
@@ -287,7 +282,7 @@ def prepare_bailerjones_gedr3_distances(overwrite=False):
             combined_reindexed[indices] = combined
 
             # Save the re-indexed array
-            final_path = os.path.join(REDUCED_CATALOGUE_PATH, f'bailerjones_{group_name}.npy')
+            final_path = os.path.join(INTERMEDIATE_FILES_PATH, f'bailerjones_{group_name}.npy')
             np.save(final_path, combined_reindexed)
             print(f"... saved re-indexed combined array: {final_path} (shape: {combined_reindexed.shape})")
 
@@ -310,9 +305,9 @@ def calculate_empirical_survey_selection_function(overwrite=False):
     and save each as a .npy files aligned with the G-band photometry array.
     """
     # Check if selection function already exists
-    file_path_m10_stars = os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_selection_function_m10_stars.npy")
-    file_path_sf = os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_selection_function.npy")
-    file_path_m10_healpix = os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_selection_function_m10_healpix.npy")
+    file_path_m10_stars = os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_selection_function_m10_stars.npy")
+    file_path_sf = os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_selection_function.npy")
+    file_path_m10_healpix = os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_selection_function_m10_healpix.npy")
     if os.path.exists(file_path_m10_stars) and os.path.exists(file_path_sf) and os.path.exists(file_path_m10_healpix) and not overwrite:
         print(f"Empirical selection function and m10 values for the centre of HEALPix pixels already exist at:")
         print(f"\t{file_path_sf} and")
@@ -323,9 +318,9 @@ def calculate_empirical_survey_selection_function(overwrite=False):
 
     # Load required arrays
     print("... loading required arrays from reduced catalogue")
-    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # shape (n, 2)
-    G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]           # shape (n,)
-    astrometric_matched_transits = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_matched_transits.npy")) # shape (n,)
+    galactic_coordinates = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_galactic_coordinates.npy"))  # shape (n, 2)
+    G_band_magnitudes = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_photometry.npy"))[:, 0]           # shape (n,)
+    astrometric_matched_transits = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_astrometric_matched_transits.npy")) # shape (n,)
 
     # Identify stars with valid G magnitude and also stars with less than 11 astrometric matched transits
     print("... identifying valid G-band magnitudes and astrometric matched transits")
@@ -403,7 +398,7 @@ def calculate_empirical_survey_selection_function(overwrite=False):
 
     # Also calculate m10 values at the centre of each HEALPix pixel for plotting
     print("Calculating m10 values for HEALPix pixels...")
-    nside = 2**HEALPIX_LEVEL_FOR_MAPS
+    nside = 2**12
     npix = hp.nside2npix(nside)
 
     # Convert (theta, phi) in degrees to unit 3D Cartesian coordinates
@@ -460,8 +455,8 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
     Plot the limiting G-band magnitude across the sky using HEALPix.
     """
     # Check if plot already exists
-    file_m10_path = os.path.join(FIGURES_PATH, "gdr3_selection_function_m10_map.png")
-    file_limiting_g_mag_path = os.path.join(FIGURES_PATH, "gdr3_selection_function_limiting_g_mag.png")
+    file_m10_path = os.path.join(RESULTS_PATH, "gdr3_selection_function_m10_map.png")
+    file_limiting_g_mag_path = os.path.join(RESULTS_PATH, "gdr3_selection_function_limiting_g_mag.png")
     if os.path.exists(file_m10_path) and os.path.exists(file_limiting_g_mag_path) and not overwrite:
         print(f"Plots of m10 map and limiting G-band magnitude already exist at:")
         print(f"\t{file_m10_path} and")
@@ -471,7 +466,7 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
     print("Plotting M10 map across the sky...")
 
     # Load m10 values for HEALPix pixels
-    m10 = np.load(f"{REDUCED_CATALOGUE_PATH}/gdr3_selection_function_m10_healpix.npy")  # (npix,)
+    m10 = np.load(f"{INTERMEDIATE_FILES_PATH}/gdr3_selection_function_m10_healpix.npy")  # (npix,)
 
     # Create a Mollweide projection plot of the limiting G-band magnitude
     plt.figure(figsize=(12, 6))
@@ -551,7 +546,7 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     Create a boolean subsample mask where the empirical survey selection function S_Gaia > SURVEY_SF_LOWER_LIMIT.
     """
     # Check if subsample mask already exists
-    mask_path = os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy")
+    mask_path = os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy")
     if os.path.exists(mask_path) and not overwrite:
         print(f"Subsample mask already exists at:\n\t{mask_path} .")
         print("Use overwrite=True to force recomputation.\n")
@@ -560,20 +555,12 @@ def construct_subsample_from_full_catalogue(overwrite=False):
 
     # Load selection function and galactic coordinates
     print("... loading required arrays from reduced catalogue")
-    selection_function = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_selection_function.npy"))  # (n,)
-    galactic_coords = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # (n, 2) in degrees
-    r_med_photogeo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_photogeo.npy"))  # (n,)
-    proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))  # (n, 2) in mas/yr
-    ruwe = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_ruwe.npy"))  # (n,)
-    g_mag = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]  # (n,)
-
-    # EXPERIMENTAL: Load contracted uncertainties to define threshold for removing more stars with high uncertainties
-    #sigma_pos = np.load(os.path.join(OUTPUT_PATH, "subsample_files/contracted_position_uncertainties.npy"))
-    #sigma_vel = np.load(os.path.join(OUTPUT_PATH, "subsample_files/contracted_velocity_uncertainties.npy"))
-    #sigma_pos /= np.median(sigma_pos)
-    #sigma_vel /= np.median(sigma_vel)
-    #total_uncertainty_squared = sigma_pos**2 + sigma_vel**2
-    #threshold = np.percentile(total_uncertainty_squared, 100 * 6/11)
+    selection_function = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_selection_function.npy"))  # (n,)
+    galactic_coords = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_galactic_coordinates.npy"))  # (n, 2) in degrees
+    r_med_photogeo = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "bailerjones_r_med_photogeo.npy"))  # (n,)
+    proper_motions = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_proper_motions.npy"))  # (n, 2) in mas/yr
+    ruwe = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_ruwe.npy"))  # (n,)
+    g_mag = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_photometry.npy"))[:, 0]  # (n,)
 
     # Create boolean mask for S_Gaia > threshold, ruwe < threshold, and valid astrometric data
     print("... creating subsample mask with selection function and data quality cuts")
@@ -582,10 +569,6 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     subsample_mask &= np.isfinite(r_med_photogeo)
     subsample_mask &= np.isfinite(proper_motions).all(axis=1)
     subsample_mask &= np.isfinite(g_mag)  # Valid G-band magnitude
-
-    # EXPERIMENTAL: Further subsample to remove stars with high uncertainties
-    #subsample_where = np.where(subsample_mask)[0][total_uncertainty_squared > threshold]
-    #subsample_mask[subsample_where] = False
 
     # Save mask
     np.save(mask_path, subsample_mask)
@@ -596,7 +579,7 @@ def calculate_subsample_selection_function(overwrite=False):
     Calculate the subsample selection function using kNN-based metric.
     """
     # Check if total selection function already exists
-    file_subsample_sf_stars = os.path.join(SUBSAMPLE_PATH, "subsample_selection_function.npy")
+    file_subsample_sf_stars = os.path.join(INTERMEDIATE_FILES_PATH, "subsample_selection_function.npy")
     if os.path.exists(file_subsample_sf_stars) and not overwrite:
         print(f"Subsample selection function already exists at:\n\t{file_subsample_sf_stars} .")
         print("Use overwrite=True to force recomputation.\n")
@@ -605,9 +588,9 @@ def calculate_subsample_selection_function(overwrite=False):
 
     # Load required arrays
     print("... loading required arrays")
-    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))  # shape (n, 2)
-    G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]  # shape (n,)
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # shape (n,)
+    galactic_coordinates = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_galactic_coordinates.npy"))  # shape (n, 2)
+    G_band_magnitudes = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_photometry.npy"))[:, 0]  # shape (n,)
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))  # shape (n,)
 
     # Identify stars with valid G magnitude
     print("... identifying valid G-band magnitudes")
@@ -690,10 +673,10 @@ def calculate_total_selection_function(overwrite=False):
     Calculate the total selection function for the subsample.
     """
     # Check if arrays already exists
-    file_nsub = os.path.join(SUBSAMPLE_PATH, "total_selection_function_nsub.npy")
-    file_nmw = os.path.join(SUBSAMPLE_PATH, "total_selection_function_nmw.npy")
-    file_nsub_healpix = os.path.join(SUBSAMPLE_PATH, "total_selection_function_nsub_healpix.npy")
-    file_nmw_healpix = os.path.join(SUBSAMPLE_PATH, "total_selection_function_nmw_healpix.npy")
+    file_nsub = os.path.join(INTERMEDIATE_FILES_PATH, "total_selection_function_nsub.npy")
+    file_nmw = os.path.join(INTERMEDIATE_FILES_PATH, "total_selection_function_nmw.npy")
+    file_nsub_healpix = os.path.join(INTERMEDIATE_FILES_PATH, "total_selection_function_nsub_healpix.npy")
+    file_nmw_healpix = os.path.join(INTERMEDIATE_FILES_PATH, "total_selection_function_nmw_healpix.npy")
 
     # Skip processing if all output files already exist
     all_exist = (os.path.exists(file_nsub) and
@@ -712,10 +695,10 @@ def calculate_total_selection_function(overwrite=False):
 
     # Load the required arrays
     print("... loading required arrays from reduced catalogue")
-    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))
-    G_band_magnitudes = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_photometry.npy"))[:, 0]
-    survey_sf = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_selection_function.npy"))
-    subsample_sf = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_selection_function.npy"))
+    galactic_coordinates = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_galactic_coordinates.npy"))
+    G_band_magnitudes = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_photometry.npy"))[:, 0]
+    survey_sf = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_selection_function.npy"))
+    subsample_sf = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_selection_function.npy"))
 
     # Identify stars with valid G magnitude
     print("... identifying valid G-band magnitudes")
@@ -802,7 +785,7 @@ def calculate_total_selection_function(overwrite=False):
 
     # Also calculate the total selection function values at the centre of each HEALPix pixel for plotting
     print("Calculating total selection function for HEALPix pixels...")
-    nside = 2**HEALPIX_LEVEL_FOR_MAPS
+    nside = 2**12
     npix = hp.nside2npix(nside)
 
     # Convert (theta, phi) in degrees to unit 3D Cartesian coordinates
@@ -869,9 +852,9 @@ def plot_total_selection_function(overwrite=False):
     Plot the mean and standard error of the total selection function across the sky using HEALPix.
     """
     # Check if plots already exist
-    file_total_sf_mean_path = os.path.join(FIGURES_PATH, "total_selection_function_mean.png")
-    file_total_sf_se_path = os.path.join(FIGURES_PATH, "total_selection_function_stderr.png")
-    file_total_sf_se_over_mean_path = os.path.join(FIGURES_PATH, "total_selection_function_stderr_over_mean.png")
+    file_total_sf_mean_path = os.path.join(RESULTS_PATH, "total_selection_function_mean.png")
+    file_total_sf_se_path = os.path.join(RESULTS_PATH, "total_selection_function_stderr.png")
+    file_total_sf_se_over_mean_path = os.path.join(RESULTS_PATH, "total_selection_function_stderr_over_mean.png")
     if os.path.exists(file_total_sf_mean_path) and os.path.exists(file_total_sf_se_path) and not overwrite:
         print(f"Total selection function mean and standard error plots already exist at:")
         print(f"\t{file_total_sf_mean_path} ,")
@@ -882,8 +865,8 @@ def plot_total_selection_function(overwrite=False):
     print("Plotting total selection function on the sky...")
 
     # Load total selection function data
-    nsub_healpix = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_nsub_healpix.npy"))  # (npix,)
-    nmw_healpix = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_nmw_healpix.npy"))  # (npix,)
+    nsub_healpix = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "total_selection_function_nsub_healpix.npy"))  # (npix,)
+    nmw_healpix = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "total_selection_function_nmw_healpix.npy"))  # (npix,)
 
     # Compute mean and standard error of the total selection function
     print("... computing mean and standard error of the total selection function")
@@ -971,105 +954,16 @@ def plot_total_selection_function(overwrite=False):
 
 
 # === Construct input data to be passed to AstroLink ===
-def construct_cartesian_subspaces_and_uncertainties(overwrite=False):
-    """
-    Calculate Cartesian position and velocity subspaces and their RMS errors 
-    from astrometric solutions of stars.
-    """
-    # Check if arrays already exists
-    file_path_positions = os.path.join(SUBSAMPLE_PATH, "positions.npy")
-    file_path_velocities = os.path.join(SUBSAMPLE_PATH, "velocities.npy")
-    file_path_delta_positions = os.path.join(SUBSAMPLE_PATH, "position_uncertainties.npy")
-    file_path_delta_velocities = os.path.join(SUBSAMPLE_PATH, "velocity_uncertainties.npy")
-
-    # Skip processing if all output files already exist
-    all_exist = (
-        os.path.exists(file_path_positions) and
-        os.path.exists(file_path_velocities) and
-        os.path.exists(file_path_delta_positions) and
-        os.path.exists(file_path_delta_velocities)
-    )
-    if all_exist and not overwrite:
-        print(f"Cartesian subspaces and uncertainties already exist at:")
-        print(f"\t{file_path_positions} ,")
-        print(f"\t{file_path_velocities} ,")
-        print(f"\t{file_path_delta_positions} , and")
-        print(f"\t{file_path_delta_velocities} .")
-        print("Use overwrite=True to force recomputation.\n")
-        return
-    print("Computing Cartesian subspaces and errors for subsample...")
-
-    # Load required arrays
-    print("... loading subsample mask")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # shape (N,)
-
-    print('... loading astrometric solution for subsample')
-    r = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_photogeo.npy"))[subsample_mask]  # shape (N,) in pc
-    ra, dec = np.deg2rad(np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask]).T  # shape (N, 2) in radians
-    cos_ra, sin_ra, cos_dec, sin_dec = np.cos(ra), np.sin(ra), np.cos(dec), np.sin(dec) # Trigonemetric components
-    mu_ra, mu_dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))[subsample_mask].T  # shape (N, 2) in mas/yr
-    del ra, dec  # Free memory
-    gc.collect()  # Force garbage collection
-    
-    print('... loading astrometric solution uncertainties for subsample')
-    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_photogeo.npy"))[subsample_mask].T  # shape (N, 2) in pc
-    delta_r = (high - lo) / 2  # Symmetrize the distance uncertainty for first-order propagation
-    delta_ra, delta_dec, delta_mu_ra, delta_mu_dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask].T  # shape (N, 4) in [mas, mas, mas/yr, mas/yr]
-    delta_ra, delta_dec = delta_ra * (np.pi / 180 / 3600000), delta_dec * (np.pi / 180 / 3600000)  # Convert angular errors from mas to radians
-    del subsample_mask, lo, high  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Save the positions
-    positions = r[:, None] * np.column_stack([cos_ra * cos_dec, sin_ra * cos_dec, sin_dec])  # shape (N, 3) in pc
-    np.save(file_path_positions, positions)
-    print(f"... saved positions to {file_path_positions} (shape: {positions.shape})")
-    del positions  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Save the position uncertainties
-    delta_omega_sq = (cos_dec * delta_ra)**2 + delta_dec**2  # shape (N,)
-    delta_positions = np.sqrt(delta_r**2 + r**2 * delta_omega_sq)  # shape (N,), RMS of Cartesian component errors
-    np.save(file_path_delta_positions, delta_positions)
-    print(f"... saved position uncertainties to {file_path_delta_positions} (shape: {delta_positions.shape})")
-    del delta_omega_sq, delta_positions  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Save the velocities
-    conversion_factor = 149597870.7 / (1000 * 365.25 * 24 * 3600)  # Conversion factor from (pc * mas/yr) to km/s
-    mu_ra_cos_dec = cos_dec * mu_ra  # shape (N,) in mas/yr
-    e_ra = np.column_stack([-sin_ra, cos_ra, np.zeros_like(cos_ra)])  # Tangential basis vector in RA direction
-    e_dec = np.column_stack([-cos_ra * sin_dec, -sin_ra * sin_dec, cos_dec])  # Tangential basis vector in Dec direction
-    velocities = conversion_factor * r[:, None] * (mu_ra_cos_dec[:, None] * e_ra + mu_dec[:, None] * e_dec)  # shape (N, 3) in km/s
-    np.save(file_path_velocities, velocities)
-    print(f"... saved velocities to {file_path_velocities} (shape: {velocities.shape})")
-    del cos_ra, sin_ra, e_ra, e_dec, velocities  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Save the velocity uncertainties
-    mu_magnitude_sq = mu_ra_cos_dec**2 + mu_dec**2  # shape (N,) in (mas/yr)^2
-    delta_pm_sq = (
-        (mu_ra_cos_dec**2 + (mu_dec * sin_dec)**2) * delta_ra**2 +  # Right ascension component
-        ((mu_ra * sin_dec)**2 + mu_dec**2) * delta_dec**2 +         # Declination component
-        (cos_dec * delta_mu_ra)**2 +                                # Proper motion in the right ascension component
-        (delta_mu_dec)**2                                           # Proper motion in the declination component
-    )  # shape (N,) in (mas/yr)^2
-    delta_velocities = conversion_factor * np.sqrt(delta_r**2 * mu_magnitude_sq + r**2 * delta_pm_sq)  # shape (N,) in km/s
-    np.save(file_path_delta_velocities, delta_velocities)
-    print(f"... saved velocity uncertainties to {file_path_delta_velocities} (shape: {delta_velocities.shape}).\n")
-    del r, cos_dec, sin_dec, mu_ra, mu_dec, delta_r, delta_ra, delta_dec, delta_mu_ra, delta_mu_dec, mu_ra_cos_dec, mu_magnitude_sq, delta_pm_sq, delta_velocities  # Free memory
-    gc.collect()  # Force garbage collection
-
-def calculate_subspace_contractions(overwrite=False):
+def calculate_contracted_subspaces_and_errors(overwrite=False):
     """
     Calculate non-linear contractions for Cartesian positions and velocities and their uncertainties.
     """
     # Check if contraction arrays already exists
-    file_path_contracted_positions = os.path.join(SUBSAMPLE_PATH, "contracted_positions.npy")
-    file_path_contracted_position_uncertainties = os.path.join(SUBSAMPLE_PATH, "contracted_position_uncertainties.npy")
-    file_path_contracted_velocities = os.path.join(SUBSAMPLE_PATH, "contracted_velocities.npy")
-    file_path_contracted_velocity_uncertainties = os.path.join(SUBSAMPLE_PATH, "contracted_velocity_uncertainties.npy")
-    file_path_contraction_coefficients = os.path.join(SUBSAMPLE_PATH, "contraction_coefficients.npy")
-
+    file_path_contracted_positions = os.path.join(INTERMEDIATE_FILES_PATH, "contracted_positions.npy")
+    file_path_contracted_position_uncertainties = os.path.join(INTERMEDIATE_FILES_PATH, "contracted_position_uncertainties.npy")
+    file_path_contracted_velocities = os.path.join(INTERMEDIATE_FILES_PATH, "contracted_velocities.npy")
+    file_path_contracted_velocity_uncertainties = os.path.join(INTERMEDIATE_FILES_PATH, "contracted_velocity_uncertainties.npy")
+    
     # Skip processing if all output files already exist
     all_exist = (
         os.path.exists(file_path_contracted_positions) and
@@ -1087,71 +981,85 @@ def calculate_subspace_contractions(overwrite=False):
         return
     print("Calculating subspace contractions for subsample...")
 
-    # Load positions arrays
-    print("... loading Cartesian positions and uncertainties for subsample")
-    positions = np.load(os.path.join(SUBSAMPLE_PATH, "positions.npy"))  # shape (N, 3)
-    delta_positions = np.load(os.path.join(SUBSAMPLE_PATH, "position_uncertainties.npy"))  # shape (N,)
+    # Load required arrays
+    print("... loading subsample mask")
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))  # shape (N,)
 
-    # Set r_half as the inverse of the quadratic coefficient and formulate contraction
-    print("... fitting positions contraction")
-    pos_magnitudes = np.linalg.norm(positions, axis=1)  # shape (N,)
-    pos_magnitudes_squared = pos_magnitudes**2
-    r_half = np.sqrt(np.sum(pos_magnitudes_squared**2) / np.sum(pos_magnitudes_squared * delta_positions))  # Square root of the inverse coefficient of the quadratic term with constant and linear terms forced to zero
-    del pos_magnitudes_squared  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Apply contraction to positions and save
-    fpos_magnitudes = r_half * np.arctan(pos_magnitudes / r_half)  # shape (N,)
-    contracted_positions = (fpos_magnitudes / pos_magnitudes)[:, None] * positions  # shape (N, 3)
-    np.save(file_path_contracted_positions, contracted_positions)
-    print(f"... saved contracted positions to {file_path_contracted_positions} (shape: {contracted_positions.shape})")
-    del positions, fpos_magnitudes, contracted_positions  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Apply contraction to position uncertainties and save
-    dfdr_pos = r_half**2 / (r_half**2 + pos_magnitudes**2)  # shape (N,)
-    contracted_delta_positions = dfdr_pos * delta_positions  # shape (N,)
-    np.save(file_path_contracted_position_uncertainties, contracted_delta_positions)
-    print(f"... saved contracted position uncertainties to {file_path_contracted_position_uncertainties} (shape: {contracted_delta_positions.shape})")
-    del delta_positions, pos_magnitudes, dfdr_pos, contracted_delta_positions  # Free memory
+    print('... loading astrometric solution for subsample')
+    r = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "bailerjones_r_med_photogeo.npy"))[subsample_mask]  # shape (N,) in pc
+    ra, dec = np.deg2rad(np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask]).T  # shape (N, 2) in radians
+    cos_ra, sin_ra, cos_dec, sin_dec = np.cos(ra), np.sin(ra), np.cos(dec), np.sin(dec) # Trigonemetric components
+    mu_ra, mu_dec = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_proper_motions.npy"))[subsample_mask].T  # shape (N, 2) in mas/yr
+    del ra, dec  # Free memory
     gc.collect()  # Force garbage collection
     
-    # Load velocities arrays
-    print("... loading Cartesian velocities and uncertainties for subsample")
-    velocities = np.load(os.path.join(SUBSAMPLE_PATH, "velocities.npy"))  # shape (N, 3)
-    delta_velocities = np.load(os.path.join(SUBSAMPLE_PATH, "velocity_uncertainties.npy"))  # shape (N,)
-
-    # Set v_half as the inverse of the linear coefficient and formulate contraction
-    print("... fitting velocities contraction")
-    vel_magnitudes = np.linalg.norm(velocities, axis=1)  # shape (N,)
-    v_half = np.sum(vel_magnitudes**2) / np.sum(vel_magnitudes * delta_velocities) / 3  # Inverse coefficient of the linear term with constant term forced to zero
-
-    # Apply contraction to velocities and save
-    fvel_magnitudes = v_half * np.log(1 + vel_magnitudes / v_half)  # shape (N,)
-    contracted_velocities = (fvel_magnitudes / vel_magnitudes)[:, None] * velocities  # shape (N, 3)
-    np.save(file_path_contracted_velocities, contracted_velocities)
-    print(f"... saved contracted velocities to {file_path_contracted_velocities} (shape: {contracted_velocities.shape})")
-    del velocities, fvel_magnitudes, contracted_velocities  # Free memory
+    print('... loading astrometric solution uncertainties for subsample')
+    lo, high = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "bailerjones_r_lo_high_photogeo.npy"))[subsample_mask].T  # shape (N, 2) in pc
+    delta_r = (high - lo) / 2  # Symmetrize the distance uncertainty for first-order propagation
+    delta_ra, delta_dec, delta_mu_ra, delta_mu_dec = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask].T  # shape (N, 4) in [mas, mas, mas/yr, mas/yr]
+    delta_ra, delta_dec = delta_ra * (np.pi / 180 / 3600000), delta_dec * (np.pi / 180 / 3600000)  # Convert angular errors from mas to radians
+    del subsample_mask, lo, high  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Apply contraction to velocity uncertainties and save
-    dfdr_vel = v_half / (v_half + vel_magnitudes)  # shape (N,)
-    contracted_delta_velocities = dfdr_vel * delta_velocities  # shape (N,)
-    np.save(file_path_contracted_velocity_uncertainties, contracted_delta_velocities)
-    print(f"... saved contracted velocity uncertainties to {file_path_contracted_velocity_uncertainties} (shape: {contracted_delta_velocities.shape})")
-    del delta_velocities, vel_magnitudes, dfdr_vel, contracted_delta_velocities  # Free memory
+    # Calculate r_half
+    r_half = np.median(r / np.sqrt(delta_r + 1e-6))  # Use median as a more robust estimator
+    print(f"... calculated r_half = {r_half:.3f} pc")
+
+    # Calculate contracted distances and their uncertainties
+    fr = r_half * np.arctan(r / r_half)  # shape (N,)
+    dfr_dr = r_half**2 / (r_half**2 + r**2)  # shape (N,)
+    delta_fr_sq = (dfr_dr * delta_r)**2  # shape (N,)
+    del r, delta_r, dfr_dr  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Save the contraction coefficients
-    np.save(file_path_contraction_coefficients, np.array([r_half, v_half]))
-    print(f"... saved contraction coefficients to {file_path_contraction_coefficients} | (r_half, v_half) = ({r_half:.3f} pc, {v_half:.3f} km/s).\n")
+    # Save the contracted positions
+    positions = fr[:, None] * np.column_stack([cos_ra * cos_dec, sin_ra * cos_dec, sin_dec])  # shape (N, 3)
+    np.save(file_path_contracted_positions, positions)
+    print(f"... saved contracted positions to {file_path_contracted_positions} (shape: {positions.shape})")
+    del positions  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save the contracted position uncertainties
+    fr_sq = fr**2  # shape (N,)
+    delta_omega_sq = (cos_dec * delta_ra)**2 + delta_dec**2  # shape (N,)
+    delta_positions = np.sqrt(delta_fr_sq + fr_sq * delta_omega_sq) # shape (N,), RMS of Cartesian component errors
+    np.save(file_path_contracted_position_uncertainties, delta_positions)
+    print(f"... saved contracted position uncertainties to {file_path_contracted_position_uncertainties} (shape: {delta_positions.shape})")
+    del delta_omega_sq, delta_positions  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save the contracted velocities
+    conversion_factor = 149597870.7 / (1000 * 365.25 * 24 * 3600)  # Conversion factor from (pc * mas/yr) to km/s
+    mu_ra_cos_dec = cos_dec * mu_ra  # shape (N,) in mas/yr
+    e_ra = np.column_stack([-sin_ra, cos_ra, np.zeros_like(cos_ra)])  # Tangential basis vector in RA direction
+    e_dec = np.column_stack([-cos_ra * sin_dec, -sin_ra * sin_dec, cos_dec])  # Tangential basis vector in Dec direction
+    velocities = conversion_factor * fr[:, None] * (mu_ra_cos_dec[:, None] * e_ra + mu_dec[:, None] * e_dec)  # shape (N, 3)
+    np.save(file_path_contracted_velocities, velocities)
+    print(f"... saved contracted velocities to {file_path_contracted_velocities} (shape: {velocities.shape})")
+    del cos_ra, sin_ra, fr, e_ra, e_dec, velocities  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save the contracted velocity uncertainties
+    mu_magnitude_sq = mu_ra_cos_dec**2 + mu_dec**2  # shape (N,) in (mas/yr)^2
+    delta_pm_sq = (
+        (mu_ra_cos_dec**2 + (mu_dec * sin_dec)**2) * delta_ra**2 +  # Right ascension component
+        ((mu_ra * sin_dec)**2 + mu_dec**2) * delta_dec**2 +         # Declination component
+        (cos_dec * delta_mu_ra)**2 +                                # Proper motion in the right ascension component
+        (delta_mu_dec)**2                                           # Proper motion in the declination component
+    )  # shape (N,) in (mas/yr)^2
+
+    delta_velocities = conversion_factor * np.sqrt(delta_fr_sq * mu_magnitude_sq + fr_sq * delta_pm_sq) # shape (N,)
+    np.save(file_path_contracted_velocity_uncertainties, delta_velocities)
+    print(f"... saved velocity uncertainties to {file_path_contracted_velocity_uncertainties} (shape: {delta_velocities.shape}).\n")
+    del cos_dec, sin_dec, mu_ra, mu_dec, delta_ra, delta_dec, delta_mu_ra, delta_mu_dec, delta_fr_sq, fr_sq, mu_ra_cos_dec, mu_magnitude_sq, delta_pm_sq, delta_velocities  # Free memory
+    gc.collect()  # Force garbage collection
 
 def construct_data_space(overwrite=False):
     """
     Calculate the data space for the subsample.
     """
     # Check if data space already exists
-    file_data_space = os.path.join(SUBSAMPLE_PATH, "data_space.npy")
+    file_data_space = os.path.join(INTERMEDIATE_FILES_PATH, "data_space.npy")
     if os.path.exists(file_data_space) and not overwrite:
         print(f"Data space already exists at:\n\t{file_data_space} .")
         print("Use overwrite=True to force recomputation.\n")
@@ -1160,10 +1068,10 @@ def construct_data_space(overwrite=False):
 
     # Load the contracted positions and velocities
     print("... loading required arrays")
-    positions = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_positions.npy"))  # (N, 3)
-    velocities = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocities.npy"))  # (N, 3)
-    delta_positions = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_position_uncertainties.npy"))  # (N,)
-    delta_velocities = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocity_uncertainties.npy"))  # (N,)
+    positions = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "contracted_positions.npy"))  # (N, 3)
+    velocities = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "contracted_velocities.npy"))  # (N, 3)
+    delta_positions = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "contracted_position_uncertainties.npy"))  # (N,)
+    delta_velocities = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "contracted_velocity_uncertainties.npy"))  # (N,)
 
     # Calculate scaling factor for positions
     norm_pos = np.median(delta_positions)  # Calculate scaling factor
@@ -1191,155 +1099,6 @@ def construct_data_space(overwrite=False):
     del data_space  # Free memory
     gc.collect()  # Force garbage collection
 
-def plot_subspace_contractions(overwrite=False):
-    """
-    Plot the Cartesian errors vs values and the contracted errors vs values.
-    """
-    # Check if plot already exists
-    file_subspace_contraction_plot_path = os.path.join(FIGURES_PATH, "subspace_contraction.png")
-
-    # Skip processing if output file already exists
-    if os.path.exists(file_subspace_contraction_plot_path) and not overwrite:
-        print(f"Subspace contraction plot already exists at:\n\t{file_subspace_contraction_plot_path} .")
-        print("Use overwrite=True to force replotting.\n")
-        return
-    print("Plotting subspace contractions...")
-
-    # Load Cartesian subspace arrays
-    print("... loading Cartesian subspace arrays")
-    pos_magnitudes = np.linalg.norm(np.load(os.path.join(SUBSAMPLE_PATH, "positions.npy")), axis=1)  # shape (N,)
-    delta_positions = np.load(os.path.join(SUBSAMPLE_PATH, "position_uncertainties.npy"))  # shape (N,)
-    vel_magnitudes = np.linalg.norm(np.load(os.path.join(SUBSAMPLE_PATH, "velocities.npy")), axis=1)  # shape (N,)
-    delta_velocities = np.load(os.path.join(SUBSAMPLE_PATH, "velocity_uncertainties.npy"))  # shape (N,)
-
-    # Load contracted subspace arrays
-    print("... loading contracted subspace arrays")
-    contracted_pos_magnitudes = np.linalg.norm(np.load(os.path.join(SUBSAMPLE_PATH, "contracted_positions.npy")), axis=1)  # shape (N,)
-    contracted_delta_positions = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_position_uncertainties.npy"))  # shape (N,)
-    contracted_vel_magnitudes = np.linalg.norm(np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocities.npy")), axis=1)  # shape (N,)
-    contracted_delta_velocities = np.load(os.path.join(SUBSAMPLE_PATH, "contracted_velocity_uncertainties.npy"))  # shape (N,)
-
-    # Load polynomial coefficients
-    print("... loading contraction polynomial coefficients")
-    r_half, v_half = np.load(os.path.join(SUBSAMPLE_PATH, "contraction_coefficients.npy"))  # shape (2,)
-
-    # Make colour map
-    cmap = plt.get_cmap("magma")
-    cmap.set_under('white')
-
-    # Make figure
-    fig, axs = plt.subplots(2, 2, figsize=(6, 6))
-
-    # Plot 2D histogram of Cartesian position errors vs values
-    print("... plotting Cartesian position errors vs values")
-    x_min, x_max = np.floor(np.log10(pos_magnitudes.min())), np.ceil(np.log10(pos_magnitudes.max()))
-    y_min, y_max = np.floor(np.log10(delta_positions.min())), np.ceil(np.log10(delta_positions.max()))
-    bins = [np.logspace(x_min, x_max, 101), np.logspace(y_min, y_max, 101)]
-    ax = axs[0, 0]
-    ax.hist2d(
-        pos_magnitudes,
-        delta_positions,
-        bins=bins,
-        norm='log',
-        cmap=cmap,
-        vmin=0.5
-    )
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-    ax.set_xlabel(r'$r$ [pc]')
-    ax.set_ylabel(r'$\Delta r$ [pc]')
-    ax.set_title('Cartesian Distance')
-    del pos_magnitudes, delta_positions  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Plot polynomial fit line for position contraction
-    r_fit = np.logspace(x_min, x_max, 1000)
-    delta_r_fit = (r_fit / r_half)**2
-    ax.plot(r_fit, delta_r_fit, color='limegreen', lw=1)
-    del r_fit, delta_r_fit  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Plot 2D histogram of Cartesian velocity errors vs values
-    print("... plotting Cartesian velocity errors vs values")
-    x_min, x_max = np.floor(np.log10(vel_magnitudes.min())), np.ceil(np.log10(vel_magnitudes.max()))
-    y_min, y_max = np.floor(np.log10(delta_velocities.min())), np.ceil(np.log10(delta_velocities.max()))
-    bins = [np.logspace(x_min, x_max, 101), np.logspace(y_min, y_max, 101)]
-    ax = axs[0, 1]
-    ax.hist2d(
-        vel_magnitudes,
-        delta_velocities,
-        bins=bins,
-        norm='log',
-        cmap=cmap,
-        vmin=0.5
-    )
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-    ax.set_xlabel(r'$v$ [km/s]')
-    ax.set_ylabel(r'$\Delta v$ [km/s]')
-    ax.set_title('Cartesian Speed')
-    del vel_magnitudes, delta_velocities  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Plot polynomial fit line for velocity contraction
-    v_fit = np.logspace(x_min, x_max, 1000)
-    delta_v_fit = v_fit / v_half
-    ax.plot(v_fit, delta_v_fit, color='limegreen', lw=1)
-    del v_fit, delta_v_fit  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Plot 2D histogram of contracted position errors vs values
-    print("... plotting contracted position errors vs values")
-    x_min, x_max = np.floor(np.log10(contracted_pos_magnitudes.min())), np.ceil(np.log10(contracted_pos_magnitudes.max()))
-    y_min, y_max = np.floor(np.log10(contracted_delta_positions.min())), np.ceil(np.log10(contracted_delta_positions.max()))
-    bins = [np.logspace(x_min, x_max, 101), np.logspace(y_min, y_max, 101)]
-    ax = axs[1, 0]
-    ax.hist2d(
-        contracted_pos_magnitudes,
-        contracted_delta_positions,
-        bins=bins,
-        norm='log',
-        cmap=cmap,
-        vmin=0.5
-    )
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-    ax.set_xlabel(r'$f(r)$')
-    ax.set_ylabel(r'$\Delta f(r)$')
-    ax.set_title('Contracted Distance')
-    del contracted_pos_magnitudes, contracted_delta_positions  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Plot 2D histogram of contracted velocity errors vs values
-    print("... plotting contracted velocity errors vs values")
-    x_min, x_max = np.floor(np.log10(contracted_vel_magnitudes.min())), np.ceil(np.log10(contracted_vel_magnitudes.max()))
-    y_min, y_max = np.floor(np.log10(contracted_delta_velocities.min())), np.ceil(np.log10(contracted_delta_velocities.max()))
-    bins = [np.logspace(x_min, x_max, 101), np.logspace(y_min, y_max, 101)]
-    ax = axs[1, 1]
-    ax.hist2d(
-        contracted_vel_magnitudes,
-        contracted_delta_velocities,
-        bins=bins,
-        norm='log',
-        cmap=cmap,
-        vmin=0.5
-    )
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-    ax.set_xlabel(r'$f(v)$')
-    ax.set_ylabel(r'$\Delta f(v)$')
-    ax.set_title('Contracted Speed')
-    del contracted_vel_magnitudes, contracted_delta_velocities  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Adjust layout and save figure
-    plt.tight_layout()
-    plt.savefig(file_subspace_contraction_plot_path, dpi=500)
-    plt.close()
-    del fig, axs, bins  # Free memory
-    gc.collect()  # Free memory
-    print(f"... saved subspace contraction plot to {file_subspace_contraction_plot_path}.\n")
-
 
 # === Apply AstroLink to subsample and plot of cluster properties ===
 def apply_astrolink_to_data(overwrite=False):
@@ -1347,7 +1106,7 @@ def apply_astrolink_to_data(overwrite=False):
     Run AstroLink clustering on the subsample.
     """
     # Check if AstroLink clustering output already exists
-    file_astrolink_object = os.path.join(CLUSTERING_PATH, "astrolink_object.npz")
+    file_astrolink_object = os.path.join(RESULTS_PATH, "astrolink_object.npz")
     if os.path.exists(file_astrolink_object) and not overwrite:
         print(f"AstroLink clustering output already exists at:\n\t{file_astrolink_object} .")
         print("Use overwrite=True to force recomputation.\n")
@@ -1356,10 +1115,10 @@ def apply_astrolink_to_data(overwrite=False):
 
     # Load the required arrays
     print("... loading required arrays for AstroLink clustering")
-    input_data = np.load(os.path.join(SUBSAMPLE_PATH, "data_space.npy"))  # (N, 6)
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
-    nsub = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_nsub.npy"))[subsample_mask]  # (N,)
-    nmw = np.load(os.path.join(SUBSAMPLE_PATH, "total_selection_function_nmw.npy"))[subsample_mask]  # (N,)
+    input_data = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "data_space.npy"))  # (N, 6)
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))  # (N,)
+    nsub = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "total_selection_function_nsub.npy"))[subsample_mask]  # (N,)
+    nmw = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "total_selection_function_nmw.npy"))[subsample_mask]  # (N,)
     del subsample_mask  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -1390,11 +1149,16 @@ def apply_astrolink_to_data(overwrite=False):
     del nsub, nmw  # Free memory
     gc.collect()  # Force garbage collection
 
+    # Calculate the intrinsic dimensionality of the data based off available astrometric solution components
+    d_intrinsic = 3 # Positions are always included
+    if WITH_PROPER_MOTIONS: d_intrinsic += 2
+    if WITH_RADIAL_VELOCITIES: d_intrinsic += 1
+
     # Initialize AstroLink
     print("... initializing AstroLink object")
     clusterer = AstroLink(
         P=input_data,
-        d_intrinsic=5,
+        d_intrinsic=d_intrinsic,
         weights=weights,
         k_den=KNN_FOR_ASTROLINK,
         adaptive=0,
@@ -1452,7 +1216,7 @@ def plot_astrolink_prominence_model_fit(overwrite=False):
     Plot the prominence model fit from AstroLink.
     """
     # Check if plots already exist
-    file_prominence_model_fit_path = os.path.join(FIGURES_PATH, "AstroLink_prominence_model_fit.png")
+    file_prominence_model_fit_path = os.path.join(RESULTS_PATH, "AstroLink_prominence_model_fit.png")
     if os.path.exists(file_prominence_model_fit_path) and not overwrite:
         print(f"Prominence model fit plot already exists at:\n\t{file_prominence_model_fit_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -1461,7 +1225,7 @@ def plot_astrolink_prominence_model_fit(overwrite=False):
 
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
-    clusterer = loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
+    clusterer = loadAstroLinkObject(os.path.join(RESULTS_PATH, "astrolink_object.npz"))
     
     # Plot the prominence model fit
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -1529,7 +1293,7 @@ def plot_astrolink_prominence_model_fit(overwrite=False):
     optimal_prominence = beta.isf(norm.sf(clusterer.S), clusterer.pFit[0], clusterer.pFit[1])
     optimal_num_clusters = clusterer.clusters.shape[0] - 1  # Exclude the background cluster
     prominences = np.empty_like(SIGMA_THRESHOLDS_FOR_COMPARISONS)
-    num_clusters = np.empty_like(SIGMA_THRESHOLDS_FOR_COMPARISONS).astype(np.int64)
+    num_clusters = np.empty_like(SIGMA_THRESHOLDS_FOR_COMPARISONS, dtype=np.int64)
     for i, significance in enumerate(SIGMA_THRESHOLDS_FOR_COMPARISONS):
         # Extract clusters at this significance threshold
         clusterer.S = significance
@@ -1622,7 +1386,7 @@ def plot_astrolink_cluster_labels_on_sky(overwrite=False):
     Plot the clustering output from AstroLink.
     """
     # Check if plots already exist
-    file_clusters_on_sky_path = os.path.join(FIGURES_PATH, "AstroLink_clusters_on_sky.png")
+    file_clusters_on_sky_path = os.path.join(RESULTS_PATH, "AstroLink_clusters_on_sky.png")
     if os.path.exists(file_clusters_on_sky_path) and not overwrite:
         print(f"Clusters on sky plot already exists at:\n\t{file_clusters_on_sky_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -1631,12 +1395,12 @@ def plot_astrolink_cluster_labels_on_sky(overwrite=False):
 
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
-    clusterer = loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
+    clusterer = loadAstroLinkObject(os.path.join(RESULTS_PATH, "astrolink_object.npz"))
 
     # Load the required arrays
     print("... loading required arrays for plotting")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
-    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))  # (N,)
+    galactic_coordinates = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
     del subsample_mask  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -1683,7 +1447,7 @@ def plot_astrolink_cluster_proper_motions_on_sky(overwrite=False):
     Plot the proper motions of the clusters on the sky.
     """
     # Check if plots already exist
-    file_proper_motions_on_sky_path = os.path.join(FIGURES_PATH, "AstroLink_cluster_proper_motions_on_sky.png")
+    file_proper_motions_on_sky_path = os.path.join(RESULTS_PATH, "AstroLink_cluster_proper_motions_on_sky.png")
     if os.path.exists(file_proper_motions_on_sky_path) and not overwrite:
         print(f"Proper motions on sky plot already exists at:\n\t{file_proper_motions_on_sky_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -1692,14 +1456,14 @@ def plot_astrolink_cluster_proper_motions_on_sky(overwrite=False):
 
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
-    clusterer = loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
+    clusterer = loadAstroLinkObject(os.path.join(RESULTS_PATH, "astrolink_object.npz"))
 
     # Load the required arrays
     print("... loading required arrays for plotting")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
-    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
-    equatorial_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
-    proper_motions = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy"))[subsample_mask]  # (N, 2) in mas/yr
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))  # (N,)
+    galactic_coordinates = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
+    equatorial_coordinates = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_equatorial_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
+    proper_motions = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_proper_motions.npy"))[subsample_mask]  # (N, 2) in mas/yr
     del subsample_mask  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -1963,8 +1727,8 @@ def plot_catalogue_structure_on_sky(members_cluster_ids_subsample,
     """
     # Load the required arrays
     print("... loading required arrays for plotting")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
-    galactic_coordinates = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))  # (N,)
+    galactic_coordinates = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
     del subsample_mask  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -2030,7 +1794,7 @@ def compare_to_catalogue_helper(members_cluster_ids_subsample,
 
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
-    clusterer = loadAstroLinkObject(os.path.join(CLUSTERING_PATH, "astrolink_object.npz"))
+    clusterer = loadAstroLinkObject(os.path.join(RESULTS_PATH, "astrolink_object.npz"))
     ordering = clusterer.ordering  # avoid sending the whole clusterer to workers
 
     # Put large arrays into shared memory
@@ -2269,11 +2033,11 @@ def prepare_Hunt2024_for_comparison(overwrite=False):
 
     # Load Gaia DR3 source_ids
     print("... loading Gaia DR3 source IDs")
-    gdr3_source_ids = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_source_ids.npy"))  # (N,)
+    gdr3_source_ids = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_source_ids.npy"))  # (N,)
 
     # Load subsample mask
     print("... loading subsample mask")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))  # (N,)
 
     # Save the membership mask
     print("... making membership mask")
@@ -2351,7 +2115,7 @@ def plot_Hunt2024_clusters_on_sky(overwrite=False):
     Plot the Hunt & Reffert (2024) clusters on the sky.
     """
     # Check if plot already exists
-    file_path_clusters_on_sky = os.path.join(FIGURES_PATH, "Hunt2024_clusters_on_sky.png")
+    file_path_clusters_on_sky = os.path.join(RESULTS_PATH, "Hunt2024_clusters_on_sky.png")
     if os.path.exists(file_path_clusters_on_sky) and not overwrite:
         print(f"Hunt & Reffert (2024) clusters plot already exists at:\n\t{file_path_clusters_on_sky} .")
         print("Use overwrite=True to force replotting.\n")
@@ -2420,7 +2184,7 @@ def plot_Hunt2024_comparison_results(overwrite=False):
     and 'union'), with hatched regions indicating bounds.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "Hunt2024_comparison_results.png")
+    file_path = os.path.join(RESULTS_PATH, "Hunt2024_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
         print(f"Hunt & Reffert (2024) comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -2646,7 +2410,7 @@ def prepare_UCC_for_comparison(overwrite=False):
 
     # Load Gaia DR3 source_ids
     print("... loading Gaia DR3 source IDs")
-    gdr3_source_ids = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_source_ids.npy"))  # (N,)
+    gdr3_source_ids = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_source_ids.npy"))  # (N,)
 
     # Save the membership mask
     print("... making membership mask")
@@ -2658,7 +2422,7 @@ def prepare_UCC_for_comparison(overwrite=False):
 
     # Load required arrays
     print("... loading subsample mask")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N_gdr3,)
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))  # (N_gdr3,)
 
     # Get UCC cluster IDs for this subsample (multiple columns since stars can be in multiple UCC clusters)
     print("... getting UCC cluster IDs and membership probabilities for the subsample in this work")
@@ -2729,7 +2493,7 @@ def plot_UCC_clusters_on_sky(overwrite=False):
     Plot the Unified Cluster Catalogue clusters on the sky.
     """
     # Check if plot already exists
-    file_path_clusters_on_sky = os.path.join(FIGURES_PATH, "UCC_clusters_on_sky.png")
+    file_path_clusters_on_sky = os.path.join(RESULTS_PATH, "UCC_clusters_on_sky.png")
     if os.path.exists(file_path_clusters_on_sky) and not overwrite:
         print(f"Unified Cluster Catalogue clusters plot already exists at:\n\t{file_path_clusters_on_sky} .")
         print("Use overwrite=True to force replotting.\n")
@@ -2798,7 +2562,7 @@ def plot_UCC_comparison_results(overwrite=False):
     ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "UCC_comparison_results.png")
+    file_path = os.path.join(RESULTS_PATH, "UCC_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
         print(f"Unified Cluster Catalogue comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -2963,8 +2727,8 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
 
     # Load required arrays
     print('... loading required arrays')
-    source_ids = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_source_ids.npy"))  # (N_gdr3,)
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, 'subsample_mask.npy'))  # (N_gdr3,)
+    source_ids = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_source_ids.npy"))  # (N_gdr3,)
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, 'subsample_mask.npy'))  # (N_gdr3,)
 
     # Load the Vasiliev & Baumgardt (2021) catalogue
     print("... loading the Vasiliev & Baumgardt (2021) catalogue")
@@ -3090,7 +2854,7 @@ def plot_Vasiliev2021_clusters_on_sky(overwrite=False):
     Plot the Vasiliev & Baumgardt (2021) globular clusters on the sky.
     """
     # Check if plot already exists
-    file_path_clusters_on_sky = os.path.join(FIGURES_PATH, "Vasiliev2021_clusters_on_sky.png")
+    file_path_clusters_on_sky = os.path.join(RESULTS_PATH, "Vasiliev2021_clusters_on_sky.png")
     if os.path.exists(file_path_clusters_on_sky) and not overwrite:
         print(f"Vasiliev & Baumgardt (2021) globular clusters on sky plot already exists at:\n\t{file_path_clusters_on_sky} .")
         print("Use overwrite=True to force replotting.\n")
@@ -3159,7 +2923,7 @@ def plot_Vasiliev2021_comparison_results(overwrite=False):
     ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "Vasiliev2021_comparison_results.png")
+    file_path = os.path.join(RESULTS_PATH, "Vasiliev2021_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
         print(f"Vasiliev & Baumgardt (2021) comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -3328,11 +3092,11 @@ def prepare_Battaglia2021_for_comparison(overwrite=False):
 
     # Load Gaia DR3 source_ids
     print("... loading Gaia DR3 source IDs")
-    gdr3_source_ids = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_source_ids.npy"))  # (N,)
+    gdr3_source_ids = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_source_ids.npy"))  # (N,)
 
     # Load subsample mask
     print("... loading subsample mask")
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, "subsample_mask.npy"))  # (N,)
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))  # (N,)
 
     # Save the membership mask
     print("... making membership mask")
@@ -3410,7 +3174,7 @@ def plot_Battaglia2021_dwarfgalaxies_on_sky(overwrite=False):
     Plot the Battaglia et al. (2021) dwarf galaxies on the sky.
     """
     # Check if plot already exists
-    file_path_clusters_on_sky = os.path.join(FIGURES_PATH, "Battaglia2021_dwarfgalaxies_on_sky.png")
+    file_path_clusters_on_sky = os.path.join(RESULTS_PATH, "Battaglia2021_dwarfgalaxies_on_sky.png")
     if os.path.exists(file_path_clusters_on_sky) and not overwrite:
         print(f"Battaglia et al. (2021) dwarf galaxies on sky plot already exists at:\n\t{file_path_clusters_on_sky} .")
         print("Use overwrite=True to force replotting.\n")
@@ -3479,7 +3243,7 @@ def plot_Battaglia2021_comparison_results(overwrite=False):
     ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "Battaglia2021_comparison_results.png")
+    file_path = os.path.join(RESULTS_PATH, "Battaglia2021_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
         print(f"Battaglia et al. (2021) comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -3646,15 +3410,15 @@ def prepare_galstreams_for_comparison(overwrite=False):
 
     # Load required arrays
     print('... loading required arrays')
-    source_ids = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_source_ids.npy"))  # (N_gdr3,)
-    subsample_mask = np.load(os.path.join(SUBSAMPLE_PATH, 'subsample_mask.npy'))  # (N_gdr3,)
-    ra, dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_equatorial_coordinates.npy")).T  # Each (N_gdr3,) in degrees
-    mu_ra, mu_dec = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_proper_motions.npy")).T  # Each (N_gdr3,) in mas/yr
-    r_med_photogeo = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_med_photogeo.npy"))  # (N_gdr3,) in pc
-    astrometric_errors = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "gdr3_astrometric_errors.npy"))  # (N_gdr3, 5)
+    source_ids = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_source_ids.npy"))  # (N_gdr3,)
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, 'subsample_mask.npy'))  # (N_gdr3,)
+    ra, dec = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_equatorial_coordinates.npy")).T  # Each (N_gdr3,) in degrees
+    mu_ra, mu_dec = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_proper_motions.npy")).T  # Each (N_gdr3,) in mas/yr
+    r_med_photogeo = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "bailerjones_r_med_photogeo.npy"))  # (N_gdr3,) in pc
+    astrometric_errors = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_astrometric_errors.npy"))  # (N_gdr3, 5)
     sigma_ra, sigma_dec = astrometric_errors[:, :2].T / 3600000  # shape (N_gdr3, 2) in degrees
     sigma_mu_ra, sigma_mu_dec = astrometric_errors[:, 2:].T  # shape (N_gdr3, 2) in mas/yr
-    lo, high = np.load(os.path.join(REDUCED_CATALOGUE_PATH, "bailerjones_r_lo_high_photogeo.npy")).T  # each (N_gdr3,) in pc
+    lo, high = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "bailerjones_r_lo_high_photogeo.npy")).T  # each (N_gdr3,) in pc
     del astrometric_errors  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -3690,8 +3454,8 @@ def prepare_galstreams_for_comparison(overwrite=False):
     mws.summary.loc['NGC6362-S20', 'width_phi2'] = 0.03279231365173159 # From galstreams/tracks/track.st.NGC6362.sollima2020.summary.ecsv (not read in automatically for some reason)
     mws.summary.loc['Orphan-K23', 'width_phi2'] = 0.5610732369318953 # From galstreams/tracks/track.st.Orphan-Chenab.ibata2021.summary.ecsv (default track summary file has ~0 deg width)
     mws.summary.loc['Pal5-PW19', 'width_phi2'] = 0.30188212290570887 # From galstreams/tracks/track.st.Pal5.ibata2024.summary.ecsv (default track summary file has ~0 deg width)
-    mws.summary.loc['Parallel-W18', 'width_phi2'] = 25  # Reasonable value considering Weiss et al. (2018) reported physical dispersions sigma (kpc) from SDSS fits
-    mws.summary.loc['Perpendicular-W18', 'width_phi2'] = 25  # Reasonable value considering Weiss et al. (2018) reported physical dispersions sigma (kpc) from SDSS fits
+    mws.summary.loc['Parallel-W18', 'width_phi2'] = 2  # Reasonable value considering Weiss et al. (2018) reported physical dispersions sigma (kpc) from SDSS fits
+    mws.summary.loc['Perpendicular-W18', 'width_phi2'] = 2  # Reasonable value considering Weiss et al. (2018) reported physical dispersions sigma (kpc) from SDSS fits
 
     # Manual fixes for missing width_pm_phi1_cosphi2 and width_pm_phi2 values from galstreams
     mws.summary.loc['ACS-R21', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.051429218098668614, 0.060361599720383706]  # From galstreams/tracks/track.st.ACS.ramos2021.summary.ecsv (not read in automatically for some reason)
@@ -3972,7 +3736,7 @@ def plot_galstreams_streams_on_sky(overwrite=False):
     Plot the galstreams streams on the sky.
     """
     # Check if plot already exists
-    file_path_streams_on_sky = os.path.join(FIGURES_PATH, "galstreams_streams_on_sky.png")
+    file_path_streams_on_sky = os.path.join(RESULTS_PATH, "galstreams_streams_on_sky.png")
     if os.path.exists(file_path_streams_on_sky) and not overwrite:
         print(f"Galstreams streams on sky plot already exists at:\n\t{file_path_streams_on_sky} .")
         print("Use overwrite=True to force replotting.\n")
@@ -4041,7 +3805,7 @@ def plot_galstreams_comparison_results(overwrite=False):
     ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
-    file_path = os.path.join(FIGURES_PATH, "galstreams_comparison_results.png")
+    file_path = os.path.join(RESULTS_PATH, "galstreams_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
         print(f"Galstreams comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -4161,10 +3925,9 @@ def plot_galstreams_comparison_results(overwrite=False):
 # === Run script ===
 if __name__ == "__main__":
     # Ensure paths exist
-    os.makedirs(REDUCED_CATALOGUE_PATH, exist_ok=True)
-    os.makedirs(SUBSAMPLE_PATH, exist_ok=True)
-    os.makedirs(CLUSTERING_PATH, exist_ok=True)
-    os.makedirs(FIGURES_PATH, exist_ok=True)
+    os.makedirs(INTERMEDIATE_FILES_PATH, exist_ok=True)
+    os.makedirs(INTERMEDIATE_FILES_PATH, exist_ok=True)
+    os.makedirs(RESULTS_PATH, exist_ok=True)
 
     # Reduce raw catalogue files to numpy files
     prepare_gdr3_catalogue()
@@ -4183,13 +3946,11 @@ if __name__ == "__main__":
     plot_total_selection_function()
 
     # Construct input data to be passed to AstroLink
-    construct_cartesian_subspaces_and_uncertainties()
-    calculate_subspace_contractions(True)
-    construct_data_space(True)
-    plot_subspace_contractions(True)
+    calculate_contracted_subspaces_and_errors()
+    construct_data_space()
 
     # Apply AstroLink to subsample and plot of cluster properties
-    apply_astrolink_to_data(True)
+    apply_astrolink_to_data()
     plot_astrolink_prominence_model_fit(True)
     plot_astrolink_cluster_labels_on_sky(True)
     plot_astrolink_cluster_proper_motions_on_sky(True)
@@ -4197,29 +3958,29 @@ if __name__ == "__main__":
     # Compare to Hunt & Reffert (2024)
     prepare_Hunt2024_for_comparison()
     plot_Hunt2024_clusters_on_sky()
-    compare_to_Hunt2024(True)
-    plot_Hunt2024_comparison_results(True)
+    compare_to_Hunt2024()
+    plot_Hunt2024_comparison_results()
 
     # Compare to Unified Cluster Catalogue
     prepare_UCC_for_comparison()
     plot_UCC_clusters_on_sky()
-    compare_to_UCC(True)
-    plot_UCC_comparison_results(True)
+    compare_to_UCC()
+    plot_UCC_comparison_results()
 
     # Compare to Vasiliev & Baumgardt (2021)
     prepare_Vasiliev2021_for_comparison()
     plot_Vasiliev2021_clusters_on_sky()
-    compare_to_Vasiliev2021(True)
-    plot_Vasiliev2021_comparison_results(True)
+    compare_to_Vasiliev2021()
+    plot_Vasiliev2021_comparison_results()
 
     # Compare to Battaglia et al. (2021)
     prepare_Battaglia2021_for_comparison()
     plot_Battaglia2021_dwarfgalaxies_on_sky()
-    compare_to_Battaglia2021(True)
-    plot_Battaglia2021_comparison_results(True)
+    compare_to_Battaglia2021()
+    plot_Battaglia2021_comparison_results()
 
     # Compare to galstreams catalogue
-    prepare_galstreams_for_comparison()
-    plot_galstreams_streams_on_sky()
+    prepare_galstreams_for_comparison(True)
+    plot_galstreams_streams_on_sky(True)
     compare_to_galstreams(True)
     plot_galstreams_comparison_results(True)

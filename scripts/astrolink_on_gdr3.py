@@ -64,7 +64,7 @@ WORKING_DIRECTORY = "/home/williamoliver_data/gaia_clustering/"  # Path to outpu
 
 # Auto-defined paths
 INTERMEDIATE_FILES_PATH = os.path.join(WORKING_DIRECTORY, "intermediate_files/")  # Path to intermediary numpy files
-RESULTS_PATH = os.path.join(WORKING_DIRECTORY, "results_rhalf_median/")  # Path to AstroLink results
+RESULTS_PATH = os.path.join(WORKING_DIRECTORY, "results_rhalf_30_velmetric1/")  # Path to AstroLink results
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
@@ -86,7 +86,7 @@ RUWE_UPPER_LIMIT = 1.2 # RUWE threshold for subsample stars
 
 # AstroLink parameters
 KNN_FOR_ASTROLINK = 16 # Number of nearest neighbors for AstroLink
-OPTIMAL_SIGMA_THRESHOLD = 4.0 + STOCHASTIC_RUN * np.random.normal(0, 0.1, 1)[0]  # Optimal significance threshold determined from prominence model fitting
+OPTIMAL_SIGMA_THRESHOLD = 3.8 + STOCHASTIC_RUN * np.random.normal(0, 0.1, 1)[0]  # Optimal significance threshold determined from prominence model fitting
 
 # Comparison parameters
 SIGMA_THRESHOLDS_FOR_COMPARISONS = np.linspace(2, 10, 81)  # Significance levels from 2 to 10 to be used when comparing to existing cluster catalogues
@@ -973,8 +973,8 @@ def calculate_contracted_subspaces_and_errors(overwrite=False):
     )
     if all_exist and not overwrite:
         print(f"Subspace contraction arrays already exist at:")
-        print(f"\t{file_path_contracted_positions} , and")
-        print(f"\t{file_path_contracted_position_uncertainties} , and")
+        print(f"\t{file_path_contracted_positions} ,")
+        print(f"\t{file_path_contracted_position_uncertainties} ,")
         print(f"\t{file_path_contracted_velocities} , and")
         print(f"\t{file_path_contracted_velocity_uncertainties} .")
         print("Use overwrite=True to force recomputation.\n")
@@ -1002,9 +1002,9 @@ def calculate_contracted_subspaces_and_errors(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Calculate r_half
-    r_half = np.median(r / np.sqrt(delta_r + 1e-6))  # Use median as a more robust estimator
+    r_half = np.percentile(r / np.sqrt(delta_r + 1e-6), 30)  # Use quantiles as a more robust estimator
     print(f"... calculated r_half = {r_half:.3f} pc")
-
+    
     # Calculate contracted distances and their uncertainties
     fr = r_half * np.arctan(r / r_half)  # shape (N,)
     dfr_dr = r_half**2 / (r_half**2 + r**2)  # shape (N,)
@@ -1081,7 +1081,7 @@ def construct_data_space(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Calculate scaling factor for velocities
-    norm_vel = np.median(delta_velocities)  # Calculate scaling factor
+    norm_vel = np.median(delta_velocities) / 2  # Calculate scaling factor
     print(f"... scaling factor for velocities: {norm_vel:.8f}")
     velocities /= norm_vel  # Scale velocities
     del delta_velocities  # Free memory
@@ -3946,11 +3946,11 @@ if __name__ == "__main__":
     plot_total_selection_function()
 
     # Construct input data to be passed to AstroLink
-    calculate_contracted_subspaces_and_errors()
-    construct_data_space()
+    calculate_contracted_subspaces_and_errors(True)
+    construct_data_space(True)
 
     # Apply AstroLink to subsample and plot of cluster properties
-    apply_astrolink_to_data()
+    apply_astrolink_to_data(True)
     plot_astrolink_prominence_model_fit(True)
     plot_astrolink_cluster_labels_on_sky(True)
     plot_astrolink_cluster_proper_motions_on_sky(True)
@@ -3958,29 +3958,29 @@ if __name__ == "__main__":
     # Compare to Hunt & Reffert (2024)
     prepare_Hunt2024_for_comparison()
     plot_Hunt2024_clusters_on_sky()
-    compare_to_Hunt2024()
-    plot_Hunt2024_comparison_results()
+    compare_to_Hunt2024(True)
+    plot_Hunt2024_comparison_results(True)
 
     # Compare to Unified Cluster Catalogue
     prepare_UCC_for_comparison()
     plot_UCC_clusters_on_sky()
-    compare_to_UCC()
-    plot_UCC_comparison_results()
+    compare_to_UCC(True)
+    plot_UCC_comparison_results(True)
 
     # Compare to Vasiliev & Baumgardt (2021)
     prepare_Vasiliev2021_for_comparison()
     plot_Vasiliev2021_clusters_on_sky()
-    compare_to_Vasiliev2021()
-    plot_Vasiliev2021_comparison_results()
+    compare_to_Vasiliev2021(True)
+    plot_Vasiliev2021_comparison_results(True)
 
     # Compare to Battaglia et al. (2021)
     prepare_Battaglia2021_for_comparison()
     plot_Battaglia2021_dwarfgalaxies_on_sky()
-    compare_to_Battaglia2021()
-    plot_Battaglia2021_comparison_results()
+    compare_to_Battaglia2021(True)
+    plot_Battaglia2021_comparison_results(True)
 
     # Compare to galstreams catalogue
-    prepare_galstreams_for_comparison(True)
-    plot_galstreams_streams_on_sky(True)
+    prepare_galstreams_for_comparison()
+    plot_galstreams_streams_on_sky()
     compare_to_galstreams(True)
     plot_galstreams_comparison_results(True)

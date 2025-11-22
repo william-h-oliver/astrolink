@@ -64,7 +64,7 @@ WORKING_DIRECTORY = "/home/williamoliver_data/gaia_clustering/"  # Path to outpu
 
 # Auto-defined paths
 INTERMEDIATE_FILES_PATH = os.path.join(WORKING_DIRECTORY, "intermediate_files/")  # Path to intermediary numpy files
-RESULTS_PATH = os.path.join(WORKING_DIRECTORY, "results_rhalf_30_velmetric1/")  # Path to AstroLink results
+RESULTS_PATH = os.path.join(WORKING_DIRECTORY, "results_rhalf_50_velmetric-1/")  # Path to AstroLink results
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
@@ -1002,7 +1002,7 @@ def calculate_contracted_subspaces_and_errors(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Calculate r_half
-    r_half = np.percentile(r / np.sqrt(delta_r + 1e-6), 30)  # Use quantiles as a more robust estimator
+    r_half = np.percentile(r / np.sqrt(delta_r + 1e-6), 50)  # Use quantiles as a more robust estimator
     print(f"... calculated r_half = {r_half:.3f} pc")
     
     # Calculate contracted distances and their uncertainties
@@ -1081,7 +1081,7 @@ def construct_data_space(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Calculate scaling factor for velocities
-    norm_vel = np.median(delta_velocities) / 2  # Calculate scaling factor
+    norm_vel = np.median(delta_velocities) / 0.5  # Calculate scaling factor
     print(f"... scaling factor for velocities: {norm_vel:.8f}")
     velocities /= norm_vel  # Scale velocities
     del delta_velocities  # Free memory

@@ -63,7 +63,7 @@ WORKING_DIRECTORY = "/home/williamoliver_data/gaia_clustering/"  # Path to outpu
 
 # Auto-defined paths
 INTERMEDIATE_FILES_PATH = os.path.join(WORKING_DIRECTORY, "intermediate_files/")  # Path to intermediary numpy files
-RESULTS_PATH = os.path.join(WORKING_DIRECTORY, "results_rhalf_50_velmetric-1/")  # Path to AstroLink results
+OUTPUT_PATH = os.path.join(WORKING_DIRECTORY, "results_rhalf_50_velmetric-1/")  # Path to AstroLink results
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
@@ -452,8 +452,8 @@ def plot_limiting_g_band_magnitude_on_sky(overwrite=False):
     Plot the limiting G-band magnitude across the sky using HEALPix.
     """
     # Check if plot already exists
-    file_m10_path = os.path.join(RESULTS_PATH, "gdr3_selection_function_m10_map.png")
-    file_limiting_g_mag_path = os.path.join(RESULTS_PATH, "gdr3_selection_function_limiting_g_mag.png")
+    file_m10_path = os.path.join(OUTPUT_PATH, "gdr3_selection_function_m10_map.png")
+    file_limiting_g_mag_path = os.path.join(OUTPUT_PATH, "gdr3_selection_function_limiting_g_mag.png")
     if os.path.exists(file_m10_path) and os.path.exists(file_limiting_g_mag_path) and not overwrite:
         print(f"Plots of m10 map and limiting G-band magnitude already exist at:")
         print(f"\t{file_m10_path} and")
@@ -849,9 +849,9 @@ def plot_total_selection_function(overwrite=False):
     Plot the mean and standard error of the total selection function across the sky using HEALPix.
     """
     # Check if plots already exist
-    file_total_sf_mean_path = os.path.join(RESULTS_PATH, "total_selection_function_mean.png")
-    file_total_sf_se_path = os.path.join(RESULTS_PATH, "total_selection_function_stderr.png")
-    file_total_sf_se_over_mean_path = os.path.join(RESULTS_PATH, "total_selection_function_stderr_over_mean.png")
+    file_total_sf_mean_path = os.path.join(OUTPUT_PATH, "total_selection_function_mean.png")
+    file_total_sf_se_path = os.path.join(OUTPUT_PATH, "total_selection_function_stderr.png")
+    file_total_sf_se_over_mean_path = os.path.join(OUTPUT_PATH, "total_selection_function_stderr_over_mean.png")
     if os.path.exists(file_total_sf_mean_path) and os.path.exists(file_total_sf_se_path) and not overwrite:
         print(f"Total selection function mean and standard error plots already exist at:")
         print(f"\t{file_total_sf_mean_path} ,")
@@ -1103,7 +1103,7 @@ def apply_astrolink_to_data(overwrite=False):
     Run AstroLink clustering on the subsample.
     """
     # Check if AstroLink clustering output already exists
-    file_astrolink_object = os.path.join(RESULTS_PATH, "astrolink_object.npz")
+    file_astrolink_object = os.path.join(OUTPUT_PATH, "astrolink_object.npz")
     if os.path.exists(file_astrolink_object) and not overwrite:
         print(f"AstroLink clustering output already exists at:\n\t{file_astrolink_object} .")
         print("Use overwrite=True to force recomputation.\n")
@@ -1212,7 +1212,7 @@ def plot_astrolink_prominence_model_fit(overwrite=False):
     Plot the prominence model fit from AstroLink.
     """
     # Check if plots already exist
-    file_prominence_model_fit_path = os.path.join(RESULTS_PATH, "AstroLink_prominence_model_fit.png")
+    file_prominence_model_fit_path = os.path.join(OUTPUT_PATH, "AstroLink_prominence_model_fit.png")
     if os.path.exists(file_prominence_model_fit_path) and not overwrite:
         print(f"Prominence model fit plot already exists at:\n\t{file_prominence_model_fit_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -1221,7 +1221,7 @@ def plot_astrolink_prominence_model_fit(overwrite=False):
 
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
-    clusterer = loadAstroLinkObject(os.path.join(RESULTS_PATH, "astrolink_object.npz"))
+    clusterer = loadAstroLinkObject(os.path.join(OUTPUT_PATH, "astrolink_object.npz"))
     
     # Plot the prominence model fit
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -1382,7 +1382,7 @@ def plot_astrolink_cluster_labels_on_sky(overwrite=False):
     Plot the clustering output from AstroLink.
     """
     # Check if plots already exist
-    file_clusters_on_sky_path = os.path.join(RESULTS_PATH, "AstroLink_clusters_on_sky.png")
+    file_clusters_on_sky_path = os.path.join(OUTPUT_PATH, "AstroLink_clusters_on_sky.png")
     if os.path.exists(file_clusters_on_sky_path) and not overwrite:
         print(f"Clusters on sky plot already exists at:\n\t{file_clusters_on_sky_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -1391,7 +1391,7 @@ def plot_astrolink_cluster_labels_on_sky(overwrite=False):
 
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
-    clusterer = loadAstroLinkObject(os.path.join(RESULTS_PATH, "astrolink_object.npz"))
+    clusterer = loadAstroLinkObject(os.path.join(OUTPUT_PATH, "astrolink_object.npz"))
 
     # Load the required arrays
     print("... loading required arrays for plotting")
@@ -1443,7 +1443,7 @@ def plot_astrolink_cluster_proper_motions_on_sky(overwrite=False):
     Plot the proper motions of the clusters on the sky.
     """
     # Check if plots already exist
-    file_proper_motions_on_sky_path = os.path.join(RESULTS_PATH, "AstroLink_cluster_proper_motions_on_sky.png")
+    file_proper_motions_on_sky_path = os.path.join(OUTPUT_PATH, "AstroLink_cluster_proper_motions_on_sky.png")
     if os.path.exists(file_proper_motions_on_sky_path) and not overwrite:
         print(f"Proper motions on sky plot already exists at:\n\t{file_proper_motions_on_sky_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -1452,7 +1452,7 @@ def plot_astrolink_cluster_proper_motions_on_sky(overwrite=False):
 
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
-    clusterer = loadAstroLinkObject(os.path.join(RESULTS_PATH, "astrolink_object.npz"))
+    clusterer = loadAstroLinkObject(os.path.join(OUTPUT_PATH, "astrolink_object.npz"))
 
     # Load the required arrays
     print("... loading required arrays for plotting")
@@ -1790,7 +1790,7 @@ def compare_to_catalogue_helper(members_cluster_ids_subsample,
 
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
-    clusterer = loadAstroLinkObject(os.path.join(RESULTS_PATH, "astrolink_object.npz"))
+    clusterer = loadAstroLinkObject(os.path.join(OUTPUT_PATH, "astrolink_object.npz"))
     ordering = clusterer.ordering  # avoid sending the whole clusterer to workers
 
     # Put large arrays into shared memory
@@ -2111,7 +2111,7 @@ def plot_Hunt2024_clusters_on_sky(overwrite=False):
     Plot the Hunt & Reffert (2024) clusters on the sky.
     """
     # Check if plot already exists
-    file_path_clusters_on_sky = os.path.join(RESULTS_PATH, "Hunt2024_clusters_on_sky.png")
+    file_path_clusters_on_sky = os.path.join(OUTPUT_PATH, "Hunt2024_clusters_on_sky.png")
     if os.path.exists(file_path_clusters_on_sky) and not overwrite:
         print(f"Hunt & Reffert (2024) clusters plot already exists at:\n\t{file_path_clusters_on_sky} .")
         print("Use overwrite=True to force replotting.\n")
@@ -2180,7 +2180,7 @@ def plot_Hunt2024_comparison_results(overwrite=False):
     and 'union'), with hatched regions indicating bounds.
     """
     # Check if plot already exists
-    file_path = os.path.join(RESULTS_PATH, "Hunt2024_comparison_results.png")
+    file_path = os.path.join(OUTPUT_PATH, "Hunt2024_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
         print(f"Hunt & Reffert (2024) comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -2489,7 +2489,7 @@ def plot_UCC_clusters_on_sky(overwrite=False):
     Plot the Unified Cluster Catalogue clusters on the sky.
     """
     # Check if plot already exists
-    file_path_clusters_on_sky = os.path.join(RESULTS_PATH, "UCC_clusters_on_sky.png")
+    file_path_clusters_on_sky = os.path.join(OUTPUT_PATH, "UCC_clusters_on_sky.png")
     if os.path.exists(file_path_clusters_on_sky) and not overwrite:
         print(f"Unified Cluster Catalogue clusters plot already exists at:\n\t{file_path_clusters_on_sky} .")
         print("Use overwrite=True to force replotting.\n")
@@ -2558,7 +2558,7 @@ def plot_UCC_comparison_results(overwrite=False):
     ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
-    file_path = os.path.join(RESULTS_PATH, "UCC_comparison_results.png")
+    file_path = os.path.join(OUTPUT_PATH, "UCC_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
         print(f"Unified Cluster Catalogue comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -2850,7 +2850,7 @@ def plot_Vasiliev2021_clusters_on_sky(overwrite=False):
     Plot the Vasiliev & Baumgardt (2021) globular clusters on the sky.
     """
     # Check if plot already exists
-    file_path_clusters_on_sky = os.path.join(RESULTS_PATH, "Vasiliev2021_clusters_on_sky.png")
+    file_path_clusters_on_sky = os.path.join(OUTPUT_PATH, "Vasiliev2021_clusters_on_sky.png")
     if os.path.exists(file_path_clusters_on_sky) and not overwrite:
         print(f"Vasiliev & Baumgardt (2021) globular clusters on sky plot already exists at:\n\t{file_path_clusters_on_sky} .")
         print("Use overwrite=True to force replotting.\n")
@@ -2919,7 +2919,7 @@ def plot_Vasiliev2021_comparison_results(overwrite=False):
     ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
-    file_path = os.path.join(RESULTS_PATH, "Vasiliev2021_comparison_results.png")
+    file_path = os.path.join(OUTPUT_PATH, "Vasiliev2021_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
         print(f"Vasiliev & Baumgardt (2021) comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -3170,7 +3170,7 @@ def plot_Battaglia2021_dwarfgalaxies_on_sky(overwrite=False):
     Plot the Battaglia et al. (2021) dwarf galaxies on the sky.
     """
     # Check if plot already exists
-    file_path_clusters_on_sky = os.path.join(RESULTS_PATH, "Battaglia2021_dwarfgalaxies_on_sky.png")
+    file_path_clusters_on_sky = os.path.join(OUTPUT_PATH, "Battaglia2021_dwarfgalaxies_on_sky.png")
     if os.path.exists(file_path_clusters_on_sky) and not overwrite:
         print(f"Battaglia et al. (2021) dwarf galaxies on sky plot already exists at:\n\t{file_path_clusters_on_sky} .")
         print("Use overwrite=True to force replotting.\n")
@@ -3239,7 +3239,7 @@ def plot_Battaglia2021_comparison_results(overwrite=False):
     ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
-    file_path = os.path.join(RESULTS_PATH, "Battaglia2021_comparison_results.png")
+    file_path = os.path.join(OUTPUT_PATH, "Battaglia2021_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
         print(f"Battaglia et al. (2021) comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -3732,7 +3732,7 @@ def plot_galstreams_streams_on_sky(overwrite=False):
     Plot the galstreams streams on the sky.
     """
     # Check if plot already exists
-    file_path_streams_on_sky = os.path.join(RESULTS_PATH, "galstreams_streams_on_sky.png")
+    file_path_streams_on_sky = os.path.join(OUTPUT_PATH, "galstreams_streams_on_sky.png")
     if os.path.exists(file_path_streams_on_sky) and not overwrite:
         print(f"Galstreams streams on sky plot already exists at:\n\t{file_path_streams_on_sky} .")
         print("Use overwrite=True to force replotting.\n")
@@ -3801,7 +3801,7 @@ def plot_galstreams_comparison_results(overwrite=False):
     ('full' and 'union'), with hatched regions indicating the bounds between them.
     """
     # Check if plot already exists
-    file_path = os.path.join(RESULTS_PATH, "galstreams_comparison_results.png")
+    file_path = os.path.join(OUTPUT_PATH, "galstreams_comparison_results.png")
     if os.path.exists(file_path) and not overwrite:
         print(f"Galstreams comparison results plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
@@ -3922,7 +3922,7 @@ def plot_galstreams_comparison_results(overwrite=False):
 if __name__ == "__main__":
     # Ensure paths exist
     os.makedirs(INTERMEDIATE_FILES_PATH, exist_ok=True)
-    os.makedirs(RESULTS_PATH, exist_ok=True)
+    os.makedirs(OUTPUT_PATH, exist_ok=True)
 
     # Reduce raw catalogue files to numpy files
     prepare_gdr3_catalogue()

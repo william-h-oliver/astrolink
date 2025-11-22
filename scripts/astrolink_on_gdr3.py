@@ -2,8 +2,8 @@
 import os
 import sys
 
-# Restarts the script with a fresh interpreter state and forces the number of threads to be used.
-# (this shouldn't actually be necessary, but is included for full control in case of a misbehaving environment)
+# Parallelisation setup, restarts the script with a fresh interpreter state and forces the number of threads to be used.
+# (this might not be necessary in most cases, but is included for full control in case of a misbehaving environment)
 MAX_PARALLEL_WORKERS = min(os.cpu_count(), 48)  # Use up to 48 workers or all available CPUs, whichever is smaller
 if "THREAD_CONTROL_INIT" not in os.environ:
     os.environ["OMP_NUM_THREADS"] = f"{MAX_PARALLEL_WORKERS}"
@@ -27,7 +27,7 @@ import contextlib
 import zipfile
 from io import TextIOWrapper
 
-# Third-party imports
+# Third-party numerical imports
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize_scalar, minimize
@@ -38,7 +38,7 @@ from pykdtree.kdtree import KDTree
 # Astro-specific imports
 from astropy.table import Table # Works using v6.1.2, but v7.1.0 seems to try and convert 'null' values to float before using fill_values
 from astropy.coordinates import SkyCoord
-import astropy.units as u
+from astropy import units
 from gaiaunlimited.selectionfunctions import m10_to_completeness
 import galstreams # Also seems to need astropy==6.1.2 as also(?) gala==1.9.1
 
@@ -48,12 +48,11 @@ import matplotlib.colors as mcolors
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.patches import Rectangle
 import healpy as hp
-from healpy.newvisufunc import projview, newprojplot
+from healpy.newvisufunc import projview
 
 # AstroLink imports
 from astrolink import AstroLink
 from astrolink.io import loadAstroLinkObject, saveAstroLinkObject
-from astrolink.visualize import prominenceModel
 
 
 # === Define script configuration ===
@@ -70,7 +69,6 @@ RESULTS_PATH = os.path.join(WORKING_DIRECTORY, "results_rhalf_50_velmetric-1/") 
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
 
 # Pipeline setup
-WITH_PROPER_MOTIONS = True # Whether to use proper motions in the input data space for AstroLink clustering
 WITH_RADIAL_VELOCITIES = False # Whether to use radial velocities in the input data space for AstroLink clustering
 STOCHASTIC_RUN = False # Whether to sample stochastic values from their distributions
 
@@ -80,9 +78,8 @@ SURVEY_SF_LOWER_LIMIT = 0.99 # Empirical survey selection function lower limit f
 RUWE_UPPER_LIMIT = 1.2 # RUWE threshold for subsample stars
 
 # Data space construction parameters
-#R_HALF = 75  # Distances are contracted according to R_HALF * np.arctan(distance / R_HALF), R_HALF (in pc) marks the half-way point between full and zero Cartesian influence of the distance estimate on the clustering output
-#PM_METRIC_MULTIPLIER = 1.0  # Multiplier for the influence of proper motions in the data space metric (after being rescaled by their uncertainties)
-#VRAD_METRIC_MULTIPLIER = 1.0  # Multiplier for the influence of radial velocities in the data space metric (after being rescaled by their uncertainties)
+R_HALF_PERCENTILE = 50.0 + STOCHASTIC_RUN * np.random.uniform(-25, 25, 1)[0]  # Distances are contracted according to R_HALF * np.arctan(distance / R_HALF), R_HALF (in pc) marks the half-way point between full and zero Cartesian influence of the distance estimate on the clustering output
+RELATIVE_VELOCITY_RESCALE_FACTOR = 2.0**(1 + STOCHASTIC_RUN * np.random.normal(-0.5, 0.5, 1)[0])  # An additional rescale factor for the influence of velocities relative to positions in the data space metric
 
 # AstroLink parameters
 KNN_FOR_ASTROLINK = 16 # Number of nearest neighbors for AstroLink
@@ -1002,7 +999,7 @@ def calculate_contracted_subspaces_and_errors(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Calculate r_half
-    r_half = np.percentile(r / np.sqrt(delta_r + 1e-6), 50)  # Use quantiles as a more robust estimator
+    r_half = np.percentile(r / np.sqrt(delta_r + 1e-6), R_HALF_PERCENTILE)  # Use quantiles as a more robust estimator
     print(f"... calculated r_half = {r_half:.3f} pc")
     
     # Calculate contracted distances and their uncertainties
@@ -1081,7 +1078,7 @@ def construct_data_space(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Calculate scaling factor for velocities
-    norm_vel = np.median(delta_velocities) / 0.5  # Calculate scaling factor
+    norm_vel = np.median(delta_velocities) / RELATIVE_VELOCITY_RESCALE_FACTOR  # Calculate scaling factor
     print(f"... scaling factor for velocities: {norm_vel:.8f}")
     velocities /= norm_vel  # Scale velocities
     del delta_velocities  # Free memory
@@ -1150,8 +1147,7 @@ def apply_astrolink_to_data(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Calculate the intrinsic dimensionality of the data based off available astrometric solution components
-    d_intrinsic = 3 # Positions are always included
-    if WITH_PROPER_MOTIONS: d_intrinsic += 2
+    d_intrinsic = 5 # Positions and proper motions are always included
     if WITH_RADIAL_VELOCITIES: d_intrinsic += 1
 
     # Initialize AstroLink
@@ -3513,11 +3509,11 @@ def prepare_galstreams_for_comparison(overwrite=False):
         # Make SkyCoord object for stars in footprint
         dec_in_footprint = dec[in_footprint_mask]
         stream_stars = SkyCoord(
-            ra=ra[in_footprint_mask] * u.deg,
-            dec=dec_in_footprint * u.deg,
-            pm_ra_cosdec=mu_ra[in_footprint_mask] * cos_dec[in_footprint_mask] * u.mas / u.yr,
-            pm_dec=mu_dec[in_footprint_mask] * u.mas / u.yr,
-            distance=r_med_photogeo[in_footprint_mask] * u.pc,
+            ra=ra[in_footprint_mask] * units.deg,
+            dec=dec_in_footprint * units.deg,
+            pm_ra_cosdec=mu_ra[in_footprint_mask] * cos_dec[in_footprint_mask] * units.mas / units.yr,
+            pm_dec=mu_dec[in_footprint_mask] * units.mas / units.yr,
+            distance=r_med_photogeo[in_footprint_mask] * units.pc,
             frame='icrs'
         )
         del dec_in_footprint  # Free memory
@@ -3528,12 +3524,12 @@ def prepare_galstreams_for_comparison(overwrite=False):
         stream.track = stream.track.transform_to(stream.stream_frame)
 
         # Extract phi1 and phi2 of stream stars
-        stars_phi1 = stream_stars.phi1.to_value(u.deg)
-        stars_phi2 = stream_stars.phi2.to_value(u.deg)
+        stars_phi1 = stream_stars.phi1.to_value(units.deg)
+        stars_phi2 = stream_stars.phi2.to_value(units.deg)
 
         # Extract phi2 and phi1 of stream track
-        track_phi1 = stream.track.phi1.to_value(u.deg)
-        track_phi2 = stream.track.phi2.to_value(u.deg)
+        track_phi1 = stream.track.phi1.to_value(units.deg)
+        track_phi2 = stream.track.phi2.to_value(units.deg)
 
         # Interpolate track phi2 vs phi1
         interp_phi2 = np.interp(stars_phi1, track_phi1, track_phi2)
@@ -3560,12 +3556,12 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 pm_mask = np.isfinite(stream_stars.pm_phi1_cosphi2) & np.isfinite(stream_stars.pm_phi2)
 
                 # Extract proper motions of stream stars
-                stars_pm1 = stream_stars[pm_mask].pm_phi1_cosphi2.to_value(u.mas / u.yr)
-                stars_pm2 = stream_stars[pm_mask].pm_phi2.to_value(u.mas / u.yr)
+                stars_pm1 = stream_stars[pm_mask].pm_phi1_cosphi2.to_value(units.mas / units.yr)
+                stars_pm2 = stream_stars[pm_mask].pm_phi2.to_value(units.mas / units.yr)
 
                 # Extract proper motions of stream track
-                track_pm1 = stream.track.pm_phi1_cosphi2.to_value(u.mas / u.yr)
-                track_pm2 = stream.track.pm_phi2.to_value(u.mas / u.yr)
+                track_pm1 = stream.track.pm_phi1_cosphi2.to_value(units.mas / units.yr)
+                track_pm2 = stream.track.pm_phi2.to_value(units.mas / units.yr)
 
                 # Interpolate track proper motions vs phi1
                 interp_pm1 = np.interp(stars_phi1[pm_mask], track_phi1, track_pm1)
@@ -3598,10 +3594,10 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 dist_mask = np.isfinite(stream_stars.distance)
 
                 # Extract distance of stream stars
-                stars_dist = stream_stars[dist_mask].distance.to_value(u.pc)
+                stars_dist = stream_stars[dist_mask].distance.to_value(units.pc)
 
                 # Extract distance of stream track
-                track_dist = stream.track.distance.to_value(u.pc)
+                track_dist = stream.track.distance.to_value(units.pc)
                 sigma_dist *= track_dist  # Convert angular width to physical width at the distance of the stream track
 
                 # Interpolate track distance vs phi1
@@ -3629,10 +3625,10 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 vrad_mask = np.isfinite(stream_stars.vrad)
 
                 # Extract line-of-sight velocity of stream stars
-                stars_vrad = stream_stars[vrad_mask].vrad.to_value(u.km / u.s)
+                stars_vrad = stream_stars[vrad_mask].vrad.to_value(units.km / units.s)
 
                 # Extract line-of-sight velocity of stream track
-                track_vrad = stream.track.vrad.to_value(u.km / u.s)
+                track_vrad = stream.track.vrad.to_value(units.km / units.s)
 
                 # Interpolate track line-of-sight velocity vs phi1
                 interp_vrad = np.interp(stars_phi1[vrad_mask], track_phi1, track_vrad)
@@ -3925,7 +3921,6 @@ def plot_galstreams_comparison_results(overwrite=False):
 # === Run script ===
 if __name__ == "__main__":
     # Ensure paths exist
-    os.makedirs(INTERMEDIATE_FILES_PATH, exist_ok=True)
     os.makedirs(INTERMEDIATE_FILES_PATH, exist_ok=True)
     os.makedirs(RESULTS_PATH, exist_ok=True)
 

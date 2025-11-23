@@ -63,7 +63,7 @@ WORKING_DIRECTORY = "/home/williamoliver_data/gaia_clustering/"  # Path to outpu
 
 # Auto-defined paths
 INTERMEDIATE_FILES_PATH = os.path.join(WORKING_DIRECTORY, "intermediate_files/")  # Path to intermediary numpy files
-OUTPUT_PATH = os.path.join(WORKING_DIRECTORY, "results_rhalf_50_velmetric-1/")  # Path to AstroLink results
+OUTPUT_PATH = os.path.join(WORKING_DIRECTORY, "results_rhalf_60_velmetric0/")  # Path to AstroLink results
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
@@ -78,11 +78,11 @@ SURVEY_SF_LOWER_LIMIT = 0.99 # Empirical survey selection function lower limit f
 RUWE_UPPER_LIMIT = 1.2 # RUWE threshold for subsample stars
 
 # Data space construction parameters
-R_HALF_PERCENTILE = 50.0 + STOCHASTIC_RUN * np.random.uniform(-25, 25, 1)[0]  # Distances are contracted according to R_HALF * np.arctan(distance / R_HALF), R_HALF (in pc) marks the half-way point between full and zero Cartesian influence of the distance estimate on the clustering output
-RELATIVE_VELOCITY_RESCALE_FACTOR = 2.0**(1 + STOCHASTIC_RUN * np.random.normal(-0.5, 0.5, 1)[0])  # An additional rescale factor for the influence of velocities relative to positions in the data space metric
+R_HALF_PERCENTILE = 60.0 + STOCHASTIC_RUN * np.random.uniform(-25, 25, 1)[0]  # Distances are contracted according to R_HALF * np.arctan(distance / R_HALF), R_HALF (in pc) marks the half-way point between full and zero Cartesian influence of the distance estimate on the clustering output
+RELATIVE_VELOCITY_RESCALE_FACTOR = 2.0**(0 + STOCHASTIC_RUN * np.random.normal(-0.5, 0.5, 1)[0])  # An additional rescale factor for the influence of velocities relative to positions in the data space metric
 
 # AstroLink parameters
-KNN_FOR_ASTROLINK = 16 # Number of nearest neighbors for AstroLink
+KNN_FOR_ASTROLINK = 16 # Number of nearest neighbors that AstroLink uses to calculate local densities
 OPTIMAL_SIGMA_THRESHOLD = 3.8 + STOCHASTIC_RUN * np.random.normal(0, 0.1, 1)[0]  # Optimal significance threshold determined from prominence model fitting
 
 # Comparison parameters
@@ -3941,7 +3941,7 @@ if __name__ == "__main__":
     plot_total_selection_function()
 
     # Construct input data to be passed to AstroLink
-    calculate_contracted_subspaces_and_errors(True)
+    calculate_contracted_subspaces_and_errors()
     construct_data_space(True)
 
     # Apply AstroLink to subsample and plot of cluster properties

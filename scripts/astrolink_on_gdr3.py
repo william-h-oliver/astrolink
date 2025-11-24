@@ -63,7 +63,7 @@ WORKING_DIRECTORY = "/home/williamoliver_data/gaia_clustering/"  # Path to outpu
 
 # Auto-defined paths
 INTERMEDIATE_FILES_PATH = os.path.join(WORKING_DIRECTORY, "intermediate_files/")  # Path to intermediary numpy files
-OUTPUT_PATH = os.path.join(WORKING_DIRECTORY, "results_rhalf_60_velmetric0/")  # Path to AstroLink results
+OUTPUT_PATH = os.path.join(WORKING_DIRECTORY, "results_rhalf_50_velmetric1/")  # Path to AstroLink results
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
@@ -78,8 +78,8 @@ SURVEY_SF_LOWER_LIMIT = 0.99 # Empirical survey selection function lower limit f
 RUWE_UPPER_LIMIT = 1.2 # RUWE threshold for subsample stars
 
 # Data space construction parameters
-R_HALF_PERCENTILE = 60.0 + STOCHASTIC_RUN * np.random.uniform(-25, 25, 1)[0]  # Distances are contracted according to R_HALF * np.arctan(distance / R_HALF), R_HALF (in pc) marks the half-way point between full and zero Cartesian influence of the distance estimate on the clustering output
-RELATIVE_VELOCITY_RESCALE_FACTOR = 2.0**(0 + STOCHASTIC_RUN * np.random.normal(-0.5, 0.5, 1)[0])  # An additional rescale factor for the influence of velocities relative to positions in the data space metric
+R_HALF_PERCENTILE = 50.0 + STOCHASTIC_RUN * np.random.uniform(-25, 25, 1)[0]  # Distances are contracted according to R_HALF * np.arctan(distance / R_HALF), R_HALF (in pc) marks the half-way point between full and zero Cartesian influence of the distance estimate on the clustering output
+RELATIVE_VELOCITY_RESCALE_FACTOR = 2.0**(1 + STOCHASTIC_RUN * np.random.normal(-0.5, 0.5, 1)[0])  # An additional rescale factor for the influence of velocities relative to positions in the data space metric
 
 # AstroLink parameters
 KNN_FOR_ASTROLINK = 16 # Number of nearest neighbors that AstroLink uses to calculate local densities
@@ -1019,7 +1019,9 @@ def calculate_contracted_subspaces_and_errors(overwrite=False):
     # Save the contracted position uncertainties
     fr_sq = fr**2  # shape (N,)
     delta_omega_sq = (cos_dec * delta_ra)**2 + delta_dec**2  # shape (N,)
-    delta_positions = np.sqrt(delta_fr_sq + fr_sq * delta_omega_sq) # shape (N,), RMS of Cartesian component errors
+
+    # RMS 3D position uncertainty
+    delta_positions = np.sqrt(delta_fr_sq + fr_sq * delta_omega_sq) # shape (N,)
     np.save(file_path_contracted_position_uncertainties, delta_positions)
     print(f"... saved contracted position uncertainties to {file_path_contracted_position_uncertainties} (shape: {delta_positions.shape})")
     del delta_omega_sq, delta_positions  # Free memory
@@ -1045,6 +1047,7 @@ def calculate_contracted_subspaces_and_errors(overwrite=False):
         (delta_mu_dec)**2                                           # Proper motion in the declination component
     )  # shape (N,) in (mas/yr)^2
 
+    # RMS 3D velocity uncertainty
     delta_velocities = conversion_factor * np.sqrt(delta_fr_sq * mu_magnitude_sq + fr_sq * delta_pm_sq) # shape (N,)
     np.save(file_path_contracted_velocity_uncertainties, delta_velocities)
     print(f"... saved velocity uncertainties to {file_path_contracted_velocity_uncertainties} (shape: {delta_velocities.shape}).\n")

@@ -1035,7 +1035,7 @@ def calculate_contracted_subspaces_and_errors(overwrite=False):
     velocities = conversion_factor * fr[:, None] * (mu_ra_cos_dec[:, None] * e_ra + mu_dec[:, None] * e_dec)  # shape (N, 3)
     np.save(file_path_contracted_velocities, velocities)
     print(f"... saved contracted velocities to {file_path_contracted_velocities} (shape: {velocities.shape})")
-    del cos_ra, sin_ra, fr, e_ra, e_dec, velocities  # Free memory
+    del cos_ra, sin_ra, fr, velocities #TEMP: e_ra, e_dec, velocities  # Free memory
     gc.collect()  # Force garbage collection
 
     # Save the contracted velocity uncertainties
@@ -1407,7 +1407,7 @@ def plot_astrolink_cluster_labels_on_sky(overwrite=False):
     print("... converting galactic coordinates to radians for Mollweide projection")
     galactic_coordinates = np.deg2rad(galactic_coordinates)
 
-     # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
+    # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
     longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
     galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
     galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
@@ -3944,41 +3944,41 @@ if __name__ == "__main__":
     plot_total_selection_function()
 
     # Construct input data to be passed to AstroLink
-    calculate_contracted_subspaces_and_errors()
+    calculate_contracted_subspaces_and_errors(True)
     construct_data_space(True)
 
     # Apply AstroLink to subsample and plot of cluster properties
-    apply_astrolink_to_data(True)
-    plot_astrolink_prominence_model_fit(True)
-    plot_astrolink_cluster_labels_on_sky(True)
-    plot_astrolink_cluster_proper_motions_on_sky(True)
+    apply_astrolink_to_data()
+    plot_astrolink_prominence_model_fit()
+    plot_astrolink_cluster_labels_on_sky()
+    plot_astrolink_cluster_proper_motions_on_sky()
 
     # Compare to Hunt & Reffert (2024)
     prepare_Hunt2024_for_comparison()
     plot_Hunt2024_clusters_on_sky()
-    compare_to_Hunt2024(True)
-    plot_Hunt2024_comparison_results(True)
+    compare_to_Hunt2024()
+    plot_Hunt2024_comparison_results()
 
     # Compare to Unified Cluster Catalogue
     prepare_UCC_for_comparison()
     plot_UCC_clusters_on_sky()
-    compare_to_UCC(True)
-    plot_UCC_comparison_results(True)
+    compare_to_UCC()
+    plot_UCC_comparison_results()
 
     # Compare to Vasiliev & Baumgardt (2021)
     prepare_Vasiliev2021_for_comparison()
     plot_Vasiliev2021_clusters_on_sky()
-    compare_to_Vasiliev2021(True)
-    plot_Vasiliev2021_comparison_results(True)
+    compare_to_Vasiliev2021()
+    plot_Vasiliev2021_comparison_results()
 
     # Compare to Battaglia et al. (2021)
     prepare_Battaglia2021_for_comparison()
     plot_Battaglia2021_dwarfgalaxies_on_sky()
-    compare_to_Battaglia2021(True)
-    plot_Battaglia2021_comparison_results(True)
+    compare_to_Battaglia2021()
+    plot_Battaglia2021_comparison_results()
 
     # Compare to galstreams catalogue
     prepare_galstreams_for_comparison()
     plot_galstreams_streams_on_sky()
-    compare_to_galstreams(True)
-    plot_galstreams_comparison_results(True)
+    compare_to_galstreams()
+    plot_galstreams_comparison_results()

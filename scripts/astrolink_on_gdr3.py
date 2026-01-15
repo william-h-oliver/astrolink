@@ -3402,6 +3402,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
     print('... creating MWStreams object')
     with printout_suppressor():  # Suppress the printout from galstreams
         mws = galstreams.MWStreams(print_topcat_friendly_files=False)
+    mws = manually_add_missing_galstreams_information(mws)
 
     # Save an array of stream track names
     print('... saving stream track names')
@@ -3486,28 +3487,10 @@ def prepare_galstreams_for_comparison(overwrite=False):
     del galstreams_members_stream_ids_subsample  # Free memory
     gc.collect()  # Force garbage collection
 
-def compare_galstreams_for_comparison(overwrite=False):
+def manually_add_missing_galstreams_information(mws):
     """
-    Prepare the data for comparison with the galstreams catalogue.
+    Manually add missing information to the MWStreams object from galstreams.
     """
-    # Check if files already exist
-    file_path_best_match_astrolink_clusters = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_best_match_astrolink_clusters.npy")
-    file_path_stream_pvalue = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_rpje.npy")
-
-    # Skip processing if all output files already exist
-    all_exist = True
-    if all_exist and not overwrite:
-        print("Galstreams comparison results already exist at:")
-        print(f"\t.")
-        print("Use overwrite=True to force recomputation.\n")
-        return
-    print("Comparing clustering output to the galstreams catalogue...")
-
-    # Get MWStreams object from galstreams
-    print('... creating MWStreams object')
-    with printout_suppressor():  # Suppress the printout from galstreams
-        mws = galstreams.MWStreams(print_topcat_friendly_files=False)
-
     # Manual fixes for missing width_phi2 values from galstreams
     mws.summary.loc['M30-S20', 'width_phi2'] = 0.10992290189439437 # From galstreams/tracks/track.st.M30.sollima2020.summary.ecsv (not read in automatically for some reason)
     mws.summary.loc['M5-G19', 'width_phi2'] = 0.00059498941000224  # From galstreams/tracks/track.st.M5.grillmair2019.summary.ecsv (not read in automatically for some reason)
@@ -3542,6 +3525,31 @@ def compare_galstreams_for_comparison(overwrite=False):
     mws.summary.loc['Wambelong-S18', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.2, 0.2]  # Heuristic values based on typical proper motion errors
     mws.summary.loc['Willka_Yaku-S18', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.2, 0.2]  # Heuristic values based on typical proper motion errors
     mws.summary.loc['Yangtze-Y23', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.2, 0.2]  # Heuristic values based on typical proper motion errors
+
+    return mws
+
+def compare_galstreams_for_comparison(overwrite=False):
+    """
+    Prepare the data for comparison with the galstreams catalogue.
+    """
+    # Check if files already exist
+    file_path_best_match_astrolink_clusters = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_best_match_astrolink_clusters.npy")
+    file_path_stream_pvalue = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_pvalues.npy")
+
+    # Skip processing if all output files already exist
+    all_exist = True
+    if all_exist and not overwrite:
+        print("Galstreams comparison results already exist at:")
+        print(f"\t.")
+        print("Use overwrite=True to force recomputation.\n")
+        return
+    print("Comparing clustering output to the galstreams catalogue...")
+
+    # Get MWStreams object from galstreams
+    print('... creating MWStreams object')
+    with printout_suppressor():  # Suppress the printout from galstreams
+        mws = galstreams.MWStreams(print_topcat_friendly_files=False)
+    mws = manually_add_missing_galstreams_information(mws)
 
     # Load required arrays
     print('... loading required arrays')
@@ -3593,8 +3601,8 @@ def compare_galstreams_for_comparison(overwrite=False):
 
     # Calculate the RPJE values for each significance level
     max_catalogue_stream_ID = len(mws.items()) - 1  # Maximum stream ID in the galstreams catalogue
-    whichClusters = -np.ones((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, max_catalogue_stream_ID, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
-    pValues = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, max_catalogue_stream_ID), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
+    whichClusters = -np.ones((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, max_catalogue_stream_ID + 1, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
+    pValues = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, max_catalogue_stream_ID + 1), dtype=np.float32)  # (N_clusters, 4) to store RPJE values
 
     # Loop over significance values
     for k, significance in enumerate(SIGMA_THRESHOLDS_FOR_COMPARISONS):
@@ -3632,7 +3640,7 @@ def compare_galstreams_for_comparison(overwrite=False):
                 start, end, unique_ids, pValues_cluster = result
 
                 # Merge results back into global arrays
-                better_matches = pValues_cluster > pValues[k, unique_ids] # Jaccard index comparison under the full catalogue assumption
+                better_matches = pValues_cluster > pValues[k, unique_ids] # p-value comparison (always keep the best match i.e. largest p-value)
                 which_better_matches = unique_ids[better_matches]
                 whichClusters[k, which_better_matches] = start, end
                 pValues[k, which_better_matches] = pValues_cluster[better_matches]
@@ -3649,6 +3657,13 @@ def compare_galstreams_for_comparison(overwrite=False):
     shm_vardist.close(); shm_vardist.unlink()
 
     del galstreams_members_stream_ids_subsample, clusterer, ordering, sky_position, proper_motions, distance, var_skyposition, var_pm, var_distance  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Save the results
+    print("... saving comparison results.\n")
+    np.save(file_path_best_match_astrolink_clusters, whichClusters)
+    np.save(file_path_cluster_pvalues, pValues)
+    del whichClusters, pValues  # Free memory
     gc.collect()  # Force garbage collection
 
 def process_astrolink_cluster_for_galstreams(start, end,
@@ -3675,19 +3690,29 @@ def process_astrolink_cluster_for_galstreams(start, end,
 
     # Get cluster members in the AstroLink output
     astrolink_cluster_members = ordering[start:end]
+    del ordering  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Get cluster IDs for those members
     xmatched_cluster_IDs = members_cluster_ids_subsample[astrolink_cluster_members]
+    del members_cluster_ids_subsample  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Flatten IDs
     ids_flat = xmatched_cluster_IDs.ravel()
+    del xmatched_cluster_IDs  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Handle "no cluster" ID = max_catalogue_stream_ID + 1
     mask_valid = ids_flat <= max_catalogue_stream_ID + 1
-    ids_valid = ids_flat[mask_valid]
 
-    if ids_valid.size == 0:
-        return None  # No valid clusters to compare
+    # Return early if no valid crossmatches to streams
+    if mask_valid.any() == 0:
+        return None
+    
+    ids_valid = np.unique(ids_flat[mask_valid])
+    del ids_flat, mask_valid  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Reattach remaining shared-memory arrays
     shm_skyposition = shared_memory.SharedMemory(name=shm_skyposition_name)
@@ -3697,12 +3722,26 @@ def process_astrolink_cluster_for_galstreams(start, end,
     shm_varpm = shared_memory.SharedMemory(name=shm_varpm_name)
     shm_vardist = shared_memory.SharedMemory(name=shm_vardist_name)
 
-    ra, dec = np.ndarray(shape_skyposition, dtype=dtype_skyposition, buffer=shm_skyposition.buf)
-    mu_ra, mu_dec = np.ndarray(shape_pm, dtype=dtype_pm, buffer=shm_pm.buf)
-    distance = np.ndarray(shape_dist, dtype=dtype_dist, buffer=shm_dist.buf)
-    var_skypos = np.ndarray(shape_varskyposition, dtype=dtype_varskyposition, buffer=shm_varskyposition.buf)
-    var_pm = np.ndarray(shape_varpm, dtype=dtype_varpm, buffer=shm_varpm.buf)
-    var_dist = np.ndarray(shape_vardist, dtype=dtype_vardist, buffer=shm_vardist.buf)
+    ra, dec = np.ndarray(shape_skyposition, dtype=dtype_skyposition, buffer=shm_skyposition.buf)[astrolink_cluster_members].T
+    mu_ra, mu_dec = np.ndarray(shape_pm, dtype=dtype_pm, buffer=shm_pm.buf)[astrolink_cluster_members].T
+    distance = np.ndarray(shape_dist, dtype=dtype_dist, buffer=shm_dist.buf)[astrolink_cluster_members]
+    var_skypos = np.ndarray(shape_varskyposition, dtype=dtype_varskyposition, buffer=shm_varskyposition.buf)[astrolink_cluster_members]
+    var_pm = np.ndarray(shape_varpm, dtype=dtype_varpm, buffer=shm_varpm.buf)[astrolink_cluster_members]
+    var_dist = np.ndarray(shape_vardist, dtype=dtype_vardist, buffer=shm_vardist.buf)[astrolink_cluster_members]
+    del astrolink_cluster_members  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Make SkyCoord object for cluster stars
+    cluster_stars = SkyCoord(
+        ra=ra * units.deg,
+        dec=dec * units.deg,
+        pm_ra_cosdec=mu_ra * np.cos(dec) * units.mas / units.yr,
+        pm_dec=mu_dec * units.mas / units.yr,
+        distance=distance * units.pc,
+        frame='icrs'
+    )
+    del ra, dec, mu_ra, mu_dec, distance  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Cycle through each stream match and calculate the T statistic and p-values for crossmatches
     pValues = np.zeros(ids_valid.size, dtype=np.float32)
@@ -3710,21 +3749,8 @@ def process_astrolink_cluster_for_galstreams(start, end,
         if not i in ids_valid:
             continue  # No members matched to this stream
 
-        # Make SkyCoord object for stars in footprint
-        dec_in_footprint = dec[astrolink_cluster_members]
-        stream_stars = SkyCoord(
-            ra=ra[astrolink_cluster_members] * units.deg,
-            dec=dec_in_footprint * units.deg,
-            pm_ra_cosdec=mu_ra[astrolink_cluster_members] * cos_dec[astrolink_cluster_members] * units.mas / units.yr,
-            pm_dec=mu_dec[astrolink_cluster_members] * units.mas / units.yr,
-            distance=distance[astrolink_cluster_members] * units.pc,
-            frame='icrs'
-        )
-        del dec_in_footprint  # Free memory
-        gc.collect()  # Force garbage collection
-
-        # Transform stars in stream footprint and stream track into stream coordinates
-        stream_stars = stream_stars.transform_to(stream.stream_frame)
+        # Transform cluster stars in stream footprint and stream track into stream coordinates
+        cluster_stars = cluster_stars.transform_to(stream.stream_frame)
         stream.track = stream.track.transform_to(stream.stream_frame)
 
         # Position on sky (available for all stream tracks)
@@ -3732,9 +3758,9 @@ def process_astrolink_cluster_for_galstreams(start, end,
         width_phi2 = mws.summary.loc[stream_track_name, 'width_phi2']  # Interpret as FWHM in degrees
         sigma_phi2 = width_phi2 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
 
-        # Extract phi1 and phi2 of stream stars
-        stars_phi1 = stream_stars.phi1.to_value(units.deg)
-        stars_phi2 = stream_stars.phi2.to_value(units.deg)
+        # Extract phi1 and phi2 of cluster stars
+        stars_phi1 = cluster_stars.phi1.to_value(units.deg)
+        stars_phi2 = cluster_stars.phi2.to_value(units.deg)
 
         # Extract phi2 and phi1 of stream track
         track_phi1 = stream.track.phi1.to_value(units.deg)
@@ -3744,10 +3770,11 @@ def process_astrolink_cluster_for_galstreams(start, end,
         interp_phi2 = np.interp(stars_phi1, track_phi1, track_phi2)
 
         # Total variance in phi2 due to astrometric uncertainties and width of stream
-        var_phi2 = var_skypos[astrolink_cluster_members] + sigma_phi2**2
+        var_phi2 = var_skypos + sigma_phi2**2
 
         # Compute T statistic for position perpendicular to stream
         tValue = (stars_phi2 - interp_phi2)**2 / var_phi2
+        dims = 1  # Used phi_2
 
         del stars_phi2, track_phi2, interp_phi2, var_phi2  # Free memory
         gc.collect()  # Force garbage collection
@@ -3761,33 +3788,30 @@ def process_astrolink_cluster_for_galstreams(start, end,
                 width_pm2 = mws.summary.loc[stream_track_name, 'width_pm_phi2']
                 sigma_pm2 = width_pm2 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
 
-                # Mask for the stars with proper motions
-                pm_mask = np.isfinite(stream_stars.pm_phi1_cosphi2) & np.isfinite(stream_stars.pm_phi2)
-
-                # Extract proper motions of stream stars
-                stars_pm1 = stream_stars[pm_mask].pm_phi1_cosphi2.to_value(units.mas / units.yr)
-                stars_pm2 = stream_stars[pm_mask].pm_phi2.to_value(units.mas / units.yr)
+                # Extract proper motions of cluster stars
+                stars_pm1 = cluster_stars.pm_phi1_cosphi2.to_value(units.mas / units.yr)
+                stars_pm2 = cluster_stars.pm_phi2.to_value(units.mas / units.yr)
 
                 # Extract proper motions of stream track
                 track_pm1 = stream.track.pm_phi1_cosphi2.to_value(units.mas / units.yr)
                 track_pm2 = stream.track.pm_phi2.to_value(units.mas / units.yr)
 
                 # Interpolate track proper motions vs phi1
-                interp_pm1 = np.interp(stars_phi1[pm_mask], track_phi1, track_pm1)
-                interp_pm2 = np.interp(stars_phi1[pm_mask], track_phi1, track_pm2)
+                interp_pm1 = np.interp(stars_phi1, track_phi1, track_pm1)
+                interp_pm2 = np.interp(stars_phi1, track_phi1, track_pm2)
 
                 # Total variance in proper motions due to astrometric uncertainties and proper motion dispersion of stream
-                var_pm_astrometric = var_pm[astrolink_cluster_members][pm_mask]
-                var_pm1 = var_pm_astrometric + sigma_pm1**2
-                var_pm2 = var_pm_astrometric + sigma_pm2**2
+                var_pm1 = var_pm + sigma_pm1**2
+                var_pm2 = var_pm + sigma_pm2**2
 
-                # Compute chi2 values for proper motions
-                chi2[pm_mask] += (
-                    (stars_pm1 - interp_pm1)**2 / var_pm1 + # - np.log(2 * np.pi) - np.log(var_pm1) +
-                    (stars_pm2 - interp_pm2)**2 / var_pm2# - np.log(2 * np.pi) - np.log(var_pm2)
+                # Compute T statistic for proper motions of stream
+                tValue += (
+                    (stars_pm1 - interp_pm1)**2 / var_pm1 +
+                    (stars_pm2 - interp_pm2)**2 / var_pm2
                 )
+                dims += 2  # Used pm_1 and pm_2
 
-                del pm_mask, stars_pm1, stars_pm2, track_pm1, track_pm2, interp_pm1, interp_pm2, var_pm_astrometric, var_pm1, var_pm2  # Free memory
+                del stars_pm1, stars_pm2, track_pm1, track_pm2, interp_pm1, interp_pm2, var_pm1, var_pm2  # Free memory
                 gc.collect()  # Force garbage collection
             except:
                 pass
@@ -3799,66 +3823,150 @@ def process_astrolink_cluster_for_galstreams(start, end,
                 # galstreams doesn't have a 'width_dist' value, so we assume each stream to have a circular cross-section
                 sigma_dist = np.tan(sigma_phi2)  # Angular width in radians, to be multiplied by stream distance below to get physical sigma_dist
 
-                # Mask for the stars with distances
-                dist_mask = np.isfinite(stream_stars.distance)
-
-                # Extract distance of stream stars
-                stars_dist = stream_stars[dist_mask].distance.to_value(units.pc)
+                # Extract distance of cluster stars
+                stars_dist = cluster_stars.distance.to_value(units.pc)
 
                 # Extract distance of stream track
                 track_dist = stream.track.distance.to_value(units.pc)
                 sigma_dist *= track_dist  # Convert angular width to physical width at the distance of the stream track
 
                 # Interpolate track distance vs phi1
-                interp_dist = np.interp(stars_phi1[dist_mask], track_phi1, track_dist)
+                interp_dist = np.interp(stars_phi1, track_phi1, track_dist)
 
                 # Total variance in distance due to astrometric uncertainties and distance dispersion of stream
-                var_dist = var_dist[astrolink_cluster_members][dist_mask] + sigma_dist**2
+                var_d = var_dist + sigma_dist**2
                 
-                # Compute chi2 value for distance
-                chi2[dist_mask] += (stars_dist - interp_dist)**2 / var_dist# - np.log(2 * np.pi) - np.log(var_dist)
+                # Compute T statistic value for distance
+                tValue += (stars_dist - interp_dist)**2 / var_d
+                dims += 1  # Used distance
 
-                del dist_mask, stars_dist, track_dist, interp_dist, var_dist  # Free memory
+                del stars_dist, track_dist, interp_dist, var_d  # Free memory
                 gc.collect()  # Force garbage collection
             except:
                 pass
 
-        # Line-of-sight velocity (for if / when this becomes available)
+        # Line-of-sight velocity (for if / when width_vrad becomes available)
         if False: #mws.summary.loc[stream_track_name, 'has_vrad']:
             try:
                 # Width in line-of-sight velocity
                 width_vrad = mws.summary.loc[stream_track_name, 'width_vrad']  # This doesn't exist in galstreams yet
                 sigma_vrad = width_vrad / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
 
-                # Mask for the stars with line-of-sight velocities
-                vrad_mask = np.isfinite(stream_stars.vrad)
-
-                # Extract line-of-sight velocity of stream stars
-                stars_vrad = stream_stars[vrad_mask].vrad.to_value(units.km / units.s)
+                # Extract line-of-sight velocity of cluster stars
+                stars_vrad = cluster_stars.vrad.to_value(units.km / units.s)
 
                 # Extract line-of-sight velocity of stream track
                 track_vrad = stream.track.vrad.to_value(units.km / units.s)
 
                 # Interpolate track line-of-sight velocity vs phi1
-                interp_vrad = np.interp(stars_phi1[vrad_mask], track_phi1, track_vrad)
+                interp_vrad = np.interp(stars_phi1, track_phi1, track_vrad)
 
                 # Total variance in line-of-sight velocity due to astrometric uncertainties and velocity dispersion of stream
-                var_vrad = var_vrad[astrolink_cluster_members][vrad_mask] + sigma_vrad**2
+                var_vr = var_vrad + sigma_vrad**2
 
-                # Compute chi2 value for line-of-sight velocity
-                chi2[vrad_mask] += ((stars_vrad - interp_vrad) / sigma_vrad)**2# - np.log(2 * np.pi) - 2 * np.log(sigma_vrad)
+                # Compute T statistic value for line-of-sight velocity
+                tValue += (stars_vrad - interp_vrad)**2 / var_vr
+                dims += 1  # Used v_rad
 
-                del vrad_mask, stars_vrad, track_vrad, interp_vrad  # Free memory
+                del stars_vrad, track_vrad, interp_vrad, var_vr  # Free memory
                 gc.collect()  # Force garbage collection
             except:
                 pass
 
-        # Calculate probability of witnessing this T value given that the cluster is drawn from the stream distribution
-        pValue_cluster = chi2.sf(T, df=) ### HERE
+        # Calculate probability of witnessing a T value this extreme given that the cluster stars are drawn from the stream distribution
+        df = tValue.size() * dims
+        pValues[i] = chi2.sf(tValue.sum(), df=df)
     
+    del var_skypos, var_pm, var_dist, cluster_stars  # Free memory
+    gc.collect()  # Force garbage collection
+    
+    return start, end, ids_valid, pValues
 
 def plot_galstreams_comparison_results(overwrite=False):
-    pass
+    """
+    Plot the p-values results of the comparison between clustering output and the 
+    galstreams catalogue showing p-values.
+    """
+    # Check if plot already exists
+    file_path = os.path.join(OUTPUT_PATH, "galstreams_comparison_results_pvalues.png")
+    if os.path.exists(file_path) and not overwrite:
+        print(f"Galstreams comparison results plot already exists at:\n\t{file_path} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting Galstreams comparison results...")
+
+    # Load comparison results
+    print("... loading comparison results")
+    pValues = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_pvalues.npy"))  # (N_sigmas, N_clusters)
+
+    # Load stream track names
+    galstreams_stream_track_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_track_names.npy"))  # (N_streams,)
+
+    # Define streams and colors
+    best_matching_streams = np.argsort(np.max(pValues, axis=0))[::-1][:5]  # Indices of top 5 best-matched streams
+    stream_type_colors = {
+        stream_name: f"C{index}"
+        for index, stream_name in enumerate(galstreams_stream_track_names[best_matching_streams])
+    }
+
+    # Make figure
+    print("... plotting combined statistics vs significance level")
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Jaccard
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, pValues.mean(axis=1),
+            color='k', linestyle='solid', linewidth=1, zorder=3)
+
+    # Cycle through specific streams and plot their p-values vs significance level
+    for stream_name, color in stream_type_colors.items():
+        # Find index of this stream
+        stream_index = np.where(galstreams_stream_track_names == stream_name)[0][0]
+
+        # Plot p-values for this stream
+        ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, pValues[:, stream_index],
+                color=color, linestyle='solid', linewidth=1, zorder=4)
+
+    # Matched fraction
+    fraction_matched = np.mean(pValues > 0.5, axis=1)
+
+    # Plot fraction of clusters of this type matched to above P=0.5
+    ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, fraction_matched,
+            color='k', linestyle='dashed', linewidth=1, zorder=2)
+
+    # Plot optimal S value on top
+    ax.axvline(OPTIMAL_SIGMA_THRESHOLD, color='grey', linestyle='dotted', linewidth=0.75, zorder=4)
+    ax.text(
+        OPTIMAL_SIGMA_THRESHOLD, 1.01,
+        f"S = {OPTIMAL_SIGMA_THRESHOLD}",
+        color='grey', fontsize=10, ha='center', va='bottom', zorder=4
+    )
+
+    # Dummy handles for the legend
+    handles = [
+        Rectangle((0,0), 1, 1, facecolor=mcolors.to_rgba('k', alpha=0.3), edgecolor='k', linewidth=1, label='p-value (mean)'),
+        Rectangle((0,0), 1, 1, facecolor='none', hatch='//', edgecolor='k', linewidth=1, label='Matched fraction'),
+    ] + [plt.Line2D([], [], color='none', label=stream_name) for stream_name in stream_type_colors.keys()]
+
+    # Create the legend
+    leg = ax.legend(handles=handles, loc='upper right', frameon=False)
+
+    # Recolor legend text entries for cluster types
+    for text in leg.get_texts():
+        label = text.get_text()
+        if label in stream_type_colors:
+            text.set_color(stream_type_colors[label])
+            text.set_fontweight('bold')
+
+    # Final formatting
+    print("... saving figure.\n")
+    ax.set_xlim(SIGMA_THRESHOLDS_FOR_COMPARISONS.min(), SIGMA_THRESHOLDS_FOR_COMPARISONS.max())
+    ax.set_ylim(0, 1)
+    ax.set_xlabel(r"Significance, $S$")
+    ax.set_ylabel("Comparison statistic")
+    plt.tight_layout()
+    plt.savefig(file_path, dpi=500)
+    plt.close(fig)
+    gc.collect()
 
 # === Run script ===
 if __name__ == "__main__":
@@ -3883,8 +3991,8 @@ if __name__ == "__main__":
     plot_total_selection_function()
 
     # Construct input data to be passed to AstroLink
-    calculate_contracted_subspaces_and_errors(True)
-    construct_data_space(True)
+    calculate_contracted_subspaces_and_errors()
+    construct_data_space()
 
     # Apply AstroLink to subsample and plot of cluster properties
     apply_astrolink_to_data()
@@ -3917,7 +4025,7 @@ if __name__ == "__main__":
     plot_Battaglia2021_comparison_results()
 
     # Compare to galstreams catalogue
-    prepare_galstreams_for_comparison()
-    plot_galstreams_streams_on_sky()
-    compare_to_galstreams()
-    plot_galstreams_comparison_results()
+    prepare_galstreams_for_comparison(True)
+    #plot_galstreams_streams_on_sky(True)
+    compare_to_galstreams(True)
+    plot_galstreams_comparison_results(True)

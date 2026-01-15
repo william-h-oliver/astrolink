@@ -3528,7 +3528,7 @@ def manually_add_missing_galstreams_information(mws):
 
     return mws
 
-def compare_galstreams_for_comparison(overwrite=False):
+def compare_to_galstreams(overwrite=False):
     """
     Prepare the data for comparison with the galstreams catalogue.
     """
@@ -3558,8 +3558,8 @@ def compare_galstreams_for_comparison(overwrite=False):
     proper_motions = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_proper_motions.npy"))[subsample_mask]  # Each (N_gdr3,) in mas/yr
     distance = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "bailerjones_r_med_photogeo.npy"))[subsample_mask]  # (N_gdr3,) in pc
     astrometric_errors = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask]  # (N_gdr3, 5)
-    sigma_ra, sigma_dec = astrometric_errors[subsample_mask, :2].T / 3600000  # shape (N_gdr3, 2) in degrees
-    sigma_mu_ra, sigma_mu_dec = astrometric_errors[subsample_mask, 2:].T  # shape (N_gdr3, 2) in mas/yr
+    sigma_ra, sigma_dec = astrometric_errors[:, :2].T / 3600000  # shape (N_gdr3, 2) in degrees
+    sigma_mu_ra, sigma_mu_dec = astrometric_errors[:, 2:].T  # shape (N_gdr3, 2) in mas/yr
     lo, high = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "bailerjones_r_lo_high_photogeo.npy"))[subsample_mask].T  # each (N_gdr3,) in pc
     del subsample_mask, astrometric_errors  # Free memory
     gc.collect()  # Force garbage collection
@@ -4025,7 +4025,7 @@ if __name__ == "__main__":
     plot_Battaglia2021_comparison_results()
 
     # Compare to galstreams catalogue
-    prepare_galstreams_for_comparison(True)
+    prepare_galstreams_for_comparison()
     #plot_galstreams_streams_on_sky(True)
     compare_to_galstreams(True)
     plot_galstreams_comparison_results(True)

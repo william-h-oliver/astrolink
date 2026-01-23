@@ -3483,24 +3483,75 @@ def prepare_galstreams_for_comparison(overwrite=False):
     mws.summary.loc['Willka_Yaku-S18', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.2, 0.2]  # Heuristic values based on typical proper motion errors
     mws.summary.loc['Yangtze-Y23', ['width_pm_phi1_cosphi2', 'width_pm_phi2']] = [0.2, 0.2]  # Heuristic values based on typical proper motion errors
 
-    # Method for acquiring GDR3 stars in stream footprint
-    def get_stars_in_footprint(stream, sigma_phi2):
-        # Calculate HEALPix nside given the stream width such that a star at most 2 sigma away from the stream track is be guaranteed to fall into the same pixel as a track point
-        nside_max = 1 / (2 * np.sqrt(3) * 2 * sigma_phi2  * (np.pi/180))
-        level = max(int(np.log2(nside_max)), 1)
-        nside = 2**level  # Round down to nearest power of 2
+    # Define HEALPix map and pixel radius for footprint calculations
+    level = 12
+    nside = 2**level
+    npix = hp.nside2npix(nside)
+    pixel_indices = np.arange(npix)
+    pixel_area = 4 * np.pi / (12 * nside**2)
+    pixel_radius = np.rad2deg(np.sqrt(pixel_area / np.pi))  # In degrees
 
-        # Convert RA/Dec (ICRS) to HEALPix pixel indices
-        pixels_intersected_by_track = np.unique(hp.ang2pix(nside, stream.track.ra.deg, stream.track.dec.deg, lonlat=True, nest=True))
+    # Get HEALPix pixel indices for all stars at the chosen level
+    all_stars_pixels = (source_ids >> 35) >> (2 * (12 - level))
 
-        # Get HEALPix pixel indices for all stars at the same level
-        all_stars_pixels = (source_ids >> 35) >> (2 * (12 - level))
+    # Cycle through each stream, find which stars are in its footprint, and then compute stream membership probability with the information available
+    max_galstream_cluster_ID = len(mws) - 1
+    galstreams_members_stream_ids_gdr3 = np.full((subsample_mask.size, 1), max_galstream_cluster_ID + 1, dtype=np.int64)  # (N,) Initialize with max_galstreams_stream_ID + 1, representing no stream
+    galstreams_members_stream_probs_gdr3 = np.zeros((subsample_mask.size, 1), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
+    for i, (stream_track_name, stream) in enumerate(mws.items()):
+        print(f'... calculating membership probabilities for stream {i + 1}/{len(mws)}: {stream_track_name}                   ', end='\r')
+        print()
+        # Width and sigma in phi2
+        width_phi2 = mws.summary.loc[stream_track_name, 'width_phi2']  # Interpret as FWHM in degrees
+        sigma_phi2 = width_phi2 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
+
+        # Transform stream track into 3D spatial positions
+        stream_ra, stream_dec = np.deg2rad(stream.track.ra.deg), np.deg2rad(stream.track.dec.deg)
+        cos_stream_dec = np.cos(stream_dec)
+        xyz_stream_track = np.column_stack([
+            cos_stream_dec * np.cos(stream_ra),
+            cos_stream_dec * np.sin(stream_ra),
+            np.sin(stream_dec)
+        ])
+        del stream_ra, stream_dec, cos_stream_dec  # Free memory
+        gc.collect()  # Force garbage collection
+
+        # Build KDTree for fast nearest-neighbour lookup
+        tree = KDTree(xyz_stream_track)
+        del xyz_stream_track  # Free memory
+        gc.collect()  # Force garbage collection
+
+        # Find HEALPix pixel centres
+        theta, pixel_ra = hp.pix2ang(nside, pixel_indices, nest=True)
+        pixel_dec = np.pi / 2 - theta  # Convert theta to dec
+        cos_pixel_dec = np.cos(pixel_dec)
+        xyz_pixel_centres = np.column_stack([
+            cos_pixel_dec * np.cos(pixel_ra),
+            cos_pixel_dec * np.sin(pixel_ra),
+            np.sin(pixel_dec)
+        ])
+        del theta, pixel_ra, pixel_dec, cos_pixel_dec  # Free memory
+        gc.collect()  # Force garbage collection
+
+        # Query KDTree to find nearest stream track point to each HEALPix pixel centre
+        distances, _ = tree.query(xyz_pixel_centres, k=1)
+        del tree, xyz_pixel_centres, _  # Free memory
+        gc.collect()  # Force garbage collection
+
+        # Convert chord distance into angular distance
+        angular_distances = np.rad2deg(2 * np.arcsin(np.clip(distances / 2, 0, 1)))  # In degrees
+        del distances  # Free memory
+        gc.collect()  # Force garbage collection
+
+        # Select pixels within (5 * sigma_phi2 + pixel_radius) of stream track
+        max_dist = 5 * sigma_phi2 + pixel_radius
+        selected_pixels = np.where(angular_distances < max_dist)[0]
 
         # Make mask for which stars are in the stream footprint by doing a binary search for membership (faster and more memory efficient than np.isin)
-        idx = np.searchsorted(pixels_intersected_by_track, all_stars_pixels)
-        idx[idx == len(pixels_intersected_by_track)] = len(pixels_intersected_by_track) - 1
-        in_footprint_mask = pixels_intersected_by_track[idx] == all_stars_pixels
-        del pixels_intersected_by_track, all_stars_pixels, idx  # Free memory
+        idx = np.searchsorted(selected_pixels, all_stars_pixels)
+        idx[idx == len(selected_pixels)] = len(selected_pixels) - 1
+        in_footprint_mask = selected_pixels[idx] == all_stars_pixels
+        del selected_pixels, all_stars_pixels, idx  # Free memory
         gc.collect()  # Force garbage collection
 
         # Make SkyCoord object for stars in stream footprint
@@ -3516,86 +3567,77 @@ def prepare_galstreams_for_comparison(overwrite=False):
         del dec_in_footprint  # Free memory
         gc.collect()  # Force garbage collection
 
-        # Transform stars into stream coordinates
+        # Transform stars and stream_track into stream coordinates
         footprint_stars = footprint_stars.transform_to(stream.stream_frame)
-
-        return footprint_stars, in_footprint_mask
-
-    # Cycle through each stream, find which stars are in its footprint, and then compute stream membership probability with the information available
-    max_galstream_cluster_ID = len(mws) - 1
-    galstreams_members_stream_ids_gdr3 = np.full((subsample_mask.size, 1), max_galstream_cluster_ID + 1, dtype=np.int64)  # (N,) Initialize with max_galstreams_stream_ID + 1, representing no stream
-    galstreams_members_stream_probs_gdr3 = np.zeros((subsample_mask.size, 1), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
-    for i, (stream_track_name, stream) in enumerate(mws.items()):
-        print(f'... calculating membership probabilities for stream {i + 1}/{len(mws)}: {stream_track_name}                   ', end='\r')
-        # Width and sigma in phi2
-        width_phi2 = mws.summary.loc[stream_track_name, 'width_phi2']  # Interpret as FWHM in degrees
-        sigma_phi2 = width_phi2 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
-
-        # Get stars in stream footprint and transform into stream coordinates
-        stream_stars, in_footprint_mask = get_stars_in_footprint(stream, sigma_phi2)
-
-        # Transform stream track into stream coordinates
         stream.track = stream.track.transform_to(stream.stream_frame)
 
-        # Extract phi1 and phi2 of stream stars
-        stream_stars_phi1 = stream_stars.phi1.to_value(units.deg)
-        stream_stars_phi2 = stream_stars.phi2.to_value(units.deg)
+        # Extract phi1 and phi2 of footprint stars
+        footprint_stars_phi1 = footprint_stars.phi1.deg
+        footprint_stars_phi2 = footprint_stars.phi2.deg
 
         # Extract phi2 and phi1 of stream track
-        track_phi1 = stream.track.phi1.to_value(units.deg)
-        track_phi2 = stream.track.phi2.to_value(units.deg)
+        track_phi1 = stream.track.phi1.deg
+        track_phi2 = stream.track.phi2.deg
 
         # Interpolate track phi2 vs phi1
-        interp_phi2 = np.interp(stream_stars_phi1, track_phi1, track_phi2)
+        interp_phi2 = np.interp(footprint_stars_phi1, track_phi1, track_phi2)
 
         # Total variance in phi2 due to astrometric uncertainties and width of stream
         var_phi2 = var_angularpos[in_footprint_mask] + sigma_phi2**2
 
-        # Stream log-likelihood for position-on-the-sky
-        log_ps = (
-            -0.5 * (stream_stars_phi2 - interp_phi2)**2 / var_phi2  # Gaussian in phi2
-            -0.5 * np.log(2 * np.pi * var_phi2)  # Normalization of Gaussian in phi2
-            - np.log(track_phi1.max() - track_phi1.min())  # Uniform distribution in phi1 over stream length
-        )
+        # Chi-squared in phi2 direction
+        chi2_phi2 = (footprint_stars_phi2 - interp_phi2)**2 / var_phi2
+        del footprint_stars_phi2, track_phi2, interp_phi2
 
-        del stream_stars_phi2, track_phi2, interp_phi2, var_phi2  # Free memory
+        # Separate stars in footprint into stream stars and background stars
+        in_background_mask = chi2_phi2 < 2**2  # Background stars are outside +/-3 sigma_phi2 but inside +/-5 sigma_phi2
+        in_stream_mask = chi2_phi2 < 1.5**2      # Stream stars are inside +/-3 sigma_phi2
+        in_background_mask[in_stream_mask] = False  # Remove stream stars from background
+        in_stream_mask[(footprint_stars_phi1 < track_phi1.min()) | (footprint_stars_phi1 > track_phi1.max())] = False  # Remove stars outside track phi1 range from stream
+        in_background_mask[(footprint_stars_phi1 < track_phi1.min()) | (footprint_stars_phi1 > track_phi1.max())] = False  # Remove stars outside track phi1 range from background
+        del footprint_stars_phi1  # Free memory
+        gc.collect()  # Force garbage collection
+        
+        # Get stars in stream and background
+        stream_stars = footprint_stars[in_stream_mask]
+        background_stars = footprint_stars[in_background_mask]
+        del footprint_stars, in_background_mask  # Free memory
         gc.collect()  # Force garbage collection
 
-        # Get stars in offset footprint (+ 5 sigma away in phi2)
-        offset = SkyCoord(
-            phi1=stream.track.phi1,
-            phi2=stream.track.phi2 + 5 * sigma_phi2 * units.deg,
-            frame=stream.stream_frame
-        ).transform_to('icrs')
-        background_stars, in_offset_mask = get_stars_in_footprint(offset, sigma_phi2)
+        # Stream log-likelihood for position-on-the-sky
+        log_ps = (
+            -0.5 * chi2_phi2[in_stream_mask]  # Gaussian in phi2
+            -0.5 * np.log(2 * np.pi * var_phi2[in_stream_mask])  # Normalization of Gaussian in phi2
+            - np.log(track_phi1.max() - track_phi1.min())  # Uniform distribution in phi1 over stream length
+        )
+        del chi2_phi2, var_phi2  # Free memory
+        gc.collect()  # Force garbage collection
 
-        # Extract phi1 and phi2 of background stars
-        background_stars_phi1 = background_stars.phi1.to_value(units.deg)
-
-        # Background density along phi1 from background stars
-        kde_bg_phi1 = gaussian_kde(background_stars_phi1)
-        bg_phi1_density = kde_bg_phi1(stream_stars_phi1)
+        # Background density along phi1 evaluated at phi1 positions of stream stars
+        kde_bg_phi1 = gaussian_kde(background_stars.phi1.deg)
+        bg_phi1_density = kde_bg_phi1(stream_stars.phi1.deg)
         bg_phi1_density = np.clip(bg_phi1_density, 1e-300, None) # Avoid log(0)
 
         # Background log-likelihood for position-on-the-sky  
         log_pb = (
             np.log(bg_phi1_density)   # KDE in phi1 and 
-            - np.log(4 * sigma_phi2)  # Uniform distribution in phi2 over +/- 2 sigma
+            - np.log(1 * sigma_phi2)  # Uniform distribution in phi2 from -5 to -3 sigma_phi2 and +3 to +5 sigma_phi2
         )
+        del kde_bg_phi1, bg_phi1_density  # Free memory
+        gc.collect()  # Force garbage collection
 
         # Log-likelihood ratio
         loglikelihoodratio = log_ps - log_pb
 
-        del offset, kde_bg_phi1, bg_phi1_density, log_ps, log_pb  # Free memory
+        del log_ps, log_pb  # Free memory
         gc.collect()  # Force garbage collection
 
         # Proper motions (if available for stream and stars)
         if mws.summary.loc[stream_track_name, 'has_pm']:
             try:
                 # Widths in proper motions
-                width_pm1 = mws.summary.loc[stream_track_name, 'width_pm_phi1_cosphi2']
+                width_pm1, width_pm2 = mws.summary.loc[stream_track_name, ['width_pm_phi1_cosphi2', 'width_pm_phi2']]
                 sigma_pm1 = width_pm1 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
-                width_pm2 = mws.summary.loc[stream_track_name, 'width_pm_phi2']
                 sigma_pm2 = width_pm2 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
 
                 # Mask for the stars with proper motions
@@ -3614,47 +3656,50 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 interp_pm2 = np.interp(stream_stars_phi1[pm_mask], track_phi1, track_pm2)
 
                 # Total variance in proper motions due to astrometric uncertainties and proper motion dispersion of stream
-                var_pm_astrometric = var_pm[in_footprint_mask][pm_mask]
-                var_pm1 = var_pm_astrometric + sigma_pm1**2
-                var_pm2 = var_pm_astrometric + sigma_pm2**2
+                var_pm_stream = var_pm[in_footprint_mask][in_stream_mask][pm_mask]
+                var_pm1 = var_pm_stream + sigma_pm1**2
+                var_pm2 = var_pm_stream + sigma_pm2**2
 
                 # Stream log-likelihood for proper motions
-                log_ps_pm = (
-                    -0.5 * (stars_pm1 - interp_pm1)**2 / var_pm1 # Stream Gaussian in pm_phi1_cosphi2
-                    -0.5 * np.log(2 * np.pi * var_pm1)  # Normalization of Stream Gaussian in pm_phi1_cosphi2
-                    -0.5 * (stars_pm2 - interp_pm2)**2 / var_pm2  # Stream Gaussian in pm_phi2
-                    -0.5 * np.log(2 * np.pi * var_pm2)  # Normalization of Stream Gaussian in pm_phi2
+                log_ps_pm = -0.5 * (
+                    (stars_pm1 - interp_pm1)**2 / var_pm1 # Stream Gaussian in pm_phi1_cosphi2
+                    + np.log(2 * np.pi * var_pm1)  # Normalization of Stream Gaussian in pm_phi1_cosphi2
+                    + (stars_pm2 - interp_pm2)**2 / var_pm2  # Stream Gaussian in pm_phi2
+                    + np.log(2 * np.pi * var_pm2)  # Normalization of Stream Gaussian in pm_phi2
                 )
-
-                del pm_mask, track_pm1, track_pm2, interp_pm1, interp_pm2, var_pm_astrometric, var_pm1, var_pm2  # Free memory
+                del track_pm1, track_pm2, interp_pm1, interp_pm2, var_pm1, var_pm2  # Free memory
                 gc.collect()  # Force garbage collection
 
-                # Mask offset stars with valid proper motions
-                bg_pm_mask = (
-                    np.isfinite(offset_stars.pm_phi1_cosphi2) &
-                    np.isfinite(offset_stars.pm_phi2)
-                )
+                # Mask background stars with valid proper motions
+                bg_pm_mask = np.isfinite(background_stars.pm_phi1_cosphi2) & np.isfinite(background_stars.pm_phi2)
 
                 # Background proper motions
-                bg_pm1 = offset_stars.pm_phi1_cosphi2[bg_pm_mask].to_value(units.mas / units.yr)
-                bg_pm2 = offset_stars.pm_phi2[bg_pm_mask].to_value(units.mas / units.yr)
+                bg_pm1 = background_stars.pm_phi1_cosphi2[bg_pm_mask].to_value(units.mas / units.yr)
+                bg_pm2 = background_stars.pm_phi2[bg_pm_mask].to_value(units.mas / units.yr)
+                del bg_pm_mask  # Free memory
+                gc.collect()  # Force garbage collection
 
                 # Mean and variance of background proper motions
-                mu_bg_pm1, var_bg_pm1 = np.mean(bg_pm1), np.var(bg_pm1)
-                mu_bg_pm2, var_bg_pm2 = np.mean(bg_pm2), np.var(bg_pm2)
+                mu_bg_pm1, mu_bg_pm2 = np.mean(bg_pm1), np.mean(bg_pm2)
+                var_bg_pm1 = var_pm_stream + np.var(bg_pm1)
+                var_bg_pm2 = var_pm_stream + np.var(bg_pm2)
+                del var_pm_stream, bg_pm1, bg_pm2  # Free memory
+                gc.collect()  # Force garbage collection
 
                 # Background log-likelihood for proper motions
-                log_pb_pm = (
-                    -0.5 * (stars_pm1 - mu_bg_pm1)**2 / var_bg_pm1  # Background Gaussian in pm_phi1_cosphi2
-                    -0.5 * np.log(2 * np.pi * var_bg_pm1)  # Normalization of Background Gaussian in pm_phi1_cosphi2
-                    -0.5 * (stars_pm2 - mu_bg_pm2)**2 / var_bg_pm2  # Background Gaussian in pm_phi2
-                    -0.5 * np.log(2 * np.pi * var_bg_pm2)  # Normalization of Background Gaussian in pm_phi2
+                log_pb_pm = -0.5 * (
+                    (stars_pm1 - mu_bg_pm1)**2 / var_bg_pm1  # Background Gaussian in pm_phi1_cosphi2
+                    + np.log(2 * np.pi * var_bg_pm1)  # Normalization of Background Gaussian in pm_phi1_cosphi2
+                    + (stars_pm2 - mu_bg_pm2)**2 / var_bg_pm2  # Background Gaussian in pm_phi2
+                    + np.log(2 * np.pi * var_bg_pm2)  # Normalization of Background Gaussian in pm_phi2
                 )
+                del stars_pm1, stars_pm2, mu_bg_pm1, var_bg_pm1, mu_bg_pm2, var_bg_pm2  # Free memory
+                gc.collect()  # Force garbage collection
 
                 # Adjust the log-likelihood ratio
                 loglikelihoodratio[pm_mask] += log_ps_pm - log_pb_pm
 
-                del stars_pm1, stars_pm2, bg_pm_mask, bg_pm1, bg_pm2, mu_bg_pm1, var_bg_pm1, mu_bg_pm2, var_bg_pm2, log_ps_pm, log_pb_pm  # Free memory
+                del log_ps_pm, log_pb_pm  # Free memory
                 gc.collect()  # Force garbage collection
             except:
                 pass
@@ -3670,46 +3715,55 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 dist_mask = np.isfinite(stream_stars.distance)
 
                 # Extract distance of stream stars
-                stars_dist = stream_stars[dist_mask].distance.to_value(units.pc)
+                stars_dist = stream_stars[dist_mask].distance.pc
 
                 # Extract distance of stream track
-                track_dist = stream.track.distance.to_value(units.pc)
+                track_dist = stream.track.distance.pc
                 sigma_dist *= track_dist  # Convert angular width to physical width at the distance of the stream track
 
                 # Interpolate track distance vs phi1
                 interp_dist = np.interp(stream_stars_phi1[dist_mask], track_phi1, track_dist)
+                del track_dist  # Free memory
+                gc.collect()  # Force garbage collection
 
                 # Total variance in distance due to astrometric uncertainties and distance dispersion of stream
-                var_dist = var_distance[in_footprint_mask][dist_mask] + sigma_dist**2
+                var_dist_stream = var_distance[in_footprint_mask][in_stream_mask][dist_mask]
+                var_dist = var_dist_stream + sigma_dist**2
 
                 # Stream log-likelihood for distance
                 log_ps_dist = (
                     -0.5 * (stars_dist - interp_dist)**2 / var_dist
                     -0.5 * np.log(2 * np.pi * var_dist)
                 )
-
-                del dist_mask, track_dist, interp_dist, var_dist  # Free memory
+                del interp_dist, var_dist  # Free memory
                 gc.collect()  # Force garbage collection
 
-                # Mask offset stars with valid distances
-                bg_dist_mask = np.isfinite(offset_stars.distance)
+                # Mask background stars with valid distances
+                bg_dist_mask = np.isfinite(background_stars.distance)
 
                 # Background distances
-                bg_dist = offset_stars.distance[bg_dist_mask].to_value(units.pc)
+                bg_dist = background_stars.distance[bg_dist_mask].pc
+                del bg_dist_mask  # Free memory
+                gc.collect()  # Force garbage collection
 
                 # Mean and variance of background distances
-                mu_bg_dist, var_bg_dist = np.mean(bg_dist), np.var(bg_dist)
+                mu_bg_dist = np.mean(bg_dist)
+                var_bg_dist = var_dist_stream + np.var(bg_dist)
+                del var_dist_stream, bg_dist  # Free memory
+                gc.collect()  # Force garbage collection
 
                 # Background log-likelihood for distance
                 log_pb_dist = (
                     -0.5 * (stars_dist - mu_bg_dist)**2 / var_bg_dist  # Background Gaussian in distance
                     -0.5 * np.log(2 * np.pi * var_bg_dist)  # Normalization of Background Gaussian in distance
                 )
+                del stars_dist, mu_bg_dist, var_bg_dist  # Free memory
+                gc.collect()  # Force garbage collection
 
                 # Adjust the log-likelihood ratio
                 loglikelihoodratio[dist_mask] += log_ps_dist - log_pb_dist
 
-                del stars_dist, bg_dist_mask, bg_dist, mu_bg_dist, var_bg_dist, log_ps_dist, log_pb_dist  # Free memory
+                del dist_mask, log_ps_dist, log_pb_dist  # Free memory
                 gc.collect()  # Force garbage collection
             except:
                 pass
@@ -3732,21 +3786,52 @@ def prepare_galstreams_for_comparison(overwrite=False):
 
                 # Interpolate track line-of-sight velocity vs phi1
                 interp_vrad = np.interp(stream_stars_phi1[vrad_mask], track_phi1, track_vrad)
+                del track_vrad  # Free memory
+                gc.collect()  # Force garbage collection
 
                 # Total variance in line-of-sight velocity due to astrometric uncertainties and velocity dispersion of stream
-                var_vrad = var_vrad[in_footprint_mask][vrad_mask] + sigma_vrad**2
+                var_vrad_stream = var_vrad[in_footprint_mask][in_stream_mask][vrad_mask]
+                var_los = var_vrad_stream + sigma_vrad**2
 
-                # Compute log-likelihood value for line-of-sight velocity
-                loglikelihood[vrad_mask] += (stars_vrad - interp_vrad)**2 / var_vrad + np.log(2 * np.pi * var_vrad)
+                # Stream log-likelihood for line-of-sight velocity
+                log_ps_vrad = (
+                    -0.5 * (stars_vrad - interp_vrad)**2 / var_los
+                    -0.5 * np.log(2 * np.pi * var_los)
+                )
+                del interp_vrad, var_los  # Free memory
+                gc.collect()  # Force garbage collection
 
-                ### HERE
+                # Mask background stars with valid line-of-sight velocities
+                bg_vrad_mask = np.isfinite(background_stars.vrad)
 
-                del vrad_mask, stars_vrad, track_vrad, interp_vrad, var_vrad  # Free memory
+                # Background line-of-sight velocities
+                bg_vrad = background_stars.vrad[bg_vrad_mask].to_value(units.km / units.s)
+                del bg_vrad_mask  # Free memory
+                gc.collect()  # Force garbage collection
+
+                # Mean and variance of background line-of-sight velocities
+                mu_bg_vrad = np.mean(bg_vrad)
+                var_bg_vrad = var_vrad_stream + np.var(bg_vrad)
+                del var_vrad_stream, bg_vrad  # Free memory
+                gc.collect()  # Force garbage collection
+
+                # Background log-likelihood for line-of-sight velocity
+                log_pb_vrad = (
+                    -0.5 * (stars_vrad - mu_bg_vrad)**2 / var_bg_vrad  # Background Gaussian in line-of-sight velocity
+                    -0.5 * np.log(2 * np.pi * var_bg_vrad)  # Normalization of Background Gaussian in line-of-sight velocity
+                )
+                del stars_vrad, mu_bg_vrad, var_bg_vrad  # Free memory
+                gc.collect()  # Force garbage collection
+
+                # Adjust the log-likelihood ratio
+                loglikelihoodratio[vrad_mask] += log_ps_vrad - log_pb_vrad
+
+                del vrad_mask, log_ps_vrad, log_pb_vrad  # Free memory
                 gc.collect()  # Force garbage collection
             except:
                 pass
 
-        del stream_stars, stream_stars_phi1, track_phi1  # Free memory
+        del stream_stars, background_stars, stream_stars_phi1, track_phi1  # Free memory
         gc.collect()  # Force garbage collection
 
         # Convert to posterior probability (assuming equal priors for now)
@@ -3760,8 +3845,8 @@ def prepare_galstreams_for_comparison(overwrite=False):
         if not probs_mask.any():
             continue
         probs = probs[probs_mask]
-        indices = np.where(in_footprint_mask)[0][probs_mask]
-        del in_footprint_mask, chi_squared, probs_mask  # Free memory
+        indices = np.where(in_footprint_mask)[0][in_stream_mask][probs_mask]
+        del in_footprint_mask, in_stream_mask, probs_mask  # Free memory
         gc.collect()  # Force garbage collection
 
         # Assign the stream IDs and probabilities to the members

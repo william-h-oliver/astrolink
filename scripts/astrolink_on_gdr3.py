@@ -3415,11 +3415,11 @@ def prepare_galstreams_for_comparison(overwrite=False):
     subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, 'subsample_mask.npy'))  # (N_gdr3,)
     ra, dec = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_equatorial_coordinates.npy")).T  # Each (N_gdr3,) in degrees
     mu_ra, mu_dec = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_proper_motions.npy")).T  # Each (N_gdr3,) in mas/yr
-    r_med_photogeo = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "bailerjones_r_med_photogeo.npy"))  # (N_gdr3,) in pc
+    #r_med_photogeo = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "bailerjones_r_med_photogeo.npy"))  # (N_gdr3,) in pc
     astrometric_errors = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_astrometric_errors.npy"))  # (N_gdr3, 5)
     sigma_ra, sigma_dec = astrometric_errors[:, :2].T / 3600000  # shape (N_gdr3, 2) in degrees
     sigma_mu_ra, sigma_mu_dec = astrometric_errors[:, 2:].T  # shape (N_gdr3, 2) in mas/yr
-    lo, high = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "bailerjones_r_lo_high_photogeo.npy")).T  # each (N_gdr3,) in pc
+    #lo, high = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "bailerjones_r_lo_high_photogeo.npy")).T  # each (N_gdr3,) in pc
     del astrometric_errors  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -3432,8 +3432,8 @@ def prepare_galstreams_for_comparison(overwrite=False):
         (cos_dec * sigma_mu_ra)**2 +                                    # Proper motion in the right ascension component
         (sigma_mu_dec)**2                                               # Proper motion in the declination component
     )  # (N_gdr3,) in (mas/yr)^2
-    var_distance = (high - lo)**2 / 4  # (N_gdr3,) in pc^2
-    del sigma_ra, sigma_dec, sigma_mu_ra, sigma_mu_dec, lo, high, sin_dec  # Free memory
+    #var_distance = (high - lo)**2 / 4  # (N_gdr3,) in pc^2
+    del sigma_ra, sigma_dec, sigma_mu_ra, sigma_mu_dec, sin_dec #lo, high, sin_dec  # Free memory
     gc.collect()  # Force garbage collection
 
     # Get MWStreams object from galstreams
@@ -3511,8 +3511,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
     galstreams_members_stream_ids_gdr3 = np.full((subsample_mask.size, 1), max_galstream_cluster_ID + 1, dtype=np.int64)  # (N,) Initialize with max_galstreams_stream_ID + 1, representing no stream
     galstreams_members_stream_probs_gdr3 = np.zeros((subsample_mask.size, 1), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
     for i, (stream_track_name, stream) in enumerate(mws.items()):
-        print(f'... calculating membership probabilities for stream {i + 1}/{len(mws)}: {stream_track_name}                   ', end='\r')
-        print()
+        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | defining stream footprint                                               ', end='\r')
         # Width and sigma in phi2
         width_phi2 = mws.summary.loc[stream_track_name, 'width_phi2']  # Interpret as FWHM in degrees
         sigma_phi2 = width_phi2 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
@@ -3548,26 +3547,28 @@ def prepare_galstreams_for_comparison(overwrite=False):
         selected_pixels = np.where(angular_distances < max_dist)[0]
 
         # Make mask for which stars are in the stream footprint by doing a binary search for membership (faster and more memory efficient than np.isin)
-        idx = np.searchsorted(selected_pixels, all_stars_pixels)
-        idx[idx == len(selected_pixels)] = len(selected_pixels) - 1
-        in_footprint_mask = selected_pixels[idx] == all_stars_pixels
-        del selected_pixels, all_stars_pixels, idx  # Free memory
+        pixel_mask = np.zeros(npix, dtype=np.bool_)
+        pixel_mask[selected_pixels] = True
+        in_footprint_mask2 = pixel_mask[all_stars_pixels]
+        del selected_pixels, pixel_mask  # Free memory
         gc.collect()  # Force garbage collection
 
         # Make SkyCoord object for stars in stream footprint
+        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | getting GDR3 stars in stream footprint                                  ', end='\r')
         dec_in_footprint = dec[in_footprint_mask]
         footprint_stars = SkyCoord(
             ra=ra[in_footprint_mask] * units.deg,
             dec=dec_in_footprint * units.deg,
             pm_ra_cosdec=mu_ra[in_footprint_mask] * cos_dec[in_footprint_mask] * units.mas / units.yr,
             pm_dec=mu_dec[in_footprint_mask] * units.mas / units.yr,
-            distance=r_med_photogeo[in_footprint_mask] * units.pc,
+            #distance=r_med_photogeo[in_footprint_mask] * units.pc, (for if / when this becomes available / reliable in galstreams)
             frame='icrs'
         )
         del dec_in_footprint  # Free memory
         gc.collect()  # Force garbage collection
 
         # Transform stars and stream_track into stream coordinates
+        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | transforming stars into stream coordinates                              ', end='\r')
         footprint_stars = footprint_stars.transform_to(stream.stream_frame)
         stream.track = stream.track.transform_to(stream.stream_frame)
 
@@ -3590,8 +3591,9 @@ def prepare_galstreams_for_comparison(overwrite=False):
         del footprint_stars_phi2, track_phi2, interp_phi2
 
         # Separate stars in footprint into stream stars and background stars
-        in_background_mask = chi2_phi2 < 2**2  # Background stars are outside +/-3 sigma_phi2 but inside +/-5 sigma_phi2
-        in_stream_mask = chi2_phi2 < 1.5**2      # Stream stars are inside +/-3 sigma_phi2
+        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | separating stream and background stars                                  ', end='\r')
+        in_background_mask = chi2_phi2 < 5**2  # Background stars are outside +/-3 sigma_phi2 but inside +/-5 sigma_phi2
+        in_stream_mask = chi2_phi2 < 3**2      # Stream stars are inside +/-3 sigma_phi2
         in_background_mask[in_stream_mask] = False  # Remove stream stars from background
         in_stream_mask[(footprint_stars_phi1 < track_phi1.min()) | (footprint_stars_phi1 > track_phi1.max())] = False  # Remove stars outside track phi1 range from stream
         in_background_mask[(footprint_stars_phi1 < track_phi1.min()) | (footprint_stars_phi1 > track_phi1.max())] = False  # Remove stars outside track phi1 range from background
@@ -3605,6 +3607,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
         gc.collect()  # Force garbage collection
 
         # Stream log-likelihood for position-on-the-sky
+        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for stream model (position-on-the-sky)         ', end='\r')
         log_ps = (
             -0.5 * chi2_phi2[in_stream_mask]  # Gaussian in phi2
             -0.5 * np.log(2 * np.pi * var_phi2[in_stream_mask])  # Normalization of Gaussian in phi2
@@ -3613,17 +3616,31 @@ def prepare_galstreams_for_comparison(overwrite=False):
         del chi2_phi2, var_phi2  # Free memory
         gc.collect()  # Force garbage collection
 
-        # Background density along phi1 evaluated at phi1 positions of stream stars
-        kde_bg_phi1 = gaussian_kde(background_stars.phi1.deg)
-        bg_phi1_density = kde_bg_phi1(stream_stars.phi1.deg)
-        bg_phi1_density = np.clip(bg_phi1_density, 1e-300, None) # Avoid log(0)
+        # Get k-nearest-neighbours of stream stars in background stars for background density estimation
+        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for background model (position-on-the-sky)     ', end='\r')
+        tree = KDTree(background_stars.phi1.deg[:, np.newaxis])
+        sqr_distances, _ = tree.query(
+            stream_stars.phi1.deg[:, np.newaxis],
+            k=min(20, len(background_stars)),
+            sqr_dists=True
+        )
+        del tree, _  # Free memory
+        gc.collect()  # Force garbage collection
+
+        # Calculate background density of stream stars in phi1 using Epanechnikov kernel density estimation
+        h_sqrd = sqr_distances[:, -1]  # Bandwidth as distance to k-th nearest neighbour
+        u_sqrd = sqr_distances / h_sqrd[:, np.newaxis]  # Scaled squared distances to other neighbours
+        norm_factor = 3 / (4 * np.sqrt(h_sqrd) * len(background_stars))  # Normalization factor for Epanechnikov kernel
+        bg_phi1_density = norm_factor * np.sum(1 - u_sqrd, axis=1)  # Epanechnikov kernel density estimate
+        del sqr_distances, h_sqrd, u_sqrd, norm_factor  # Free memory
+        gc.collect()  # Force garbage collection
 
         # Background log-likelihood for position-on-the-sky  
         log_pb = (
             np.log(bg_phi1_density)   # KDE in phi1 and 
-            - np.log(1 * sigma_phi2)  # Uniform distribution in phi2 from -5 to -3 sigma_phi2 and +3 to +5 sigma_phi2
+            - np.log(4 * sigma_phi2)  # Uniform distribution in phi2 from -5 to -3 sigma_phi2 and +3 to +5 sigma_phi2
         )
-        del kde_bg_phi1, bg_phi1_density  # Free memory
+        del bg_phi1_density  # Free memory
         gc.collect()  # Force garbage collection
 
         # Log-likelihood ratio
@@ -3635,6 +3652,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
         # Proper motions (if available for stream and stars)
         if mws.summary.loc[stream_track_name, 'has_pm']:
             try:
+                print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for stream model (mu_phi1*, mu_phi2)         ', end='\r')
                 # Widths in proper motions
                 width_pm1, width_pm2 = mws.summary.loc[stream_track_name, ['width_pm_phi1_cosphi2', 'width_pm_phi2']]
                 sigma_pm1 = width_pm1 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
@@ -3652,8 +3670,8 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 track_pm2 = stream.track.pm_phi2.to_value(units.mas / units.yr)
 
                 # Interpolate track proper motions vs phi1
-                interp_pm1 = np.interp(stream_stars_phi1[pm_mask], track_phi1, track_pm1)
-                interp_pm2 = np.interp(stream_stars_phi1[pm_mask], track_phi1, track_pm2)
+                interp_pm1 = np.interp(stream_stars.phi1.deg[pm_mask], track_phi1, track_pm1)
+                interp_pm2 = np.interp(stream_stars.phi1.deg[pm_mask], track_phi1, track_pm2)
 
                 # Total variance in proper motions due to astrometric uncertainties and proper motion dispersion of stream
                 var_pm_stream = var_pm[in_footprint_mask][in_stream_mask][pm_mask]
@@ -3671,6 +3689,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 gc.collect()  # Force garbage collection
 
                 # Mask background stars with valid proper motions
+                print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for background model (mu_phi1*, mu_phi2)     ', end='\r')
                 bg_pm_mask = np.isfinite(background_stars.pm_phi1_cosphi2) & np.isfinite(background_stars.pm_phi2)
 
                 # Background proper motions
@@ -3707,6 +3726,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
         # Distance (for if / when this becomes available / reliable)
         if False: #mws.summary.loc[stream_track_name, 'has_D']:
             try:
+                print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for stream model (distance)                  ', end='\r')
                 # Width in distance
                 # galstreams doesn't have a 'width_dist' value, so we assume each stream to have a circular cross-section
                 sigma_dist = np.tan(sigma_phi2)  # Angular width in radians, to be multiplied by stream distance below to get physical sigma_dist
@@ -3715,14 +3735,14 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 dist_mask = np.isfinite(stream_stars.distance)
 
                 # Extract distance of stream stars
-                stars_dist = stream_stars[dist_mask].distance.pc
+                stars_dist = stream_stars.distance.pc[dist_mask]
 
                 # Extract distance of stream track
                 track_dist = stream.track.distance.pc
                 sigma_dist *= track_dist  # Convert angular width to physical width at the distance of the stream track
 
                 # Interpolate track distance vs phi1
-                interp_dist = np.interp(stream_stars_phi1[dist_mask], track_phi1, track_dist)
+                interp_dist = np.interp(stream_stars.phi1.deg[dist_mask], track_phi1, track_dist)
                 del track_dist  # Free memory
                 gc.collect()  # Force garbage collection
 
@@ -3739,10 +3759,11 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 gc.collect()  # Force garbage collection
 
                 # Mask background stars with valid distances
+                print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for background model (distance)              ', end='\r')
                 bg_dist_mask = np.isfinite(background_stars.distance)
 
                 # Background distances
-                bg_dist = background_stars.distance[bg_dist_mask].pc
+                bg_dist = background_stars.distance.pc[bg_dist_mask]
                 del bg_dist_mask  # Free memory
                 gc.collect()  # Force garbage collection
 
@@ -3771,6 +3792,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
         # Line-of-sight velocity (for if / when this becomes available)
         if False: #mws.summary.loc[stream_track_name, 'has_vrad']:
             try:
+                print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for stream model (line-of-sight velocity)    ', end='\r')
                 # Width in line-of-sight velocity
                 width_vrad = mws.summary.loc[stream_track_name, 'width_vrad']  # This doesn't exist in galstreams yet
                 sigma_vrad = width_vrad / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
@@ -3779,13 +3801,13 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 vrad_mask = np.isfinite(stream_stars.vrad)
 
                 # Extract line-of-sight velocity of stream stars
-                stars_vrad = stream_stars[vrad_mask].vrad.to_value(units.km / units.s)
+                stars_vrad = stream_stars.vrad[vrad_mask].to_value(units.km / units.s)
 
                 # Extract line-of-sight velocity of stream track
                 track_vrad = stream.track.vrad.to_value(units.km / units.s)
 
                 # Interpolate track line-of-sight velocity vs phi1
-                interp_vrad = np.interp(stream_stars_phi1[vrad_mask], track_phi1, track_vrad)
+                interp_vrad = np.interp(stream_stars.phi1.deg[vrad_mask], track_phi1, track_vrad)
                 del track_vrad  # Free memory
                 gc.collect()  # Force garbage collection
 
@@ -3802,6 +3824,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 gc.collect()  # Force garbage collection
 
                 # Mask background stars with valid line-of-sight velocities
+                print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for background model (line-of-sight velocity)', end='\r')
                 bg_vrad_mask = np.isfinite(background_stars.vrad)
 
                 # Background line-of-sight velocities
@@ -3831,10 +3854,11 @@ def prepare_galstreams_for_comparison(overwrite=False):
             except:
                 pass
 
-        del stream_stars, background_stars, stream_stars_phi1, track_phi1  # Free memory
+        del stream_stars, background_stars, track_phi1  # Free memory
         gc.collect()  # Force garbage collection
 
         # Convert to posterior probability (assuming equal priors for now)
+        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | converting log-likelihood ratio to membership probabilities             ', end='\r')
         odds = np.exp(loglikelihoodratio)
         probs = odds / (1 + odds)
         del loglikelihoodratio, odds  # Free memory
@@ -3850,6 +3874,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
         gc.collect()  # Force garbage collection
 
         # Assign the stream IDs and probabilities to the members
+        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | assigning stream IDs and probabilities to stream members                ', end='\r')
         unassigned_bool = True
         indices_stream_ids = galstreams_members_stream_ids_gdr3[indices]
         for j in range(galstreams_members_stream_ids_gdr3.shape[1]):
@@ -3887,7 +3912,8 @@ def prepare_galstreams_for_comparison(overwrite=False):
             # Assign the stream IDs and probabilities to the members
             galstreams_members_stream_ids_gdr3[indices, -1] = i
             galstreams_members_stream_probs_gdr3[indices, -1] = probs
-    del ra, dec, mu_ra, mu_dec, r_med_photogeo, cos_dec, var_angularpos, var_pm, var_distance, mws, probs, indices  # Free memory
+    #del ra, dec, mu_ra, mu_dec, r_med_photogeo, cos_dec, var_angularpos, var_pm, var_distance, mws, probs, indices  # Free memory
+    del ra, dec, mu_ra, mu_dec, cos_dec, var_angularpos, var_pm, mws, probs, indices  # Free memory
     gc.collect()  # Force garbage collection
     
     # Get the stream IDs and probabilities for the subsample in this work
@@ -3895,7 +3921,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
     galstreams_members_stream_probs_subsample = galstreams_members_stream_probs_gdr3[subsample_mask]
 
     # Pre-compute the total sum of probabilities for each galstreams stream
-    print("... pre-computing the total sum of probabilities for each galstreams stream")
+    print("... pre-computing the total sum of probabilities for each galstreams stream                                                                   ")
     galstreams_streams_probability_sums_total = np.bincount(galstreams_members_stream_ids_gdr3.ravel(),
                                         weights=galstreams_members_stream_probs_gdr3.ravel(),
                                         minlength=max_galstream_cluster_ID + 1)[:max_galstream_cluster_ID + 1]  # (N_streams,)

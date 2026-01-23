@@ -3545,11 +3545,13 @@ def prepare_galstreams_for_comparison(overwrite=False):
         # Select pixels within (5 * sigma_phi2 + pixel_radius) of stream track
         max_dist = 5 * sigma_phi2 + pixel_radius
         selected_pixels = np.where(angular_distances < max_dist)[0]
+        del angular_distances  # Free memory
+        gc.collect()  # Force garbage collection
 
         # Make mask for which stars are in the stream footprint by doing a binary search for membership (faster and more memory efficient than np.isin)
         pixel_mask = np.zeros(npix, dtype=np.bool_)
         pixel_mask[selected_pixels] = True
-        in_footprint_mask2 = pixel_mask[all_stars_pixels]
+        in_footprint_mask = pixel_mask[all_stars_pixels]
         del selected_pixels, pixel_mask  # Free memory
         gc.collect()  # Force garbage collection
 

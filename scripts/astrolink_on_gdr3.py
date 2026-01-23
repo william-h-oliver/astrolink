@@ -3491,6 +3491,18 @@ def prepare_galstreams_for_comparison(overwrite=False):
     pixel_area = 4 * np.pi / (12 * nside**2)
     pixel_radius = np.rad2deg(np.sqrt(pixel_area / np.pi))  # In degrees
 
+    # Find HEALPix pixel centres
+    theta, pixel_ra = hp.pix2ang(nside, pixel_indices, nest=True)
+    pixel_dec = np.pi / 2 - theta  # Convert theta to dec
+    cos_pixel_dec = np.cos(pixel_dec)
+    xyz_pixel_centres = np.column_stack([
+        cos_pixel_dec * np.cos(pixel_ra),
+        cos_pixel_dec * np.sin(pixel_ra),
+        np.sin(pixel_dec)
+    ])
+    del theta, pixel_ra, pixel_dec, cos_pixel_dec  # Free memory
+    gc.collect()  # Force garbage collection
+
     # Get HEALPix pixel indices for all stars at the chosen level
     all_stars_pixels = (source_ids >> 35) >> (2 * (12 - level))
 
@@ -3521,21 +3533,9 @@ def prepare_galstreams_for_comparison(overwrite=False):
         del xyz_stream_track  # Free memory
         gc.collect()  # Force garbage collection
 
-        # Find HEALPix pixel centres
-        theta, pixel_ra = hp.pix2ang(nside, pixel_indices, nest=True)
-        pixel_dec = np.pi / 2 - theta  # Convert theta to dec
-        cos_pixel_dec = np.cos(pixel_dec)
-        xyz_pixel_centres = np.column_stack([
-            cos_pixel_dec * np.cos(pixel_ra),
-            cos_pixel_dec * np.sin(pixel_ra),
-            np.sin(pixel_dec)
-        ])
-        del theta, pixel_ra, pixel_dec, cos_pixel_dec  # Free memory
-        gc.collect()  # Force garbage collection
-
         # Query KDTree to find nearest stream track point to each HEALPix pixel centre
         distances, _ = tree.query(xyz_pixel_centres, k=1)
-        del tree, xyz_pixel_centres, _  # Free memory
+        del tree, _  # Free memory
         gc.collect()  # Force garbage collection
 
         # Convert chord distance into angular distance

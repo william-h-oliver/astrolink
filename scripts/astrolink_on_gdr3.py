@@ -3859,9 +3859,22 @@ def prepare_galstreams_for_comparison(overwrite=False):
         del stream_stars, background_stars, track_phi1  # Free memory
         gc.collect()  # Force garbage collection
 
+        # Prior ratio (Bayesian, data-driven)
+        Delta_s = 6 * sigma_phi2
+        Delta_bg = 4 * sigma_phi2
+
+        N_s_window = in_stream_mask.sum()
+        N_bg_window = np.sum(~in_stream_mask & in_footprint_mask)
+
+        lambda_bg_s = N_bg_window * (Delta_s / Delta_bg)
+        eps = np.sqrt(lambda_bg_s + 1.0)
+        N_s_hat = eps * np.log1p(np.exp((N_s_window - lambda_bg_s) / eps))
+
+        prior_ratio = N_s_hat / (lambda_bg_s + 1e-12)
+
         # Convert to posterior probability (assuming equal priors for now)
         print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | converting log-likelihood ratio to membership probabilities             ', end='\r')
-        odds = np.exp(loglikelihoodratio)
+        odds = prior_ratio * np.exp(loglikelihoodratio)
         probs = odds / (1 + odds)
         del loglikelihoodratio, odds  # Free memory
         gc.collect()  # Force garbage collection

@@ -3605,7 +3605,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
         # Get stars in stream and background
         stream_stars = footprint_stars[in_stream_mask]
         background_stars = footprint_stars[in_background_mask]
-        del footprint_stars, in_background_mask  # Free memory
+        del footprint_stars  # Free memory
         gc.collect()  # Force garbage collection
 
         # Stream log-likelihood for position-on-the-sky
@@ -3726,7 +3726,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 pass
 
         # Distance (for if / when this becomes available / reliable)
-        if False: #mws.summary.loc[stream_track_name, 'has_D']:
+        if mws.summary.loc[stream_track_name, 'has_D']:
             try:
                 print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for stream model (distance)                  ', end='\r')
                 # Width in distance
@@ -3860,16 +3860,15 @@ def prepare_galstreams_for_comparison(overwrite=False):
         gc.collect()  # Force garbage collection
 
         # Prior ratio (Bayesian, data-driven)
-        Delta_s = 6 * sigma_phi2
-        Delta_bg = 4 * sigma_phi2
+        Delta_stream = 6 * sigma_phi2
+        Delta_background = 4 * sigma_phi2
 
-        N_s_window = in_stream_mask.sum()
-        N_bg_window = np.sum(~in_stream_mask & in_footprint_mask)
+        N_stream = in_stream_mask.sum()
+        N_background = in_background_mask.sum()
 
-        lambda_bg_s = N_bg_window * (Delta_s / Delta_bg)
+        lambda_bg_s = N_background * (Delta_stream / Delta_background)
         eps = np.sqrt(lambda_bg_s + 1.0)
-        N_s_hat = eps * np.log1p(np.exp((N_s_window - lambda_bg_s) / eps))
-
+        N_s_hat = eps * np.log1p(np.exp((N_stream - lambda_bg_s) / eps))
         prior_ratio = N_s_hat / (lambda_bg_s + 1e-12)
 
         # Convert to posterior probability (assuming equal priors for now)
@@ -3880,7 +3879,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
         gc.collect()  # Force garbage collection
 
         # Keep only probable stars
-        probs_mask = probs > 0.1
+        probs_mask = probs > 0.01
         if not probs_mask.any():
             continue
         probs = probs[probs_mask]

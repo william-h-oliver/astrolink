@@ -3726,7 +3726,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 pass
 
         # Distance (for if / when this becomes available / reliable)
-        if mws.summary.loc[stream_track_name, 'has_D']:
+        if False: #mws.summary.loc[stream_track_name, 'has_D']:
             try:
                 print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for stream model (distance)                  ', end='\r')
                 # Width in distance

@@ -4282,7 +4282,7 @@ def compare_galstreams_via_energy_distance(overwrite=False):
 
     # Cycle through each stream, find which stars are in its footprint, and then compute stream membership probability with the information available
     bestMatchClusters = -np.ones(len(mws), dtype=np.int64)  # (N,) Initialize with -1, representing no cluster match
-    effectiveSigmas = -np.ones(len(mws), dtype=np.float32)  # (N,) Initialize with -1, representing no effective sigma
+    energies = np.full(len(mws), np.inf, dtype=np.float32)  # (N,) Initialize with +inf, representing no effective sigma
     for i, (stream_track_name, stream) in enumerate(mws.items()):
         print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | defining stream footprint                                               ', end='\r')
         # Width and sigma in phi2
@@ -4339,8 +4339,6 @@ def compare_galstreams_via_energy_distance(overwrite=False):
         stream.track = stream.track.transform_to(stream.stream_frame)
 
         # Cycle through the overlapping clusters and compute T statistic and effective sigma for each
-        best_match_cluster = -1
-        max_effective_sigma = -1
         cluster_indices = np.where(whichClusters)[0]
         for j, cluster_idx in enumerate(cluster_indices):
             print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | computing effective sigma for cluster {j + 1}/{len(cluster_indices)}      ', end='\r')
@@ -4423,11 +4421,10 @@ def compare_galstreams_via_energy_distance(overwrite=False):
 
             # Empirical terms
             # E||X - Y|| where Y ~ N(0, I_d)
-            norms = np.linalg.norm(Z, axis=1)
-            r2 = np.clip(norms**2, 0, 100)  # safe upper bound for hyp1f1 evaluation
+            norms_sqr = np.linalg.norm(Z, axis=1)**2
             term_xy = np.mean(
-                np.sqrt(r2**2 + d) *
-                hyp1f1(-0.5, d / 2, -r2**2 / 2)
+                np.sqrt(norms_sqr + d) *
+                hyp1f1(-0.5, d / 2, -norms_sqr / 2)
             )
 
             # E||X - X'||
@@ -4439,58 +4436,44 @@ def compare_galstreams_via_energy_distance(overwrite=False):
             # Energy distance
             E = 2 * term_xy - term_xx - term_yy
 
-            # Convert energy-distance to effective sigma
             # Normalize energy distance
-            e = max(E / cd, 0.0)  # numerical safety
-
-            # Decide branch using empirical variance
-            empirical_var = np.mean(norms**2) / d
-
-            # Two-branch inversion to effective sigma of multivariate Gaussian
-            if empirical_var >= 1:
-                sigma_eff = 1 + e / np.sqrt(2) + np.sqrt(e * (e + 2 * np.sqrt(2)))
-            else:
-                sigma_eff = 1 + e / np.sqrt(2) - np.sqrt(e * (e + 2 * np.sqrt(2)))
+            energy_norm = E * np.sqrt(d) / cd
 
             # Check if this cluster is the best match so far for this stream
-            if sigma_eff > max_effective_sigma:
-                max_effective_sigma = sigma_eff
-                best_match_cluster = cluster_idx
-        
-        # Store best match info for this stream
-        bestMatchClusters[i] = best_match_cluster
-        effectiveSigmas[i] = max_effective_sigma
+            if energy_norm < energies[i]:
+                energies[i] = energy_norm
+                bestMatchClusters[i] = cluster_idx
 
     # Save the results
     print("... saving comparison results.\n")
     np.save(file_path_best_match_astrolink_clusters, bestMatchClusters)
-    np.save(file_path_cluster_sigma_eff, effectiveSigmas)
+    np.save(file_path_cluster_energies, energies)
 
-def plot_effective_sigma_histogram(overwrite=False):
+def plot_energies_histogram(overwrite=False):
     """
-    Plot histogram of effective sigma values from galstreams comparison.
+    Plot histogram of effective sigma values from galstreams energy-distance comparison.
     """
-    file_path = os.path.join(OUTPUT_PATH, "galstreams_comparison_effective_sigma_histogram.png")
+    file_path = os.path.join(OUTPUT_PATH, "galstreams_energy_distance_effective_sigma_histogram.png")
+
+    # Check if figure already exists
     if os.path.exists(file_path) and not overwrite:
-        print(f"Galstreams effective sigma histogram already exists at:\n\t{file_path} .")
-        print("Use overwrite=True to force replotting.\n")
+        print(f"Figure already exists at {file_path}. Use overwrite=True to force recomputation.\n")
         return
-    print("Plotting effective sigma histogram from galstreams comparison...")
+    print("Plotting histogram of effective sigma values from galstreams energy-distance comparison...")
 
     # Load effective sigma values
-    effectiveSigmas = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_sigma_eff.npy"))  # (N_streams,)
+    energies = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_sigma_eff.npy"))  # (N_streams,)
 
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 4))
 
     # Plot histogram
-    ax.hist(effectiveSigmas[effectiveSigmas >= 0], bins='fd', color='C0', edgecolor='k', alpha=0.7)
+    ax.hist(energies[np.isfinite(energies)], bins='fd', color='C0', edgecolor='k', alpha=0.7)
 
     # Final formatting
     print("... saving figure.\n")
-    ax.set_xlabel("Effective Sigma")
-    ax.set_ylabel("Number of Streams")
-    ax.set_yscale('log')
+    ax.set_xlabel("Normalised energy-distance")
+    ax.set_ylabel("Number of streams")
     plt.tight_layout()
     plt.savefig(file_path, dpi=500)
     plt.close(fig)
@@ -4560,5 +4543,5 @@ if __name__ == "__main__":
     plot_galstreams_comparison_results()
 
     # Compare to galstreams via energy-distance metric
-    compare_galstreams_via_energy_distance()
-    plot_effective_sigma_histogram()
+    compare_galstreams_via_energy_distance(True)
+    plot_energies_histogram()

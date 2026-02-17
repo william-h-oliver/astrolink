@@ -1793,26 +1793,33 @@ def compare_to_catalogue_helper(
         members_cluster_ids_subsample,
         members_cluster_membership_subsample,
         cluster_sizes_in_subsample,
-        file_path_best_match_astrolink_clusters,
-        file_path_cluster_rpj
+        comparison_metric,
+        file_path_astrolink_idx_allS,
+        file_path_catalogue_rpj_allS,
+        file_path_catalogue_idx_optimalS,
+        file_path_astrolink_rpj_optimalS,
+        file_path_astrolink_idx_optimalS,
+        file_path_catalogue_rpj_optimalS
     ):
     # Max cluster ID in the catalogue (this + 1 is the "no cluster" ID")
-    max_catalogue_cluster_ID = members_cluster_ids_subsample.max() - 1
+    max_catalogue_cluster_ID = members_cluster_ids_subsample.max() - 1 # Assumes that at least one star in the subsample isn't a member of any cluster (i.e. has "no cluster" ID)
 
     # Load the AstroLink clustering output
     print("... loading AstroLink clustering output")
     clusterer = loadAstroLinkObject(os.path.join(OUTPUT_PATH, "astrolink_object.npz"))
-    ordering = clusterer.ordering  # avoid sending the whole clusterer to workers
 
     # Put large arrays into shared memory
     print("... putting large arrays into shared memory")
     shm_ids, shape_ids, dtype_ids = arr_to_shared_memory(members_cluster_ids_subsample)
     shm_membership, shape_membership, dtype_membership = arr_to_shared_memory(members_cluster_membership_subsample)
-    shm_ordering, shape_ordering, dtype_ordering = arr_to_shared_memory(ordering)
+    shm_ordering, shape_ordering, dtype_ordering = arr_to_shared_memory(clusterer.ordering)
 
-    # Calculate the RPJ values for each significance level
-    whichClusters = -np.ones((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, cluster_sizes_in_subsample.size, 2), dtype=np.int64)  # (N_clusters, 2) to store AstroLink clusters (start, end) pairs
-    RPJ = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, cluster_sizes_in_subsample.size, 5), dtype=np.float32)  # (N_clusters, 5) to store RPJ values
+    # Use limited number of workers because this process is memory intensive
+    max_workers = min(8, MAX_PARALLEL_WORKERS)
+
+    # Initialise arrays to store crossmatching statistics for AstroLink leaf clusters relative to the catalogue clusters across all significance thresholds
+    astrolink_idx_allS = -np.ones((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, cluster_sizes_in_subsample.size), dtype=np.int64)  # (N_sigmas, N_clusters,) to store best matching AstroLink cluster indices
+    catalogue_rpj_allS = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, cluster_sizes_in_subsample.size, 5), dtype=np.float32)  # (N_sigmas, N_clusters, 5) to store RPJ values
     
     # Loop over significance values
     for k, significance in enumerate(SIGMA_THRESHOLDS_FOR_COMPARISONS):
@@ -1821,15 +1828,28 @@ def compare_to_catalogue_helper(
         clusterer.S = significance
         clusterer.extract_clusters()
 
+        # Check if at the optimal significance threshold
+        isOptimalSignificance = significance == OPTIMAL_SIGMA_THRESHOLD
+
+        # Initialise arrays to store best matches at the optimal significance threshold
+        if isOptimalSignificance:
+            catalogue_idx_optimalS = -np.ones(clusterer.clusters.shape[0], dtype=np.int64)  # (N_AstroLink_clusters,) to store best matching catalogue cluster indices per AstroLink cluster
+            astrolink_rpj_optimalS = np.zeros((clusterer.clusters.shape[0], 5), dtype=np.float32)  # (N_AstroLink_clusters, 5) to store best matching RPJ values per AstroLink cluster
+            astrolink_idx_optimalS = -np.ones((cluster_sizes_in_subsample.size,), dtype=np.int64)  # (N_catalogue_clusters,) to store best matching AstroLink cluster indices per catalogue cluster
+            catalogue_rpj_optimalS = np.zeros((cluster_sizes_in_subsample.size, 5), dtype=np.float32)  # (N_catalogue_clusters, 5) to store best matching RPJ values per catalogue cluster
+
         # Loop over AstroLink clusters in parallel
-        max_workers = min(8, MAX_PARALLEL_WORKERS) # Use limited number of workers because this process is memory intensive
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = []
-            for i, ((start, end), cluster_id) in enumerate(zip(clusterer.clusters, clusterer.ids)):
-                if i == clusterer.ids.size - 1 or not clusterer.ids[i + 1].startswith(cluster_id + '-'): # Leaf clusters only
+            for cluster_index, (start, end) in enumerate(clusterer.clusters):
+                # Check if this AstroLink cluster is a leaf cluster
+                isLeafCluster = cluster_index == clusterer.ids.size - 1 or not clusterer.ids[cluster_index + 1].startswith(clusterer.ids[cluster_index] + '-')
+                
+                # Compare leaf clusters only or all clusters if at optimal signficance (but never the trivial background cluster)
+                if cluster_index > 0 and (isLeafCluster or isOptimalSignificance): 
                     futures.append(
                         executor.submit(process_astrolink_cluster,
-                                        start, end,
+                                        cluster_index, isLeafCluster, start, end,
                                         cluster_sizes_in_subsample,
                                         max_catalogue_cluster_ID,
                                         shm_ids.name, shm_membership.name, shm_ordering.name,
@@ -1837,33 +1857,53 @@ def compare_to_catalogue_helper(
                                         dtype_ids, dtype_membership, dtype_ordering)
                     )
 
+            # Process comparison results as they finish
             for f in as_completed(futures):
                 result = f.result()
                 if result is None:
                     continue
                 
                 # Unpack result
-                start, end, unique_ids, RPJ_cluster = result
+                cluster_index, isLeafCluster, unique_ids, single_RPJ = result
 
-                # Merge results back into global arrays
-                better_matches = RPJ_cluster[:, 3] > RPJ[k, unique_ids, 3] # Jaccard index comparison under the S_C = S_A assumption
-                which_better_matches = unique_ids[better_matches]
-                whichClusters[k, which_better_matches] = start, end
-                RPJ[k, which_better_matches] = RPJ_cluster[better_matches]
+                # Record RPJ values for all clusters at the optimal significance (except background cluster)
+                if isOptimalSignificance:
+                    # Crossmatching relative to this AstroLink cluster, i.e. what is the best matching catalogue cluster to the AstroLink clusters?
+                    best_match_boolean = np.argmax(single_RPJ[:, comparison_metric]) # Best catalogue match to this AstroLink cluster
+                    best_match_index   = unique_ids[best_match_boolean]
+                    catalogue_idx_optimalS[cluster_index] = best_match_index
+                    astrolink_rpj_optimalS[cluster_index] = single_RPJ[best_match_boolean]
+
+                    # Crossmatching relative to the catalogue clusters, i.e. what is the best matching AstroLink cluster to the catalogue clusters?
+                    better_matches_boolean = single_RPJ[:, comparison_metric] > catalogue_rpj_optimalS[unique_ids, comparison_metric] # Comparison under the chosen metric
+                    better_matches_indices = unique_ids[better_matches_boolean]
+                    astrolink_idx_optimalS[better_matches_indices] = cluster_index
+                    catalogue_rpj_optimalS[better_matches_indices] = single_RPJ[better_matches_boolean]
+
+                # Record RPJ values for leaf clusters only (relative to the catalogue clusters only)
+                if isLeafCluster:
+                    better_matches_boolean = single_RPJ[:, comparison_metric] > catalogue_rpj_allS[k, unique_ids, comparison_metric] # Comparison under the chosen metric
+                    better_matches_indices = unique_ids[better_matches_boolean]
+                    astrolink_idx_allS[k, better_matches_indices] = cluster_index
+                    catalogue_rpj_allS[k, better_matches_indices] = single_RPJ[better_matches_boolean]
     
     # Clean up shared memory
     print("... cleaning up shared memory                                                                                                  ")
     shm_ids.close(); shm_ids.unlink()
     shm_membership.close(); shm_membership.unlink()
     shm_ordering.close(); shm_ordering.unlink()
-    del clusterer, ordering, members_cluster_ids_subsample, members_cluster_membership_subsample, cluster_sizes_in_subsample  # Free memory
+    del members_cluster_ids_subsample, members_cluster_membership_subsample, cluster_sizes_in_subsample, clusterer  # Free memory
     gc.collect()  # Force garbage collection
 
     # Save the results
     print("... saving comparison results.\n")
-    np.save(file_path_best_match_astrolink_clusters, whichClusters)
-    np.save(file_path_cluster_rpj, RPJ)
-    del whichClusters, RPJ  # Free memory
+    np.save(file_path_astrolink_idx_allS, astrolink_idx_allS)
+    np.save(file_path_catalogue_rpj_allS, catalogue_rpj_allS)
+    np.save(file_path_catalogue_idx_optimalS, catalogue_idx_optimalS)
+    np.save(file_path_astrolink_rpj_optimalS, astrolink_rpj_optimalS)
+    np.save(file_path_astrolink_idx_optimalS, astrolink_idx_optimalS)
+    np.save(file_path_catalogue_rpj_optimalS, catalogue_rpj_optimalS)
+    del astrolink_idx_allS, catalogue_rpj_allS, catalogue_idx_optimalS, astrolink_rpj_optimalS, astrolink_idx_optimalS, catalogue_rpj_optimalS  # Free memory
     gc.collect()  # Force garbage collection
 
 def arr_to_shared_memory(arr):
@@ -1873,7 +1913,7 @@ def arr_to_shared_memory(arr):
     return shm, arr.shape, arr.dtype.type
 
 def process_astrolink_cluster(
-        start, end,
+        cluster_index, isLeafCluster, start, end,
         cluster_sizes_in_subsample,
         max_catalogue_cluster_ID,
         shm_name_ids, shm_name_membership, shm_name_ordering,
@@ -1883,7 +1923,7 @@ def process_astrolink_cluster(
     """
     Worker function to process one AstroLink cluster.
     Reattaches shared-memory arrays, extracts cluster members, and computes RPJ stats.
-    Returns (updates to whichClusters, RPJ).
+    Returns (updates to whichAstroLinkClusters, RPJ).
     """
     # Reattach shared-memory arrays
     shm_ids = shared_memory.SharedMemory(name=shm_name_ids)
@@ -1911,11 +1951,13 @@ def process_astrolink_cluster(
         return None  # No valid clusters to compare
 
     # If there are clusters to compare to, get valid members
-    mask_membership = members_cluster_membership_subsample[astrolink_cluster_members].ravel() & mask_valid
+    xmatched_cluster_membership = members_cluster_membership_subsample[astrolink_cluster_members]
+    membership_flat = xmatched_cluster_membership.ravel()
+    membership_valid = membership_flat[mask_valid]
 
     # Get unique IDs and their associated intersections
     unique_ids, inv = np.unique(ids_valid, return_inverse=True)
-    intersection_sizes = np.bincount(inv[mask_membership])
+    intersection_sizes = np.bincount(inv, weights=membership_valid)
 
     # Call numba-jitted function
     RPJ_cluster = calculate_rpj_for_astrolink_cluster_matches(
@@ -1926,7 +1968,7 @@ def process_astrolink_cluster(
         max_catalogue_cluster_ID
     )
 
-    return (start, end, unique_ids, RPJ_cluster)
+    return (cluster_index, isLeafCluster, unique_ids, RPJ_cluster)
 
 @njit
 def calculate_rpj_for_astrolink_cluster_matches(
@@ -2071,7 +2113,7 @@ def prepare_Hunt2024_for_comparison(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Get Hunt+2024 cluster IDs for this subsample (multiple columns since stars can be in multiple Hunt+2024 clusters)
-    print("... getting Hunt+2024 cluster IDs and membership probabilities for the subsample in this work")
+    print("... getting Hunt+2024 cluster IDs and memberships for the subsample in this work")
     max_appearances = np.unique(H24_members_source_ids, return_counts=True)[1].max()
     max_H24_cluster_ID = H24_members_cluster_ids.max()
     H24_members_cluster_ids_gdr3 = np.full((H24_members_mask.size, max_appearances), max_H24_cluster_ID + 1, dtype=np.int64)  # (N,) Initialize with max_H24_cluster_ID + 1, representing no cluster
@@ -2080,13 +2122,13 @@ def prepare_Hunt2024_for_comparison(overwrite=False):
     del H24_members_mask  # Free memory
     gc.collect()  # Force garbage collection
     
-    # Assign cluster IDs / membership probabilities to each of the members
+    # Assign cluster IDs / memberships to each of the members
     unique_H24_source_ids, indices, counts = np.unique(H24_members_source_ids, return_index=True, return_counts=True)
     for num_count in range(1, max_appearances + 1):
         # Get the relative position of the members in the full catalogue for this count
         num_count_bool = counts == num_count
 
-        # Get the cluster IDs and probabilities for the members with this count
+        # Get the cluster IDs and memberships for the members with this count
         if num_count == 1:
             cluster_ids = H24_members_cluster_ids[indices[num_count_bool]][:, None]
             membership = H24_members_cluster_membership[indices[num_count_bool]][:, None]
@@ -2097,11 +2139,11 @@ def prepare_Hunt2024_for_comparison(overwrite=False):
                 # Get the indices of the members with this source ID
                 source_id_match = np.where(H24_members_source_ids == sid)[0]
 
-                # Get the cluster IDs and probabilities for these members
+                # Get the cluster IDs and memberships for these members
                 cluster_ids[i] = H24_members_cluster_ids[source_id_match]
                 membership[i] = H24_members_cluster_membership[source_id_match]
 
-        # Assign the cluster IDs and probabilities to the members
+        # Assign the cluster IDs and memberships to the members
         H24_members_cluster_ids_gdr3[H24_members_mask_where[num_count_bool], :num_count] = cluster_ids
         H24_members_cluster_membership_gdr3[H24_members_mask_where[num_count_bool], :num_count] = membership
 
@@ -2176,16 +2218,28 @@ def compare_to_Hunt2024(overwrite=False):
     Compare the clustering output to the Hunt & Reffert (2024).
     """
     # Check if comparison results already exist
-    file_path_best_match_astrolink_clusters = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_best_match_astrolink_clusters.npy")
-    file_path_cluster_rpj = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_rpj.npy")
-    
+    file_path_astrolink_idx_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_astrolink_idx_allS.npy")
+    file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_catalogue_rpj_allS.npy")
+    file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_catalogue_idx_optimalS.npy")
+    file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_astrolink_rpj_optimalS.npy")
+    file_path_astrolink_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_astrolink_idx_optimalS.npy")
+    file_path_catalogue_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_catalogue_rpj_optimalS.npy")
+
     # Skip processing if all merged output files already exist
-    all_exist = (os.path.exists(file_path_cluster_rpj) and
-                 os.path.exists(file_path_best_match_astrolink_clusters))
+    all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
+                 os.path.exists(file_path_astrolink_idx_allS) and
+                 os.path.exists(file_path_catalogue_idx_optimalS) and
+                 os.path.exists(file_path_astrolink_rpj_optimalS) and
+                 os.path.exists(file_path_astrolink_idx_optimalS) and
+                 os.path.exists(file_path_catalogue_rpj_optimalS))
     if all_exist and not overwrite:
         print("Hunt & Reffert (2024) comparison results already exist at:")
-        print(f"\t{file_path_best_match_astrolink_clusters} and")
-        print(f"\t{file_path_cluster_rpj} .")
+        print(f"\t{file_path_astrolink_idx_allS} ,")
+        print(f"\t{file_path_catalogue_rpj_allS} ,")
+        print(f"\t{file_path_catalogue_idx_optimalS} ,")
+        print(f"\t{file_path_astrolink_rpj_optimalS} ,")
+        print(f"\t{file_path_astrolink_idx_optimalS} , and")
+        print(f"\t{file_path_catalogue_rpj_optimalS} .")
         print("Use overwrite=True to force recomputation.\n")
         return
     print("Comparing clustering output to Hunt & Reffert (2024)...")
@@ -2196,32 +2250,39 @@ def compare_to_Hunt2024(overwrite=False):
     H24_members_cluster_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
     H24_cluster_sizes_in_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_cluster_sizes_in_subsample.npy"))  # (N_clusters,)
 
+    # Choose comparison metric
+    comparison_metric = 3  # 0 for recovery, 1 for purity (S_C=S_A), 2 for purity (S_C=all_catalogue_stars), 3 for Jaccard index (S_C=S_A), 4 for Jaccard index (S_C=all_catalogue_stars)
+    
     # Make the comparison
     compare_to_catalogue_helper(
         H24_members_cluster_ids_subsample,
         H24_members_cluster_membership_subsample,
         H24_cluster_sizes_in_subsample,
-        file_path_best_match_astrolink_clusters,
-        file_path_cluster_rpj
+        comparison_metric,
+        file_path_astrolink_idx_allS,
+        file_path_catalogue_rpj_allS,
+        file_path_catalogue_idx_optimalS,
+        file_path_astrolink_rpj_optimalS,
+        file_path_astrolink_idx_optimalS,
+        file_path_catalogue_rpj_optimalS
     )
 
-def plot_Hunt2024_comparison_results(overwrite=False):
+def plot_Hunt2024_crossmatch_per_significance(overwrite=False):
     """
-    Plot the results of the comparison between clustering output and Hunt & Reffert (2024),
-    showing recovery, purity, and Jaccard index under both subsample assumptions ('full' 
-    and 'union'), with hatched regions indicating bounds.
+    Plot a summary the comparison between the AstroLink clustering output and the 
+    Hunt & Reffert (2024) catalogue as a function of the significance threshold S.
     """
     # Check if plot already exists
-    file_path = os.path.join(OUTPUT_PATH, "Hunt2024_comparison_results.png")
+    file_path = os.path.join(OUTPUT_PATH, "Hunt2024_crossmatch_per_significance.png")
     if os.path.exists(file_path) and not overwrite:
-        print(f"Hunt & Reffert (2024) comparison results plot already exists at:\n\t{file_path} .")
+        print(f"Hunt & Reffert (2024) crossmatch per significance plot already exists at:\n\t{file_path} .")
         print("Use overwrite=True to force replotting.\n")
         return
-    print("Plotting Hunt & Reffert (2024) comparison results...")
+    print("Plotting Hunt & Reffert (2024) crossmatch per significance...")
 
     # Load comparison results
     print("... loading comparison results")
-    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_rpj.npy"))  # (N_sigmas, N_clusters, 5)
+    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_catalogue_rpj_allS.npy"))  # (N_sigmas, N_clusters, 5)
     H24_cluster_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/hunt24_cluster_coverage.npy"))
 
     # Load Hunt & Reffert (2024) cluster types
@@ -2334,6 +2395,7 @@ def prepare_UCC_for_comparison(overwrite=False):
     file_path_clusters_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_clusters_names.npy")
     file_path_clusters_quality_class = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_clusters_quality_class.npy")
     file_path_UCC_members_cluster_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_members_cluster_ids_subsample.npy")
+    file_path_UCC_members_cluster_membership_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_members_cluster_membership_subsample.npy")
     file_path_UCC_cluster_sizes_in_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_cluster_sizes_in_subsample.npy")
     file_path_UCC_cluster_coverage = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_cluster_coverage.npy")
 
@@ -2341,6 +2403,7 @@ def prepare_UCC_for_comparison(overwrite=False):
     all_exist = (os.path.exists(file_path_clusters_names) and
                  os.path.exists(file_path_clusters_quality_class) and
                  os.path.exists(file_path_UCC_members_cluster_ids_subsample) and
+                 os.path.exists(file_path_UCC_members_cluster_membership_subsample) and
                  os.path.exists(file_path_UCC_cluster_sizes_in_subsample) and
                  os.path.exists(file_path_UCC_cluster_coverage))
     if all_exist and not overwrite:
@@ -2348,6 +2411,7 @@ def prepare_UCC_for_comparison(overwrite=False):
         print(f"\t{file_path_clusters_names} ,")
         print(f"\t{file_path_clusters_quality_class} ,")
         print(f"\t{file_path_UCC_members_cluster_ids_subsample} ,")
+        print(f"\t{file_path_UCC_members_cluster_membership_subsample} ,")
         print(f"\t{file_path_UCC_cluster_sizes_in_subsample} , and")
         print(f"\t{file_path_UCC_cluster_coverage} .")
         print("Use overwrite=True to force recomputation.\n")
@@ -2387,8 +2451,8 @@ def prepare_UCC_for_comparison(overwrite=False):
     del df_members  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Convert probabilistic membership to binary
-    UCC_members_binary = (UCC_members_probs >= 0.5).astype(np.int8)
+    # Convert probabilistic membership to a binary one
+    UCC_members_cluster_membership = UCC_members_probs >= 0.5
 
     # Load Gaia DR3 source_ids
     print("... loading Gaia DR3 source IDs")
@@ -2412,7 +2476,7 @@ def prepare_UCC_for_comparison(overwrite=False):
     unique_UCC_members_cluster_names, UCC_members_cluster_ids = np.unique(UCC_members_cluster_names, return_inverse=True)
     max_UCC_cluster_ID = UCC_members_cluster_ids.max()
     UCC_members_cluster_ids_gdr3 = np.full((UCC_members_mask.size, max_appearances), max_UCC_cluster_ID + 1, dtype=np.int64)  # (N,) Initialize with max_UCC_cluster_ID + 1, representing no cluster
-    UCC_members_cluster_binary_gdr3 = np.zeros((UCC_members_mask.size, max_appearances), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
+    UCC_members_cluster_membership_gdr3 = np.zeros((UCC_members_mask.size, max_appearances), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
     UCC_members_mask_where = np.where(UCC_members_mask)[0]  # Use indices of members in the full catalogue from now on to do efficient slicing/indexing
     del UCC_members_mask, UCC_members_cluster_names, unique_UCC_members_cluster_names  # Free memory
     gc.collect()  # Force garbage collection
@@ -2426,7 +2490,7 @@ def prepare_UCC_for_comparison(overwrite=False):
         # Get the cluster IDs for the members with this count
         if num_count == 1:
             cluster_ids = UCC_members_cluster_ids[indices[num_count_bool]][:, None]
-            membership = UCC_members_binary[indices[num_count_bool]][:, None]
+            membership = UCC_members_cluster_membership[indices[num_count_bool]][:, None]
         else: # There are not too many of these so what follows is efficient enough
             cluster_ids = np.zeros((num_count_bool.sum(), num_count), dtype=np.int64)
             membership = np.zeros((num_count_bool.sum(), num_count), dtype=np.float32)
@@ -2436,17 +2500,14 @@ def prepare_UCC_for_comparison(overwrite=False):
 
                 # Get the cluster IDs for these members
                 cluster_ids[i] = UCC_members_cluster_ids[source_id_match]
-                membership[i] = UCC_members_binary[source_id_match]
-        
-        # Make sure that non-members don't carry cluster IDs
-        cluster_ids[membership == 0] = max_UCC_cluster_ID + 1
+                membership[i] = UCC_members_cluster_membership[source_id_match]
 
         # Assign the cluster IDs to the members
         UCC_members_cluster_ids_gdr3[UCC_members_mask_where[num_count_bool], :num_count] = cluster_ids
-        UCC_members_cluster_binary_gdr3[UCC_members_mask_where[num_count_bool], :num_count] = membership
+        UCC_members_cluster_membership_gdr3[UCC_members_mask_where[num_count_bool], :num_count] = membership
 
     UCC_members_cluster_ids_subsample = UCC_members_cluster_ids_gdr3[subsample_mask]
-    UCC_members_cluster_binary_subsample = UCC_members_cluster_binary_gdr3[subsample_mask]
+    UCC_members_cluster_membership_subsample = UCC_members_cluster_membership_gdr3[subsample_mask]
     del subsample_mask, UCC_members_source_ids, UCC_members_cluster_ids_gdr3, UCC_members_mask_where, unique_UCC_source_ids, indices, counts  # Free memory
     gc.collect()  # Force garbage collection
 
@@ -2454,17 +2515,17 @@ def prepare_UCC_for_comparison(overwrite=False):
     print("... pre-computing the total size for each UCC cluster")
     UCC_cluster_sizes_full = np.bincount(
         UCC_members_cluster_ids,
-        weights=UCC_members_binary,
+        weights=UCC_members_cluster_membership,
         minlength=max_UCC_cluster_ID + 1
     )  # (N_clusters,)
-    del UCC_members_cluster_ids, UCC_members_binary  # Free memory
+    del UCC_members_cluster_ids, UCC_members_cluster_membership  # Free memory
     gc.collect()  # Force garbage collection
 
     # Pre-compute the size for each UCC cluster in the overlap with the subsample
     print("... pre-computing the size for each UCC cluster in the subsample of this work")
     UCC_cluster_sizes_in_subsample = np.bincount(
         UCC_members_cluster_ids_subsample.ravel(),
-        weights=UCC_members_cluster_binary_subsample.ravel(),
+        weights=UCC_members_cluster_membership_subsample.ravel(),
         minlength=max_UCC_cluster_ID + 1
     )[:max_UCC_cluster_ID + 1]  # (N_clusters,)
 
@@ -2481,9 +2542,10 @@ def prepare_UCC_for_comparison(overwrite=False):
     # Save the intermediary results
     print('... saving intermediary results.\n')
     np.save(file_path_UCC_members_cluster_ids_subsample, UCC_members_cluster_ids_subsample)
+    np.save(file_path_UCC_members_cluster_membership_subsample, UCC_members_cluster_membership_subsample)
     np.save(file_path_UCC_cluster_sizes_in_subsample, UCC_cluster_sizes_in_subsample)
     np.save(file_path_UCC_cluster_coverage, UCC_cluster_coverage)
-    del UCC_members_cluster_ids_subsample, UCC_cluster_sizes_in_subsample, UCC_cluster_coverage  # Free memory
+    del UCC_members_cluster_ids_subsample, UCC_members_cluster_membership_subsample, UCC_cluster_sizes_in_subsample, UCC_cluster_coverage  # Free memory
     gc.collect()  # Force garbage collection
 
 def plot_UCC_clusters_on_sky(overwrite=False):
@@ -2515,16 +2577,28 @@ def compare_to_UCC(overwrite=False):
     Compare the clustering output to the Unified Cluster Catalogue.
     """
     # Check if comparison results already exist
-    file_path_best_match_astrolink_clusters = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_best_match_astrolink_clusters.npy")
-    file_path_cluster_rpj = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_rpj.npy")
+    file_path_astrolink_idx_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_astrolink_idx_allS.npy")
+    file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_catalogue_rpj_allS.npy")
+    file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_catalogue_idx_optimalS.npy")
+    file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_astrolink_rpj_optimalS.npy")
+    file_path_astrolink_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_astrolink_idx_optimalS.npy")
+    file_path_catalogue_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_catalogue_rpj_optimalS.npy")
 
     # Skip processing if all merged output files already exist
-    all_exist = (os.path.exists(file_path_best_match_astrolink_clusters) and
-                 os.path.exists(file_path_cluster_rpj))
+    all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
+                 os.path.exists(file_path_astrolink_idx_allS) and
+                 os.path.exists(file_path_catalogue_idx_optimalS) and
+                 os.path.exists(file_path_astrolink_rpj_optimalS) and
+                 os.path.exists(file_path_astrolink_idx_optimalS) and
+                 os.path.exists(file_path_catalogue_rpj_optimalS))
     if all_exist and not overwrite:
         print("Unified Cluster Catalogue comparison results already exist at:")
-        print(f"\t{file_path_best_match_astrolink_clusters} and")
-        print(f"\t{file_path_cluster_rpj} .")
+        print(f"\t{file_path_astrolink_idx_allS} ,")
+        print(f"\t{file_path_catalogue_rpj_allS} ,")
+        print(f"\t{file_path_catalogue_idx_optimalS} ,")
+        print(f"\t{file_path_astrolink_rpj_optimalS} ,")
+        print(f"\t{file_path_astrolink_idx_optimalS} , and")
+        print(f"\t{file_path_catalogue_rpj_optimalS} .")
         print("Use overwrite=True to force recomputation.\n")
         return
     print("Comparing clustering output to the Unified Cluster Catalogue...")
@@ -2535,16 +2609,24 @@ def compare_to_UCC(overwrite=False):
     UCC_members_cluster_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
     UCC_cluster_sizes_in_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_cluster_sizes_in_subsample.npy"))  # (N_clusters,)
 
+    # Choose comparison metric
+    comparison_metric = 3  # 0 for recovery, 1 for purity (S_C=S_A), 2 for purity (S_C=all_catalogue_stars), 3 for Jaccard index (S_C=S_A), 4 for Jaccard index (S_C=all_catalogue_stars)
+    
     # Make the comparison
     compare_to_catalogue_helper(
         UCC_members_cluster_ids_subsample,
         UCC_members_cluster_membership_subsample,
         UCC_cluster_sizes_in_subsample,
-        file_path_best_match_astrolink_clusters,
-        file_path_cluster_rpj
+        comparison_metric,
+        file_path_astrolink_idx_allS,
+        file_path_catalogue_rpj_allS,
+        file_path_catalogue_idx_optimalS,
+        file_path_astrolink_rpj_optimalS,
+        file_path_astrolink_idx_optimalS,
+        file_path_catalogue_rpj_optimalS
     )
 
-def plot_UCC_comparison_results(overwrite=False):
+def plot_UCC_crossmatch_per_significance(overwrite=False):
     """
     Plot the results of the comparison between clustering output and the Unified Cluster Catalogue (UCC),
     showing recovery, purity, and Jaccard index under both subsample assumptions
@@ -2560,7 +2642,7 @@ def plot_UCC_comparison_results(overwrite=False):
 
     # Load comparison results
     print("... loading comparison results")
-    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_rpj.npy"))  # (N_sigmas, N_clusters, 5)
+    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_catalogue_rpj_allS.npy"))  # (N_sigmas, N_clusters, 5)
     UCC_cluster_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/ucc_cluster_coverage.npy"))
 
     # Load UCC cluster metadata
@@ -2691,18 +2773,21 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
     # Check if files already exist
     file_path_V21_clusters_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_clusters_names.npy")
     file_path_V21_members_cluster_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_ids_subsample.npy")
+    file_path_V21_members_cluster_membership_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_membership_subsample.npy")
     file_path_V21_cluster_sizes_in_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_cluster_sizes_in_subsample.npy")
     file_path_V21_cluster_coverage = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_cluster_coverage.npy")
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_V21_clusters_names) and
                  os.path.exists(file_path_V21_members_cluster_ids_subsample) and
+                 os.path.exists(file_path_V21_members_cluster_membership_subsample) and
                  os.path.exists(file_path_V21_cluster_sizes_in_subsample) and
                  os.path.exists(file_path_V21_cluster_coverage))
     if all_exist and not overwrite:
         print("Vasiliev & Baumgardt (2021) reduced data already exists at:")
         print(f"\t{file_path_V21_clusters_names} ,")
         print(f"\t{file_path_V21_members_cluster_ids_subsample} ,")
+        print(f"\t{file_path_V21_members_cluster_membership_subsample} ,")
         print(f"\t{file_path_V21_cluster_sizes_in_subsample} , and")
         print(f"\t{file_path_V21_cluster_coverage} .")
         print("Use overwrite=True to force recomputation.\n")
@@ -2735,10 +2820,10 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
         del V21_clusters_names  # Free memory
         gc.collect()  # Force garbage collection
         
-        # Cycle through each cluster and save the star membership probabilities for that cluster
+        # Cycle through each cluster and save the star memberships for that cluster
         max_V21_cluster_ID = len(globular_cluster_files) - 1
         V21_members_cluster_ids_gdr3 = np.full((subsample_mask.size, 1), max_V21_cluster_ID + 1, dtype=np.int64)  # (N,) Initialize with max_V21_cluster_ID + 1, representing no cluster
-        V21_members_cluster_binary_gdr3 = np.zeros((subsample_mask.size, 1), dtype=np.int8)  # (N,) Initialize with 0, representing zero membership probability
+        V21_members_cluster_membership_gdr3 = np.zeros((subsample_mask.size, 1), dtype=np.bool_)  # (N,) Initialize with 0, representing zero membership probability
         for i, name in enumerate(globular_cluster_files):
             with z.open(name) as f:
                 text_stream = TextIOWrapper(f, encoding='utf-8')
@@ -2762,29 +2847,29 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
             cluster_source_ids = df['source_id'].to_numpy().astype(np.int64)  # (N_cluster,)
             cluster_member_probs = df['memberprob'].to_numpy().astype(np.float32)  # (N_cluster,)
             
-            # Convert probabilistic membership to binary
-            cluster_member_binary = (cluster_member_probs >= 0.5).astype(np.int8)
+            # Convert probabilistic membership to a binary one
+            members_cluster_membership = cluster_member_probs >= 0.5
 
             # Find which stars in the full GDR3 catalogue are in this cluster
             indices = np.searchsorted(gdr3_source_ids, cluster_source_ids)  # Assumes gdr3_source_ids is sorted
             indices = indices[(indices < gdr3_source_ids.size) & (gdr3_source_ids[indices] == cluster_source_ids)]  # Keep only valid matches
 
-            # Assign the cluster IDs and probabilities to the members
+            # Assign the cluster IDs and memberships to the members
             unassigned_bool = True
             cluster_source_ids_indices = V21_members_cluster_ids_gdr3[indices]
             for j in range(V21_members_cluster_ids_gdr3.shape[1]):
                 # Find which members can be assigned to this column
                 unassigned_indices_bool = cluster_source_ids_indices[:, j] == max_V21_cluster_ID + 1
 
-                # Assign the cluster IDs and probabilities to the unassigned members for this column
+                # Assign the cluster IDs and memberships to the unassigned members for this column
                 unassigned_indices = indices[unassigned_indices_bool]
                 V21_members_cluster_ids_gdr3[unassigned_indices, j] = i
-                V21_members_cluster_binary_gdr3[unassigned_indices, j] = cluster_member_binary[unassigned_indices_bool]
+                V21_members_cluster_membership_gdr3[unassigned_indices, j] = members_cluster_membership[unassigned_indices_bool]
 
                 # Update the arrays to only include those that are still unassigned
                 indices = indices[~unassigned_indices_bool]
                 cluster_source_ids_indices = cluster_source_ids_indices[~unassigned_indices_bool]
-                cluster_member_binary = cluster_member_binary[~unassigned_indices_bool]
+                members_cluster_membership = members_cluster_membership[~unassigned_indices_bool]
 
                 # If all members have been assigned, break
                 if cluster_source_ids_indices.shape[0] == 0:
@@ -2799,38 +2884,38 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
                     (V21_members_cluster_ids_gdr3, np.full((subsample_mask.size, 1), max_V21_cluster_ID + 1, dtype=np.int64)),
                     axis=1
                 )
-                V21_members_cluster_binary_gdr3 = np.concatenate(
-                    (V21_members_cluster_binary_gdr3, np.zeros((subsample_mask.size, 1), dtype=np.int8)),
+                V21_members_cluster_membership_gdr3 = np.concatenate(
+                    (V21_members_cluster_membership_gdr3, np.zeros((subsample_mask.size, 1), dtype=np.bool_)),
                     axis=1
                 )
 
-                # Assign the cluster IDs and probabilities to the members
+                # Assign the cluster IDs and memberships to the members
                 V21_members_cluster_ids_gdr3[indices, -1] = i
-                V21_members_cluster_binary_gdr3[indices, -1] = cluster_member_binary
+                V21_members_cluster_membership_gdr3[indices, -1] = members_cluster_membership[indices]
     del gdr3_source_ids  # Free memory
     gc.collect()  # Force garbage collection
     
-    # Get the cluster IDs and probabilities for the subsample in this work
+    # Get the cluster IDs and memberships for the subsample in this work
     V21_members_cluster_ids_subsample = V21_members_cluster_ids_gdr3[subsample_mask]
-    V21_members_cluster_binary_subsample = V21_members_cluster_binary_gdr3[subsample_mask]
+    V21_members_cluster_membership_subsample = V21_members_cluster_membership_gdr3[subsample_mask]
     del subsample_mask  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Pre-compute the total sum of probabilities for each globular cluster in Vasiliev & Baumgardt (2021)
-    print("... pre-computing the total sum of probabilities for each Vasiliev & Baumgardt (2021) globular cluster")
+    # Pre-compute the total size for each globular cluster in Vasiliev & Baumgardt (2021)
+    print("... pre-computing the total size for each Vasiliev & Baumgardt (2021) globular cluster")
     V21_cluster_sizes_full = np.bincount(
         V21_members_cluster_ids_gdr3.ravel(),
-        weights=V21_members_cluster_binary_gdr3.ravel(),
+        weights=V21_members_cluster_membership_gdr3.ravel(),
         minlength=max_V21_cluster_ID + 1
     )[:max_V21_cluster_ID + 1]  # (N_clusters,)
-    del V21_members_cluster_ids_gdr3, V21_members_cluster_binary_gdr3  # Free memory
+    del V21_members_cluster_ids_gdr3, V21_members_cluster_membership_gdr3  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Pre-compute the sum of probabilities for each globular cluster in the overlap with the subsample
-    print("... pre-computing the total sum of probabilities for each Vasiliev & Baumgardt (2021) globular cluster in the subsample of this work")
+    # Pre-compute the size for each globular cluster in the overlap with the subsample
+    print("... pre-computing the size for each Vasiliev & Baumgardt (2021) globular cluster in the subsample of this work")
     V21_cluster_sizes_in_subsample = np.bincount(
         V21_members_cluster_ids_subsample.ravel(),
-        weights=V21_members_cluster_binary_subsample.ravel(),
+        weights=V21_members_cluster_membership_subsample.ravel(),
         minlength=max_V21_cluster_ID + 1
     )[:max_V21_cluster_ID + 1]  # (N_clusters,)
 
@@ -2847,9 +2932,10 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
     # Save the intermediary results
     print('... saving intermediary results.\n')
     np.save(file_path_V21_members_cluster_ids_subsample, V21_members_cluster_ids_subsample)
+    np.save(file_path_V21_members_cluster_membership_subsample, V21_members_cluster_membership_subsample)
     np.save(file_path_V21_cluster_sizes_in_subsample, V21_cluster_sizes_in_subsample)
     np.save(file_path_V21_cluster_coverage, V21_cluster_coverage)
-    del V21_members_cluster_ids_subsample, V21_cluster_sizes_in_subsample, V21_cluster_coverage  # Free memory
+    del V21_members_cluster_ids_subsample, V21_members_cluster_membership_subsample, V21_cluster_sizes_in_subsample, V21_cluster_coverage  # Free memory
     gc.collect()  # Force garbage collection
 
 def plot_Vasiliev2021_clusters_on_sky(overwrite=False):
@@ -2872,6 +2958,7 @@ def plot_Vasiliev2021_clusters_on_sky(overwrite=False):
     # Plot the globular clusters on the sky
     plot_catalogue_structure_on_sky(
         V21_members_cluster_ids_subsample,
+        V21_members_cluster_membership_subsample,
         file_path_clusters_on_sky
     )
 
@@ -2880,16 +2967,28 @@ def compare_to_Vasiliev2021(overwrite=False):
     Compare the clustering output to the Vasiliev & Baumgardt (2021) catalogue.
     """
     # Check if comparison results already exist
-    file_path_best_match_astrolink_clusters = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_best_match_astrolink_clusters.npy")
-    file_path_cluster_rpj = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_rpj.npy")
+    file_path_astrolink_idx_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_astrolink_idx_allS.npy")
+    file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_catalogue_rpj_allS.npy")
+    file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_catalogue_idx_optimalS.npy")
+    file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_astrolink_rpj_optimalS.npy")
+    file_path_astrolink_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_astrolink_idx_optimalS.npy")
+    file_path_catalogue_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_catalogue_rpj_optimalS.npy")
 
     # Skip processing if all merged output files already exist
-    all_exist = (os.path.exists(file_path_best_match_astrolink_clusters) and
-                 os.path.exists(file_path_cluster_rpj))
+    all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
+                 os.path.exists(file_path_astrolink_idx_allS) and
+                 os.path.exists(file_path_catalogue_idx_optimalS) and
+                 os.path.exists(file_path_astrolink_rpj_optimalS) and
+                 os.path.exists(file_path_astrolink_idx_optimalS) and
+                 os.path.exists(file_path_catalogue_rpj_optimalS))
     if all_exist and not overwrite:
         print("Vasiliev & Baumgardt (2021) comparison results already exist at:")
-        print(f"\t{file_path_best_match_astrolink_clusters} and")
-        print(f"\t{file_path_cluster_rpj} .")
+        print(f"\t{file_path_astrolink_idx_allS} ,")
+        print(f"\t{file_path_catalogue_rpj_allS} ,")
+        print(f"\t{file_path_catalogue_idx_optimalS} ,")
+        print(f"\t{file_path_astrolink_rpj_optimalS} ,")
+        print(f"\t{file_path_astrolink_idx_optimalS} , and")
+        print(f"\t{file_path_catalogue_rpj_optimalS} .")
         print("Use overwrite=True to force recomputation.\n")
         return
     print("Comparing clustering output to the Vasiliev & Baumgardt (2021) catalogue...")
@@ -2900,16 +2999,24 @@ def compare_to_Vasiliev2021(overwrite=False):
     V21_members_cluster_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
     V21_cluster_sizes_in_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_cluster_sizes_in_subsample.npy"))  # (N_clusters,)
 
+    # Choose comparison metric
+    comparison_metric = 4  # 0 for recovery, 1 for purity (S_C=S_A), 2 for purity (S_C=all_catalogue_stars), 3 for Jaccard index (S_C=S_A), 4 for Jaccard index (S_C=all_catalogue_stars)
+    
     # Make the comparison
     compare_to_catalogue_helper(
         V21_members_cluster_ids_subsample,
         V21_members_cluster_membership_subsample,
         V21_cluster_sizes_in_subsample,
-        file_path_best_match_astrolink_clusters,
-        file_path_cluster_rpj
+        comparison_metric,
+        file_path_astrolink_idx_allS,
+        file_path_catalogue_rpj_allS,
+        file_path_catalogue_idx_optimalS,
+        file_path_astrolink_rpj_optimalS,
+        file_path_astrolink_idx_optimalS,
+        file_path_catalogue_rpj_optimalS
     )
 
-def plot_Vasiliev2021_comparison_results(overwrite=False):
+def plot_Vasiliev2021_crossmatch_per_significance(overwrite=False):
     """
     Plot the results of the comparison between clustering output and the Vasiliev & Baumgardt (2021) catalogue,
     showing recovery, purity, and Jaccard index under both subsample assumptions
@@ -2925,7 +3032,7 @@ def plot_Vasiliev2021_comparison_results(overwrite=False):
 
     # Load comparison results
     print("... loading comparison results")
-    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_rpj.npy"))  # (N_sigmas, N_clusters, 5)
+    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_catalogue_rpj_allS.npy"))  # (N_sigmas, N_clusters, 5)
     V21_cluster_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/vasiliev21_cluster_coverage.npy"))
 
     # Load cluster names
@@ -3028,20 +3135,23 @@ def prepare_Battaglia2021_for_comparison(overwrite=False):
     # Check if files already exist
     file_path_dwarfgalaxies_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_names.npy")
     file_path_B21_members_dwarfgalaxy_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_ids_subsample.npy")
+    file_path_B21_members_dwarfgalaxy_membership_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_membership_subsample.npy")
+    file_path_B21_dwarfgalaxy_sizes_in_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxy_sizes_in_subsample.npy")
+    file_path_B21_dwarfgalaxy_coverage = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxy_coverage.npy")
     
     # Skip if all files exist and overwrite is False
     all_exist = (os.path.exists(file_path_dwarfgalaxies_names) and
                  os.path.exists(file_path_B21_members_dwarfgalaxy_ids_subsample) and
-                 os.path.exists(file_path_B21_members_dwarfgalaxy_probs_subsample) and
-                 os.path.exists(file_path_B21_dwarfgalaxies_probability_sums_total) and
-                 os.path.exists(file_path_B21_dwarfgalaxies_probability_sums_overlap))
+                 os.path.exists(file_path_B21_members_dwarfgalaxy_membership_subsample) and
+                 os.path.exists(file_path_B21_dwarfgalaxy_sizes_in_subsample) and
+                 os.path.exists(file_path_B21_dwarfgalaxy_coverage))
     if all_exist and not overwrite:
         print("Battaglia et al. (2021) reduced data already exists at:")
         print(f"\t{file_path_dwarfgalaxies_names} ,")
         print(f"\t{file_path_B21_members_dwarfgalaxy_ids_subsample} ,")
-        print(f"\t{file_path_B21_members_dwarfgalaxy_probs_subsample} ,")
-        print(f"\t{file_path_B21_dwarfgalaxies_probability_sums_total} , and")
-        print(f"\t{file_path_B21_dwarfgalaxies_probability_sums_overlap} .")
+        print(f"\t{file_path_B21_members_dwarfgalaxy_membership_subsample} ,")
+        print(f"\t{file_path_B21_dwarfgalaxy_sizes_in_subsample} , and")
+        print(f"\t{file_path_B21_dwarfgalaxy_coverage} .")
         print("Use overwrite=True to force recomputation.\n")
         return
     print("Preparing data for comparison with the Battaglia et al. (2021) catalogue...")
@@ -3070,6 +3180,9 @@ def prepare_Battaglia2021_for_comparison(overwrite=False):
     del df_pmem, inverse, indices  # Free memory
     gc.collect()  # Force garbage collection
 
+    # Convert probabilistic membership to a binary one
+    B21_members_dwarfgalaxy_membership = B21_members_probs >= 0.5
+
     # Load Gaia DR3 source_ids
     print("... loading Gaia DR3 source IDs")
     gdr3_source_ids = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_source_ids.npy"))  # (N,)
@@ -3087,66 +3200,80 @@ def prepare_Battaglia2021_for_comparison(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Get Battaglia+2021 dwarf galaxy IDs for this subsample (multiple columns since stars can be in multiple Battaglia+2021 dwarf galaxies)
-    print("... getting Battaglia+2024 dwarf galaxy IDs and membership probabilities for the subsample in this work")
+    print("... getting Battaglia+2024 dwarf galaxy IDs and memberships for the subsample in this work")
     max_appearances = np.unique(B21_members_source_ids, return_counts=True)[1].max()
     max_B21_dwarfgalaxy_ID = B21_members_dwarfgalaxy_ids.max()
     B21_members_dwarfgalaxy_ids_gdr3 = np.full((B21_members_mask.size, max_appearances), max_B21_dwarfgalaxy_ID + 1, dtype=np.int64)  # (N,) Initialize with max_B21_dwarfgalaxy_ID + 1, representing no cluster
-    B21_members_dwarfgalaxy_probs_gdr3 = np.zeros((B21_members_mask.size, max_appearances), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
+    B21_members_dwarfgalaxy_membership_gdr3 = np.zeros((B21_members_mask.size, max_appearances), dtype=np.bool_)  # (N,) Initialize with 0, representing zero membership probability
     B21_members_mask_where = np.where(B21_members_mask)[0]  # Use indices of members in the full catalogue from now on to do efficient slicing/indexing
     del B21_members_mask  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Assign dwarf galaxy IDs / membership probabilities to each of the members
+    # Assign dwarf galaxy IDs / memberships to each of the members
     unique_B21_source_ids, indices, counts = np.unique(B21_members_source_ids, return_index=True, return_counts=True)
     for num_count in range(1, max_appearances + 1):
         # Get the relative position of the members in the full catalogue for this count
         num_count_bool = counts == num_count
 
-        # Get the dwarf galaxy IDs and probabilities for the members with this count
+        # Get the dwarf galaxy IDs and memberships for the members with this count
         if num_count == 1:
-            cluster_ids = B21_members_dwarfgalaxy_ids[indices[num_count_bool]][:, None]
-            members_probs = B21_members_probs[indices[num_count_bool]][:, None]
+            dwarfgalaxy_ids = B21_members_dwarfgalaxy_ids[indices[num_count_bool]][:, None]
+            membership = B21_members_dwarfgalaxy_membership[indices[num_count_bool]][:, None]
         else: # There are not too many of these so what follows is efficient enough
-            cluster_ids = np.zeros((num_count_bool.sum(), num_count), dtype=np.int64)
-            members_probs = np.zeros((num_count_bool.sum(), num_count), dtype=np.float32)
+            dwarfgalaxy_ids = np.zeros((num_count_bool.sum(), num_count), dtype=np.int64)
+            membership = np.zeros((num_count_bool.sum(), num_count), dtype=np.bool_)
             for i, sid in enumerate(unique_B21_source_ids[num_count_bool]):
                 # Get the indices of the members with this source ID
                 source_id_match = np.where(B21_members_source_ids == sid)[0]
 
-                # Get the dwarf galaxy IDs and probabilities for these members
-                cluster_ids[i] = B21_members_dwarfgalaxy_ids[source_id_match]
-                members_probs[i] = B21_members_probs[source_id_match]
+                # Get the dwarf galaxy IDs and memberships for these members
+                dwarfgalaxy_ids[i] = B21_members_dwarfgalaxy_ids[source_id_match]
+                membership[i] = B21_members_dwarfgalaxy_membership[source_id_match]
 
-        # Assign the dwarf galaxy IDs and probabilities to the members
-        B21_members_dwarfgalaxy_ids_gdr3[B21_members_mask_where[num_count_bool], :num_count] = cluster_ids
-        B21_members_dwarfgalaxy_probs_gdr3[B21_members_mask_where[num_count_bool], :num_count] = members_probs
+        # Assign the dwarf galaxy IDs and memberships to the members
+        B21_members_dwarfgalaxy_ids_gdr3[B21_members_mask_where[num_count_bool], :num_count] = dwarfgalaxy_ids
+        B21_members_dwarfgalaxy_membership_gdr3[B21_members_mask_where[num_count_bool], :num_count] = membership
 
     B21_members_dwarfgalaxy_ids_subsample = B21_members_dwarfgalaxy_ids_gdr3[subsample_mask]
-    B21_members_dwarfgalaxy_probs_subsample = B21_members_dwarfgalaxy_probs_gdr3[subsample_mask]
-    del subsample_mask, B21_members_source_ids, B21_members_dwarfgalaxy_ids_gdr3, B21_members_dwarfgalaxy_probs_gdr3, B21_members_mask_where, unique_B21_source_ids, indices, counts  # Free memory
+    B21_members_dwarfgalaxy_membership_subsample = B21_members_dwarfgalaxy_membership_gdr3[subsample_mask]
+    del subsample_mask, B21_members_source_ids, B21_members_dwarfgalaxy_ids_gdr3, B21_members_dwarfgalaxy_membership_gdr3, B21_members_mask_where, unique_B21_source_ids, indices, counts  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Pre-compute the total sum of probabilities for each Battaglia+2021 dwarf galaxy
-    print("... pre-computing the total sum of probabilities for each Battaglia+2021 dwarf galaxy")
-    B21_dwarfgalaxies_probability_sums_total = np.bincount(B21_members_dwarfgalaxy_ids.ravel(), 
-                                        weights=B21_members_probs.ravel(),
-                                        minlength=max_B21_dwarfgalaxy_ID + 1)  # (N_dwarfgalaxies,)
-    del B21_members_dwarfgalaxy_ids, B21_members_probs  # Free memory
+    # Pre-compute the total size for each Battaglia+2021 dwarf galaxy
+    print("... pre-computing the total size for each Battaglia+2021 dwarf galaxy")
+    B21_dwarfgalaxy_sizes_full = np.bincount(
+        B21_members_dwarfgalaxy_ids.ravel(),
+        weights=B21_members_dwarfgalaxy_membership.ravel(),
+        minlength=max_B21_dwarfgalaxy_ID + 1
+    )  # (N_dwarfgalaxies,)
+    del B21_members_dwarfgalaxy_ids, B21_members_dwarfgalaxy_membership  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Pre-compute the sum of probabilities for each Battaglia+2021 dwarf galaxy in the overlap with the subsample
-    print("... pre-computing the total sum of probabilities for each Battaglia+2021 dwarf galaxy in the subsample of this work")
-    B21_dwarfgalaxies_probability_sums_overlap = np.bincount(B21_members_dwarfgalaxy_ids_subsample.ravel(),
-                                        weights=B21_members_dwarfgalaxy_probs_subsample.ravel(),
-                                        minlength=max_B21_dwarfgalaxy_ID + 1)[:max_B21_dwarfgalaxy_ID + 1]  # (N_dwarfgalaxies,)
+    # Pre-compute the size for each Battaglia+2021 dwarf galaxy in the overlap with the subsample
+    print("... pre-computing the size for each Battaglia+2021 dwarf galaxy in the subsample of this work")
+    B21_dwarfgalaxy_sizes_in_subsample = np.bincount(
+        B21_members_dwarfgalaxy_ids_subsample.ravel(),
+        weights=B21_members_dwarfgalaxy_membership_subsample.ravel(),
+        minlength=max_B21_dwarfgalaxy_ID + 1
+    )[:max_B21_dwarfgalaxy_ID + 1]  # (N_dwarfgalaxies,)
+
+    # Calculate the coverage of each Battaglia+2021 dwarf galaxy by the subsample of this work
+    B21_dwarfgalaxy_coverage = np.full_like(B21_dwarfgalaxy_sizes_full, np.nan, dtype=np.float64)
+    valid = B21_dwarfgalaxy_sizes_full > 0
+    B21_dwarfgalaxy_coverage[valid] = (
+        B21_dwarfgalaxy_sizes_in_subsample[valid] /
+        B21_dwarfgalaxy_sizes_full[valid]
+    )
+    del B21_dwarfgalaxy_sizes_full  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Save the intermediary results
     print('... saving intermediary results.\n')
     np.save(file_path_B21_members_dwarfgalaxy_ids_subsample, B21_members_dwarfgalaxy_ids_subsample)
-    np.save(file_path_B21_members_dwarfgalaxy_probs_subsample, B21_members_dwarfgalaxy_probs_subsample)
-    np.save(file_path_B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_total)
-    np.save(file_path_B21_dwarfgalaxies_probability_sums_overlap, B21_dwarfgalaxies_probability_sums_overlap)
-    del B21_members_dwarfgalaxy_ids_subsample, B21_members_dwarfgalaxy_probs_subsample, B21_dwarfgalaxies_probability_sums_total, B21_dwarfgalaxies_probability_sums_overlap  # Free memory
+    np.save(file_path_B21_members_dwarfgalaxy_membership_subsample, B21_members_dwarfgalaxy_membership_subsample)
+    np.save(file_path_B21_dwarfgalaxy_sizes_in_subsample, B21_dwarfgalaxy_sizes_in_subsample)
+    np.save(file_path_B21_dwarfgalaxy_coverage, B21_dwarfgalaxy_coverage)
+    del B21_members_dwarfgalaxy_ids_subsample, B21_members_dwarfgalaxy_membership_subsample, B21_dwarfgalaxy_sizes_in_subsample, B21_dwarfgalaxy_coverage  # Free memory
     gc.collect()  # Force garbage collection
 
 def plot_Battaglia2021_dwarfgalaxies_on_sky(overwrite=False):
@@ -3154,9 +3281,9 @@ def plot_Battaglia2021_dwarfgalaxies_on_sky(overwrite=False):
     Plot the Battaglia et al. (2021) dwarf galaxies on the sky.
     """
     # Check if plot already exists
-    file_path_clusters_on_sky = os.path.join(OUTPUT_PATH, "Battaglia2021_dwarfgalaxies_on_sky.png")
-    if os.path.exists(file_path_clusters_on_sky) and not overwrite:
-        print(f"Battaglia et al. (2021) dwarf galaxies on sky plot already exists at:\n\t{file_path_clusters_on_sky} .")
+    file_path_dwarfgalaxies_on_sky = os.path.join(OUTPUT_PATH, "Battaglia2021_dwarfgalaxies_on_sky.png")
+    if os.path.exists(file_path_dwarfgalaxies_on_sky) and not overwrite:
+        print(f"Battaglia et al. (2021) dwarf galaxies on sky plot already exists at:\n\t{file_path_dwarfgalaxies_on_sky} .")
         print("Use overwrite=True to force replotting.\n")
         return
     print("Plotting Battaglia et al. (2021) dwarf galaxies on the sky...")
@@ -3170,7 +3297,7 @@ def plot_Battaglia2021_dwarfgalaxies_on_sky(overwrite=False):
     plot_catalogue_structure_on_sky(
         B21_members_dwarfgalaxy_ids_subsample,
         B21_members_dwarfgalaxy_membership_subsample,
-        file_path_clusters_on_sky
+        file_path_dwarfgalaxies_on_sky
     )
 
 def compare_to_Battaglia2021(overwrite=False):
@@ -3178,16 +3305,28 @@ def compare_to_Battaglia2021(overwrite=False):
     Compare the clustering output to the Battaglia et al. (2021) catalogue.
     """
     # Check if comparison results already exist
-    file_path_best_match_astrolink_clusters = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_best_match_astrolink_clusters.npy")
-    file_path_cluster_rpj = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_rpj.npy")
+    file_path_astrolink_idx_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_astrolink_idx_allS.npy")
+    file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_catalogue_rpj_allS.npy")
+    file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_catalogue_idx_optimalS.npy")
+    file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_astrolink_rpj_optimalS.npy")
+    file_path_astrolink_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_astrolink_idx_optimalS.npy")
+    file_path_catalogue_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_catalogue_rpj_optimalS.npy")
 
     # Skip processing if all merged output files already exist
-    all_exist = (os.path.exists(file_path_cluster_rpj) and
-                 os.path.exists(file_path_best_match_astrolink_clusters))
+    all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
+                 os.path.exists(file_path_astrolink_idx_allS) and
+                 os.path.exists(file_path_catalogue_idx_optimalS) and
+                 os.path.exists(file_path_astrolink_rpj_optimalS) and
+                 os.path.exists(file_path_astrolink_idx_optimalS) and
+                 os.path.exists(file_path_catalogue_rpj_optimalS))
     if all_exist and not overwrite:
         print("Battaglia et al. (2021) comparison results already exist at:")
-        print(f"\t{file_path_best_match_astrolink_clusters} and")
-        print(f"\t{file_path_cluster_rpj} .")
+        print(f"\t{file_path_astrolink_idx_allS} ,")
+        print(f"\t{file_path_catalogue_rpj_allS} ,")
+        print(f"\t{file_path_catalogue_idx_optimalS} ,")
+        print(f"\t{file_path_astrolink_rpj_optimalS} ,")
+        print(f"\t{file_path_astrolink_idx_optimalS} , and")
+        print(f"\t{file_path_catalogue_rpj_optimalS} .")
         print("Use overwrite=True to force recomputation.\n")
         return
     print("Comparing clustering output to Battaglia et al. (2021)...")
@@ -3196,18 +3335,26 @@ def compare_to_Battaglia2021(overwrite=False):
     print("... loading required arrays for comparison")
     B21_members_dwarfgalaxy_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_ids_subsample.npy"))  # (N_subsample, max_appearances)
     B21_members_dwarfgalaxy_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_members_dwarfgalaxy_membership_subsample.npy"))  # (N_subsample, max_appearances)
-    B21_cluster_sizes_in_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_cluster_sizes_in_subsample"))
+    B21_dwarfgalaxy_sizes_in_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxy_sizes_in_subsample.npy")) # (N_dwarfgalaxies,)
 
+    # Choose comparison metric
+    comparison_metric = 4  # 0 for recovery, 1 for purity (S_C=S_A), 2 for purity (S_C=all_catalogue_stars), 3 for Jaccard index (S_C=S_A), 4 for Jaccard index (S_C=all_catalogue_stars)
+    
     # Make the comparison
     compare_to_catalogue_helper(
         B21_members_dwarfgalaxy_ids_subsample,
         B21_members_dwarfgalaxy_membership_subsample,
-        B21_cluster_sizes_in_subsample,
-        file_path_best_match_astrolink_clusters,
-        file_path_cluster_rpj
+        B21_dwarfgalaxy_sizes_in_subsample,
+        comparison_metric,
+        file_path_astrolink_idx_allS,
+        file_path_catalogue_rpj_allS,
+        file_path_catalogue_idx_optimalS,
+        file_path_astrolink_rpj_optimalS,
+        file_path_astrolink_idx_optimalS,
+        file_path_catalogue_rpj_optimalS
     )
 
-def plot_Battaglia2021_comparison_results(overwrite=False):
+def plot_Battaglia2021_crossmatch_per_significance(overwrite=False):
     """
     Plot the results of the comparison between clustering output and the Battaglia et al. (2021) catalogue,
     showing recovery, purity, and Jaccard index under both subsample assumptions
@@ -3223,14 +3370,14 @@ def plot_Battaglia2021_comparison_results(overwrite=False):
 
     # Load comparison results
     print("... loading comparison results")
-    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_rpj.npy"))  # (N_sigmas, N_dwarfgalaxies, 5)
-    B21_cluster_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_cluster_coverage.npy"))
+    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_catalogue_rpj_allS.npy"))  # (N_sigmas, N_dwarfgalaxies, 5)
+    B21_cluster_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxy_coverage.npy"))
 
     # Load dwarf galaxy names
     dwarf_galaxy_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_dwarfgalaxies_names.npy"), allow_pickle=True)
 
     # Extract per-assumption and per-statistic arrays
-    J_full,  J_union  = RPJ[:, :, 3], RPJE[:, :, 4]
+    J_full,  J_union  = RPJ[:, :, 3], RPJ[:, :, 4]
 
     # Coverage-weighted averages
     coverage_sum = np.sum(B21_cluster_coverage)
@@ -3330,23 +3477,23 @@ def prepare_galstreams_for_comparison(overwrite=False):
     # Check if files already exist
     file_path_galstreams_stream_track_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_track_names.npy")
     file_path_galstreams_members_stream_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_ids_subsample.npy")
-    file_path_galstreams_members_stream_probs_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_probs_subsample.npy")
-    file_path_galstreams_streams_probability_sums_total = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_streams_probability_sums_total.npy")
-    file_path_galstreams_streams_probability_sums_overlap = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_streams_probability_sums_overlap.npy")
+    file_path_galstreams_members_stream_membership_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_membership_subsample.npy")
+    file_path_galstreams_stream_sizes_in_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_sizes_in_subsample.npy")
+    file_path_galstreams_stream_coverage = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_coverage.npy")
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_galstreams_stream_track_names) and
                  os.path.exists(file_path_galstreams_members_stream_ids_subsample) and
-                 os.path.exists(file_path_galstreams_members_stream_probs_subsample) and
-                 os.path.exists(file_path_galstreams_streams_probability_sums_total) and
-                 os.path.exists(file_path_galstreams_streams_probability_sums_overlap))
+                 os.path.exists(file_path_galstreams_members_stream_membership_subsample) and
+                 os.path.exists(file_path_galstreams_stream_sizes_in_subsample) and
+                 os.path.exists(file_path_galstreams_stream_coverage))
     if all_exist and not overwrite:
         print("Galstreams reduced data already exists at:")
         print(f"\t{file_path_galstreams_stream_track_names} ,")
         print(f"\t{file_path_galstreams_members_stream_ids_subsample} ,")
-        print(f"\t{file_path_galstreams_members_stream_probs_subsample} ,")
-        print(f"\t{file_path_galstreams_streams_probability_sums_total} , and")
-        print(f"\t{file_path_galstreams_streams_probability_sums_overlap} .")
+        print(f"\t{file_path_galstreams_members_stream_membership_subsample} ,")
+        print(f"\t{file_path_galstreams_stream_sizes_in_subsample} , and")
+        print(f"\t{file_path_galstreams_stream_coverage} .")
         print("Use overwrite=True to force recomputation.\n")
         return
     print("Preparing data for comparison with the galstreams catalogue...")
@@ -3356,27 +3503,8 @@ def prepare_galstreams_for_comparison(overwrite=False):
     source_ids = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_source_ids.npy"))  # (N_gdr3,)
     subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, 'subsample_mask.npy'))  # (N_gdr3,)
     ra, dec = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_equatorial_coordinates.npy")).T  # Each (N_gdr3,) in degrees
+    cos_dec = np.cos(np.deg2rad(dec))
     mu_ra, mu_dec = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_proper_motions.npy")).T  # Each (N_gdr3,) in mas/yr
-    #r_med_photogeo = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "bailerjones_r_med_photogeo.npy"))  # (N_gdr3,) in pc
-    astrometric_errors = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_astrometric_errors.npy"))  # (N_gdr3, 5)
-    sigma_ra, sigma_dec = astrometric_errors[:, :2].T / 3600000  # shape (N_gdr3, 2) in degrees
-    sigma_mu_ra, sigma_mu_dec = astrometric_errors[:, 2:].T  # shape (N_gdr3, 2) in mas/yr
-    #lo, high = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "bailerjones_r_lo_high_photogeo.npy")).T  # each (N_gdr3,) in pc
-    del astrometric_errors  # Free memory
-    gc.collect()  # Force garbage collection
-
-    # Calculate isotropic RMS variances from first-order propagation
-    cos_dec, sin_dec = np.cos(np.deg2rad(dec)), np.sin(np.deg2rad(dec))
-    var_angularpos = (cos_dec * sigma_ra)**2 + sigma_dec**2  # (N_gdr3,) in degrees^2
-    var_pm = (
-        ((mu_ra * cos_dec)**2 + (mu_dec * sin_dec)**2) * sigma_ra**2 +  # Right ascension component
-        ((mu_ra * sin_dec)**2 + mu_dec**2) * sigma_dec**2 +             # Declination component
-        (cos_dec * sigma_mu_ra)**2 +                                    # Proper motion in the right ascension component
-        (sigma_mu_dec)**2                                               # Proper motion in the declination component
-    )  # (N_gdr3,) in (mas/yr)^2
-    #var_distance = (high - lo)**2 / 4  # (N_gdr3,) in pc^2
-    del sigma_ra, sigma_dec, sigma_mu_ra, sigma_mu_dec, sin_dec #lo, high, sin_dec  # Free memory
-    gc.collect()  # Force garbage collection
 
     # Get MWStreams object from galstreams
     print('... creating MWStreams object')
@@ -3448,46 +3576,75 @@ def prepare_galstreams_for_comparison(overwrite=False):
     # Get HEALPix pixel indices for all stars at the chosen level
     all_stars_pixels = (source_ids >> 35) >> (2 * (12 - level))
 
-    # Cycle through each stream, find which stars are in its footprint, and then compute stream membership probability with the information available
-    max_galstream_cluster_ID = len(mws) - 1
-    galstreams_members_stream_ids_gdr3 = np.full((subsample_mask.size, 1), max_galstream_cluster_ID + 1, dtype=np.int64)  # (N,) Initialize with max_galstreams_stream_ID + 1, representing no stream
-    galstreams_members_stream_probs_gdr3 = np.zeros((subsample_mask.size, 1), dtype=np.float32)  # (N,) Initialize with 0, representing zero membership probability
-    for i, (stream_track_name, stream) in enumerate(mws.items()):
-        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | defining stream footprint                                               ', end='\r')
-        # Width and sigma in phi2
-        width_phi2 = mws.summary.loc[stream_track_name, 'width_phi2']  # Interpret as FWHM in degrees
-        sigma_phi2 = width_phi2 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
+    # Cycle through each stream, find which stars are in its footprint, and then compute potential stream membership with the information available
+    max_galstream_stream_ID = len(mws) - 1
+    galstreams_members_stream_ids_gdr3 = np.full((subsample_mask.size, 1), max_galstream_stream_ID + 1, dtype=np.int64)  # (N,) Initialize with max_galstreams_stream_ID + 1, representing no stream
+    galstreams_members_stream_membership_gdr3 = np.zeros((subsample_mask.size, 1), dtype=np.bool_)  # (N,) Initialize with 0, representing zero membership probability
+    for stream_id, (stream_track_name, stream) in enumerate(mws.items()):
+        print(f'... processing stream {stream_id + 1}/{len(mws)} ({stream_track_name}) | defining stream footprint                                                 ', end='\r')
+        # Width of the stream (in degrees) in the phi2 direction (perpendicular to the stream track)
+        width_phi2 = mws.summary.loc[stream_track_name, 'width_phi2']
 
-        # Transform stream track into 3D spatial positions
-        stream_ra, stream_dec = np.deg2rad(stream.track.ra.deg), np.deg2rad(stream.track.dec.deg)
-        cos_stream_dec = np.cos(stream_dec)
-        xyz_stream_track = np.column_stack([
-            cos_stream_dec * np.cos(stream_ra),
-            cos_stream_dec * np.sin(stream_ra),
-            np.sin(stream_dec)
-        ])
-        del stream_ra, stream_dec, cos_stream_dec  # Free memory
+        # Effective angular selection radius (stream half-width + pixel radius buffer)
+        angular_radius = np.deg2rad(width_phi2 / 2 + pixel_radius)
+
+        # Convert stream track nodes to 3D unit vectors
+        theta = np.deg2rad(90.0 - stream.track.dec.deg)
+        phi = np.deg2rad(stream.track.ra.deg)
+        stream_vectors = hp.ang2vec(theta, phi)
+        del theta, phi  # Free memory
         gc.collect()  # Force garbage collection
 
-        # Build KDTree for fast nearest-neighbour lookup
-        tree = KDTree(xyz_stream_track)
-        del xyz_stream_track  # Free memory
+        # Interpolate stream track to avoid gaps along phi1 direction (angular spacing between nodes must be much smaller than stream width)
+        dot_products = np.sum(stream_vectors[:-1] * stream_vectors[1:], axis=1)
+        dot_products = np.clip(dot_products, -1.0, 1.0)
+        segment_angles = np.arccos(dot_products)  # Compute angular separation between consecutive stream nodes (in radians)
+        max_step = np.deg2rad(pixel_radius) # Maximum allowed step size (conservative choice)
+
+        # Interpolate between stream nodes where segment angles exceed max_step, using spherical linear interpolation (SLERP)
+        resampled_vectors = []
+        for i in range(len(stream_vectors) - 1):
+            v1 = stream_vectors[i]
+            v2 = stream_vectors[i + 1]
+            angle = segment_angles[i]
+
+            # Determine number of interpolation steps required
+            n_steps = max(1, int(np.ceil(angle / max_step)))
+
+            if angle == 0.0:
+                resampled_vectors.append(v1)
+                continue
+
+            sin_angle = np.sin(angle)
+
+            # Spherical linear interpolation (SLERP)
+            for t in np.linspace(0.0, 1.0, n_steps, endpoint=False):
+                vec = (
+                    np.sin((1.0 - t) * angle) / sin_angle * v1 +
+                    np.sin(t * angle) / sin_angle * v2
+                )
+                resampled_vectors.append(vec)
+
+        # Append final stream node
+        resampled_vectors.append(stream_vectors[-1])
+        resampled_vectors = np.array(resampled_vectors)
+        del stream_vectors, dot_products, segment_angles  # Free memory
         gc.collect()  # Force garbage collection
 
-        # Query KDTree to find nearest stream track point to each HEALPix pixel centre
-        distances, _ = tree.query(xyz_pixel_centres, k=1)
-        del tree, _  # Free memory
-        gc.collect()  # Force garbage collection
+        # Query HEALPix to find all pixels within angular_radius of resampled nodes
+        selected_pixel_set = set()
+        for vec in resampled_vectors:
+            nearby_pixels = hp.query_disc(
+                nside,
+                vec,
+                angular_radius,
+                nest=True
+            )
+            selected_pixel_set.update(nearby_pixels)
 
-        # Convert chord distance into angular distance
-        angular_distances = np.rad2deg(2 * np.arcsin(np.clip(distances / 2, 0, 1)))  # In degrees
-        del distances  # Free memory
-        gc.collect()  # Force garbage collection
-
-        # Select pixels within (3 * sigma_phi2 + pixel_radius) of stream track
-        max_dist = 3 * sigma_phi2 + pixel_radius
-        selected_pixels = np.where(angular_distances < max_dist)[0]
-        del angular_distances  # Free memory
+        # Convert selected pixels to numpy array
+        selected_pixels = np.array(list(selected_pixel_set), dtype=np.int64)
+        del resampled_vectors, selected_pixel_set  # Free memory
         gc.collect()  # Force garbage collection
 
         # Make mask for which stars are in the stream footprint by doing a binary search for membership (faster and more memory efficient than np.isin)
@@ -3498,21 +3655,20 @@ def prepare_galstreams_for_comparison(overwrite=False):
         gc.collect()  # Force garbage collection
 
         # Make SkyCoord object for stars in stream footprint
-        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | getting GDR3 stars in stream footprint                                  ', end='\r')
+        print(f'... processing stream {stream_id + 1}/{len(mws)} ({stream_track_name}) | getting GDR3 stars in stream footprint        ', end='\r')
         dec_in_footprint = dec[in_footprint_mask]
         footprint_stars = SkyCoord(
             ra=ra[in_footprint_mask] * units.deg,
             dec=dec_in_footprint * units.deg,
             pm_ra_cosdec=mu_ra[in_footprint_mask] * cos_dec[in_footprint_mask] * units.mas / units.yr,
             pm_dec=mu_dec[in_footprint_mask] * units.mas / units.yr,
-            #distance=r_med_photogeo[in_footprint_mask] * units.pc, (for if / when this becomes available / reliable in galstreams)
             frame='icrs'
         )
         del dec_in_footprint  # Free memory
         gc.collect()  # Force garbage collection
 
-        # Transform stars and stream_track into stream coordinates
-        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | transforming stars into stream coordinates                              ', end='\r')
+        # Transform footprint stars and stream_track into stream coordinates
+        print(f'... processing stream {stream_id + 1}/{len(mws)} ({stream_track_name}) | transforming stars into stream coordinates    ', end='\r')
         footprint_stars = footprint_stars.transform_to(stream.stream_frame)
         stream.track = stream.track.transform_to(stream.stream_frame)
 
@@ -3527,17 +3683,13 @@ def prepare_galstreams_for_comparison(overwrite=False):
         # Interpolate track phi2 vs phi1
         interp_phi2 = np.interp(footprint_stars_phi1, track_phi1, track_phi2)
 
-        # Total variance in phi2 due to astrometric uncertainties and width of stream
-        var_phi2 = var_angularpos[in_footprint_mask] + sigma_phi2**2
-
-        # Chi-squared in phi2 direction
-        chi2_phi2 = (footprint_stars_phi2 - interp_phi2)**2 / var_phi2
+        # Distance in phi2 direction
+        phi2_separation = np.abs(footprint_stars_phi2 - interp_phi2)
         del footprint_stars_phi2, track_phi2, interp_phi2
 
-        # Separate stars in footprint into stream stars and background stars
-        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | separating stream and background stars                                  ', end='\r')
-        #in_background_mask = chi2_phi2 < 4**2  # Background stars are outside +/-2 sigma_phi2 but inside +/-4 sigma_phi2
-        in_stream_mask = chi2_phi2 < 3**2      # Stream stars are inside +/-3 sigma_phi2
+        # Further refine footprint stars into stream stars
+        print(f'... processing stream {stream_id + 1}/{len(mws)} ({stream_track_name}) | separating stream and background stars        ', end='\r')
+        in_stream_mask = phi2_separation < width_phi2 / 2      # Stream stars are inside +/- width_phi2 / 2
         in_stream_mask[(footprint_stars_phi1 < track_phi1.min()) | (footprint_stars_phi1 > track_phi1.max())] = False  # Remove stars outside track phi1 range from stream
         del footprint_stars_phi1  # Free memory
         gc.collect()  # Force garbage collection
@@ -3547,30 +3699,12 @@ def prepare_galstreams_for_comparison(overwrite=False):
         del footprint_stars  # Free memory
         gc.collect()  # Force garbage collection
 
-        # Stream log-likelihood for position-on-the-sky
-        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for stream model (position-on-the-sky)         ', end='\r')
-        log_likelihood = (
-            -0.5 * chi2_phi2[in_stream_mask]  # Gaussian in phi2
-            #-0.5 * np.log(2 * np.pi * var_phi2[in_stream_mask])  # Normalization of Gaussian in phi2
-            #- np.log(track_phi1.max() - track_phi1.min())  # Uniform distribution in phi1 over stream length
-        )
-        del chi2_phi2, var_phi2  # Free memory
-        gc.collect()  # Force garbage collection
-
-        # Log-likelihood ratio
-        loglikelihoodratio = log_ps
-
-        del log_ps#, log_pb  # Free memory
-        gc.collect()  # Force garbage collection
-
         # Proper motions (if available for stream and stars)
         if mws.summary.loc[stream_track_name, 'has_pm']:
             try:
-                print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for stream model (mu_phi1*, mu_phi2)         ', end='\r')
+                print(f'... processing stream {stream_id + 1}/{len(mws)} ({stream_track_name}) | refining stream stars with proper motions     ', end='\r')
                 # Widths in proper motions
                 width_pm1, width_pm2 = mws.summary.loc[stream_track_name, ['width_pm_phi1_cosphi2', 'width_pm_phi2']]
-                sigma_pm1 = width_pm1 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
-                sigma_pm2 = width_pm2 / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
 
                 # Mask for the stars with proper motions
                 pm_mask = np.isfinite(stream_stars.pm_phi1_cosphi2) & np.isfinite(stream_stars.pm_phi2)
@@ -3587,238 +3721,35 @@ def prepare_galstreams_for_comparison(overwrite=False):
                 interp_pm1 = np.interp(stream_stars.phi1.deg[pm_mask], track_phi1, track_pm1)
                 interp_pm2 = np.interp(stream_stars.phi1.deg[pm_mask], track_phi1, track_pm2)
 
-                # Total variance in proper motions due to astrometric uncertainties and proper motion dispersion of stream
-                var_pm_stream = var_pm[in_footprint_mask][in_stream_mask][pm_mask]
-                var_pm1 = var_pm_stream + sigma_pm1**2
-                var_pm2 = var_pm_stream + sigma_pm2**2
+                # Distance in pm directions
+                pm1_separation = np.abs(stars_pm1 - interp_pm1)
+                pm2_separation = np.abs(stars_pm2 - interp_pm2)
 
-                # Stream log-likelihood for proper motions
-                log_ps_pm = -0.5 * (
-                    (stars_pm1 - interp_pm1)**2 / var_pm1 # Stream Gaussian in pm_phi1_cosphi2
-                    #+ np.log(2 * np.pi * var_pm1)  # Normalization of Stream Gaussian in pm_phi1_cosphi2
-                    + (stars_pm2 - interp_pm2)**2 / var_pm2  # Stream Gaussian in pm_phi2
-                    #+ np.log(2 * np.pi * var_pm2)  # Normalization of Stream Gaussian in pm_phi2
-                )
-                del track_pm1, track_pm2, interp_pm1, interp_pm2, var_pm1, var_pm2  # Free memory
-                gc.collect()  # Force garbage collection
-
-                # Mask background stars with valid proper motions
-                #print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for background model (mu_phi1*, mu_phi2)     ', end='\r')
-                #bg_pm_mask = np.isfinite(background_stars.pm_phi1_cosphi2) & np.isfinite(background_stars.pm_phi2)
-
-                # Background proper motions
-                #bg_pm1 = background_stars.pm_phi1_cosphi2[bg_pm_mask].to_value(units.mas / units.yr)
-                #bg_pm2 = background_stars.pm_phi2[bg_pm_mask].to_value(units.mas / units.yr)
-                #del bg_pm_mask  # Free memory
-                #gc.collect()  # Force garbage collection
-
-                # Mean and variance of background proper motions
-                #mu_bg_pm1, mu_bg_pm2 = np.mean(bg_pm1), np.mean(bg_pm2)
-                #var_bg_pm1 = var_pm_stream + np.var(bg_pm1)
-                #var_bg_pm2 = var_pm_stream + np.var(bg_pm2)
-                #del var_pm_stream, bg_pm1, bg_pm2  # Free memory
-                #gc.collect()  # Force garbage collection
-
-                # Background log-likelihood for proper motions
-                #log_pb_pm = -0.5 * (
-                #    (stars_pm1 - mu_bg_pm1)**2 / var_bg_pm1  # Background Gaussian in pm_phi1_cosphi2
-                #    + np.log(2 * np.pi * var_bg_pm1)  # Normalization of Background Gaussian in pm_phi1_cosphi2
-                #    + (stars_pm2 - mu_bg_pm2)**2 / var_bg_pm2  # Background Gaussian in pm_phi2
-                #    + np.log(2 * np.pi * var_bg_pm2)  # Normalization of Background Gaussian in pm_phi2
-                #)
-                #del stars_pm1, stars_pm2, mu_bg_pm1, var_bg_pm1, mu_bg_pm2, var_bg_pm2  # Free memory
-                #gc.collect()  # Force garbage collection
-
-                # Adjust the log-likelihood ratio
-                loglikelihoodratio[pm_mask] += log_ps_pm# - log_pb_pm
-
-                del log_ps_pm#, log_pb_pm  # Free memory
-                gc.collect()  # Force garbage collection
+                # Update in_stream_mask to only include stars that are also consistent in proper motion with the stream track
+                in_stream_mask[pm_mask] &= (pm1_separation < width_pm1 / 2) & (pm2_separation < width_pm2 / 2)
             except:
                 pass
-
-        # Distance (for if / when this becomes available / reliable)
-        if False: #mws.summary.loc[stream_track_name, 'has_D']:
-            try:
-                print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for stream model (distance)                  ', end='\r')
-                # Width in distance
-                # galstreams doesn't have a 'width_dist' value, so we assume each stream to have a circular cross-section
-                sigma_dist = np.tan(sigma_phi2)  # Angular width in radians, to be multiplied by stream distance below to get physical sigma_dist
-
-                # Mask for the stars with distances
-                dist_mask = np.isfinite(stream_stars.distance)
-
-                # Extract distance of stream stars
-                stars_dist = stream_stars.distance.pc[dist_mask]
-
-                # Extract distance of stream track
-                track_dist = stream.track.distance.pc
-                sigma_dist *= track_dist  # Convert angular width to physical width at the distance of the stream track
-
-                # Interpolate track distance vs phi1
-                interp_dist = np.interp(stream_stars.phi1.deg[dist_mask], track_phi1, track_dist)
-                del track_dist  # Free memory
-                gc.collect()  # Force garbage collection
-
-                # Total variance in distance due to astrometric uncertainties and distance dispersion of stream
-                var_dist_stream = var_distance[in_footprint_mask][in_stream_mask][dist_mask]
-                var_dist = var_dist_stream + sigma_dist**2
-
-                # Stream log-likelihood for distance
-                log_ps_dist = (
-                    -0.5 * (stars_dist - interp_dist)**2 / var_dist
-                    -0.5 * np.log(2 * np.pi * var_dist)
-                )
-                del interp_dist, var_dist  # Free memory
-                gc.collect()  # Force garbage collection
-
-                # Mask background stars with valid distances
-                print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for background model (distance)              ', end='\r')
-                bg_dist_mask = np.isfinite(background_stars.distance)
-
-                # Background distances
-                bg_dist = background_stars.distance.pc[bg_dist_mask]
-                del bg_dist_mask  # Free memory
-                gc.collect()  # Force garbage collection
-
-                # Mean and variance of background distances
-                mu_bg_dist = np.mean(bg_dist)
-                var_bg_dist = var_dist_stream + np.var(bg_dist)
-                del var_dist_stream, bg_dist  # Free memory
-                gc.collect()  # Force garbage collection
-
-                # Background log-likelihood for distance
-                log_pb_dist = (
-                    -0.5 * (stars_dist - mu_bg_dist)**2 / var_bg_dist  # Background Gaussian in distance
-                    -0.5 * np.log(2 * np.pi * var_bg_dist)  # Normalization of Background Gaussian in distance
-                )
-                del stars_dist, mu_bg_dist, var_bg_dist  # Free memory
-                gc.collect()  # Force garbage collection
-
-                # Adjust the log-likelihood ratio
-                loglikelihoodratio[dist_mask] += log_ps_dist - log_pb_dist
-
-                del dist_mask, log_ps_dist, log_pb_dist  # Free memory
-                gc.collect()  # Force garbage collection
-            except:
-                pass
-
-        # Line-of-sight velocity (for if / when this becomes available)
-        if False: #mws.summary.loc[stream_track_name, 'has_vrad']:
-            try:
-                print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for stream model (line-of-sight velocity)    ', end='\r')
-                # Width in line-of-sight velocity
-                width_vrad = mws.summary.loc[stream_track_name, 'width_vrad']  # This doesn't exist in galstreams yet
-                sigma_vrad = width_vrad / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
-
-                # Mask for the stars with line-of-sight velocities
-                vrad_mask = np.isfinite(stream_stars.vrad)
-
-                # Extract line-of-sight velocity of stream stars
-                stars_vrad = stream_stars.vrad[vrad_mask].to_value(units.km / units.s)
-
-                # Extract line-of-sight velocity of stream track
-                track_vrad = stream.track.vrad.to_value(units.km / units.s)
-
-                # Interpolate track line-of-sight velocity vs phi1
-                interp_vrad = np.interp(stream_stars.phi1.deg[vrad_mask], track_phi1, track_vrad)
-                del track_vrad  # Free memory
-                gc.collect()  # Force garbage collection
-
-                # Total variance in line-of-sight velocity due to astrometric uncertainties and velocity dispersion of stream
-                var_vrad_stream = var_vrad[in_footprint_mask][in_stream_mask][vrad_mask]
-                var_los = var_vrad_stream + sigma_vrad**2
-
-                # Stream log-likelihood for line-of-sight velocity
-                log_ps_vrad = (
-                    -0.5 * (stars_vrad - interp_vrad)**2 / var_los
-                    -0.5 * np.log(2 * np.pi * var_los)
-                )
-                del interp_vrad, var_los  # Free memory
-                gc.collect()  # Force garbage collection
-
-                # Mask background stars with valid line-of-sight velocities
-                print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | calculating log-likelihood for background model (line-of-sight velocity)', end='\r')
-                bg_vrad_mask = np.isfinite(background_stars.vrad)
-
-                # Background line-of-sight velocities
-                bg_vrad = background_stars.vrad[bg_vrad_mask].to_value(units.km / units.s)
-                del bg_vrad_mask  # Free memory
-                gc.collect()  # Force garbage collection
-
-                # Mean and variance of background line-of-sight velocities
-                mu_bg_vrad = np.mean(bg_vrad)
-                var_bg_vrad = var_vrad_stream + np.var(bg_vrad)
-                del var_vrad_stream, bg_vrad  # Free memory
-                gc.collect()  # Force garbage collection
-
-                # Background log-likelihood for line-of-sight velocity
-                log_pb_vrad = (
-                    -0.5 * (stars_vrad - mu_bg_vrad)**2 / var_bg_vrad  # Background Gaussian in line-of-sight velocity
-                    -0.5 * np.log(2 * np.pi * var_bg_vrad)  # Normalization of Background Gaussian in line-of-sight velocity
-                )
-                del stars_vrad, mu_bg_vrad, var_bg_vrad  # Free memory
-                gc.collect()  # Force garbage collection
-
-                # Adjust the log-likelihood ratio
-                loglikelihoodratio[vrad_mask] += log_ps_vrad - log_pb_vrad
-
-                del vrad_mask, log_ps_vrad, log_pb_vrad  # Free memory
-                gc.collect()  # Force garbage collection
-            except:
-                pass
-
-        del stream_stars#, background_stars, track_phi1  # Free memory
-        gc.collect()  # Force garbage collection
-
-        # Prior ratio (Bayesian, data-driven)
-        #Delta_stream = 4 * sigma_phi2
-        #Delta_background = 4 * sigma_phi2
-
-        #N_stream = in_stream_mask.sum()
-        #N_background = in_background_mask.sum()
-
-        #lambda_bg_s = N_background * (Delta_stream / Delta_background)
-        #eps = np.sqrt(lambda_bg_s + 1.0)
-        #x = (N_stream - lambda_bg_s) / eps
-        #N_s_hat = eps * (max(0, x) + np.log1p(np.exp(-abs(x))))  # Soft plus
-        #prior_ratio = N_s_hat / (lambda_bg_s + 1e-12)
-
-        # Convert to posterior probability (assuming equal priors for now)
-        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | converting log-likelihood ratio to membership probabilities             ', end='\r')
-        #odds = prior_ratio * np.exp(loglikelihoodratio)
-        #probs = odds / (1 + odds)
-        probs = np.exp(loglikelihoodratio)
-        del loglikelihoodratio#, odds  # Free memory
-        gc.collect()  # Force garbage collection
-
-        # Keep only probable stars
-        probs_mask = probs > 0.5
-        if not probs_mask.any():
-            continue
-        probs = probs[probs_mask]
-        probs[:] = 1.0
-        indices = np.where(in_footprint_mask)[0][in_stream_mask][probs_mask]
-        del in_footprint_mask, in_stream_mask, probs_mask  # Free memory
+        # Get the indices of the potential stream stars in the original arrays
+        indices = np.where(in_footprint_mask)[0][in_stream_mask]
+        del in_footprint_mask, track_phi1, in_stream_mask, stream_stars  # Free memory
         gc.collect()  # Force garbage collection
 
         # Assign the stream IDs and probabilities to the members
-        print(f'... processing stream {i + 1}/{len(mws)} ({stream_track_name}) | assigning stream IDs and probabilities to stream members                ', end='\r')
+        print(f'... processing stream {stream_id + 1}/{len(mws)} ({stream_track_name}) | assigning stream IDs and memberships to potential stream members                ', end='\r')
         unassigned_bool = True
         indices_stream_ids = galstreams_members_stream_ids_gdr3[indices]
         for j in range(galstreams_members_stream_ids_gdr3.shape[1]):
             # Find which members can be assigned to this column
-            unassigned_indices_bool = indices_stream_ids[:, j] == max_galstream_cluster_ID + 1
+            unassigned_indices_bool = indices_stream_ids[:, j] == max_galstream_stream_ID + 1
 
             # Assign the stream IDs and probabilities to the unassigned members for this column
             unassigned_indices = indices[unassigned_indices_bool]
-            galstreams_members_stream_ids_gdr3[unassigned_indices, j] = i
-            galstreams_members_stream_probs_gdr3[unassigned_indices, j] = probs[unassigned_indices_bool]
+            galstreams_members_stream_ids_gdr3[unassigned_indices, j] = stream_id
+            galstreams_members_stream_membership_gdr3[unassigned_indices, j] = 1
 
             # Update the arrays to only include those that are still unassigned
             indices = indices[~unassigned_indices_bool]
             indices_stream_ids = indices_stream_ids[~unassigned_indices_bool]
-            probs = probs[~unassigned_indices_bool]
 
             # If all members have been assigned, break
             if indices_stream_ids.shape[0] == 0:
@@ -3830,46 +3761,61 @@ def prepare_galstreams_for_comparison(overwrite=False):
         if unassigned_bool:
             # Add another column to the arrays
             galstreams_members_stream_ids_gdr3 = np.concatenate(
-                (galstreams_members_stream_ids_gdr3, np.full((subsample_mask.size, 1), max_galstream_cluster_ID + 1, dtype=np.int64)),
+                (galstreams_members_stream_ids_gdr3, np.full((subsample_mask.size, 1), max_galstream_stream_ID + 1, dtype=np.int64)),
                 axis=1
             )
-            galstreams_members_stream_probs_gdr3 = np.concatenate(
-                (galstreams_members_stream_probs_gdr3, np.zeros((subsample_mask.size, 1), dtype=np.float32)),
+            galstreams_members_stream_membership_gdr3 = np.concatenate(
+                (galstreams_members_stream_membership_gdr3, np.zeros((subsample_mask.size, 1), dtype=np.bool_)),
                 axis=1
             )
 
-            # Assign the stream IDs and probabilities to the members
-            galstreams_members_stream_ids_gdr3[indices, -1] = i
-            galstreams_members_stream_probs_gdr3[indices, -1] = probs
-    #del ra, dec, mu_ra, mu_dec, r_med_photogeo, cos_dec, var_angularpos, var_pm, var_distance, mws, probs, indices  # Free memory
-    del ra, dec, mu_ra, mu_dec, cos_dec, var_angularpos, var_pm, mws, probs, indices  # Free memory
+            # Assign the stream IDs and memberships to the members
+            galstreams_members_stream_ids_gdr3[indices, -1] = stream_id
+            galstreams_members_stream_membership_gdr3[indices, -1] = 1
+    del ra, dec, mu_ra, mu_dec, cos_dec, mws, indices  # Free memory
     gc.collect()  # Force garbage collection
     
-    # Get the stream IDs and probabilities for the subsample in this work
+    # Get the stream IDs and membership for the subsample in this work
     galstreams_members_stream_ids_subsample = galstreams_members_stream_ids_gdr3[subsample_mask]
-    galstreams_members_stream_probs_subsample = galstreams_members_stream_probs_gdr3[subsample_mask]
-
-    # Pre-compute the total sum of probabilities for each galstreams stream
-    print("... pre-computing the total sum of probabilities for each galstreams stream                                                                   ")
-    galstreams_streams_probability_sums_total = np.bincount(galstreams_members_stream_ids_gdr3.ravel(),
-                                        weights=galstreams_members_stream_probs_gdr3.ravel(),
-                                        minlength=max_galstream_cluster_ID + 1)[:max_galstream_cluster_ID + 1]  # (N_streams,)
-    del galstreams_members_stream_ids_gdr3, galstreams_members_stream_probs_gdr3  # Free memory
+    galstreams_members_stream_membership_subsample = galstreams_members_stream_membership_gdr3[subsample_mask]
+    del subsample_mask  # Free memory
     gc.collect()  # Force garbage collection
 
-    # Pre-compute the sum of probabilities for each galstreams stream in the overlap with the subsample
-    print("... pre-computing the total sum of probabilities for each galstreams stream in the subsample of this work")
-    galstreams_streams_probability_sums_overlap = np.bincount(galstreams_members_stream_ids_subsample.ravel(),
-                                        weights=galstreams_members_stream_probs_subsample.ravel(),
-                                        minlength=max_galstream_cluster_ID + 1)[:max_galstream_cluster_ID + 1]  # (N_streams,)
+    # Pre-compute the total size for each galstreams stream
+    print("... pre-computing the total size for each galstreams stream                                                                   ")
+    galstreams_stream_sizes_full = np.bincount(
+        galstreams_members_stream_ids_gdr3.ravel(),
+        weights=galstreams_members_stream_membership_gdr3.ravel(),
+        minlength=max_galstream_stream_ID + 1
+    )[:max_galstream_stream_ID + 1]  # (N_streams,)
+    del galstreams_members_stream_ids_gdr3, galstreams_members_stream_membership_gdr3  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Pre-compute the size for each galstreams stream in the overlap with the subsample
+    print("... pre-computing the size for each galstreams stream in the subsample of this work")
+    galstreams_stream_sizes_in_subsample = np.bincount(
+        galstreams_members_stream_ids_subsample.ravel(),
+        weights=galstreams_members_stream_membership_subsample.ravel(),
+        minlength=max_galstream_stream_ID + 1
+    )[:max_galstream_stream_ID + 1]  # (N_streams,)
+
+    # Calculate the coverage of each galstreams stream by the subsample of this work
+    galstreams_stream_coverage = np.full_like(galstreams_stream_sizes_full, np.nan, dtype=np.float64)
+    valid = galstreams_stream_sizes_full > 0
+    galstreams_stream_coverage[valid] = (
+        galstreams_stream_sizes_in_subsample[valid] /
+        galstreams_stream_sizes_full[valid]
+    )
+    del galstreams_stream_sizes_full  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Save the intermediary results
     print('... saving intermediary results.\n')
     np.save(file_path_galstreams_members_stream_ids_subsample, galstreams_members_stream_ids_subsample)
-    np.save(file_path_galstreams_members_stream_probs_subsample, galstreams_members_stream_probs_subsample)
-    np.save(file_path_galstreams_streams_probability_sums_total, galstreams_streams_probability_sums_total)
-    np.save(file_path_galstreams_streams_probability_sums_overlap, galstreams_streams_probability_sums_overlap)
-    del subsample_mask, galstreams_members_stream_ids_subsample, galstreams_members_stream_probs_subsample, galstreams_streams_probability_sums_total, galstreams_streams_probability_sums_overlap  # Free memory
+    np.save(file_path_galstreams_members_stream_membership_subsample, galstreams_members_stream_membership_subsample)
+    np.save(file_path_galstreams_stream_sizes_in_subsample, galstreams_stream_sizes_in_subsample)
+    np.save(file_path_galstreams_stream_coverage, galstreams_stream_coverage)
+    del galstreams_members_stream_ids_subsample, galstreams_members_stream_membership_subsample, galstreams_stream_sizes_in_subsample, galstreams_stream_coverage  # Free memory
     gc.collect()  # Force garbage collection
 
 def plot_galstreams_streams_on_sky(overwrite=False):
@@ -3901,16 +3847,28 @@ def compare_to_galstreams(overwrite=False):
     Compare the clustering output to the galstreams catalogue.
     """
     # Check if comparison results already exist
-    file_path_best_match_astrolink_clusters = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_best_match_astrolink_clusters.npy")
-    file_path_cluster_rpj = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_rpj.npy")
+    file_path_astrolink_idx_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_astrolink_idx_allS.npy")
+    file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_catalogue_rpj_allS.npy")
+    file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_catalogue_idx_optimalS.npy")
+    file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_astrolink_rpj_optimalS.npy")
+    file_path_astrolink_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_astrolink_idx_optimalS.npy")
+    file_path_catalogue_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_catalogue_rpj_optimalS.npy")
 
     # Skip processing if all merged output files already exist
-    all_exist = (os.path.exists(file_path_best_match_astrolink_clusters) and
-                 os.path.exists(file_path_cluster_rpj))
+    all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
+                 os.path.exists(file_path_astrolink_idx_allS) and
+                 os.path.exists(file_path_catalogue_idx_optimalS) and
+                 os.path.exists(file_path_astrolink_rpj_optimalS) and
+                 os.path.exists(file_path_astrolink_idx_optimalS) and
+                 os.path.exists(file_path_catalogue_rpj_optimalS))
     if all_exist and not overwrite:
         print("Galstreams comparison results already exist at:")
-        print(f"\t{file_path_best_match_astrolink_clusters} and")
-        print(f"\t{file_path_cluster_rpj} .")
+        print(f"\t{file_path_astrolink_idx_allS} ,")
+        print(f"\t{file_path_catalogue_rpj_allS} ,")
+        print(f"\t{file_path_catalogue_idx_optimalS} ,")
+        print(f"\t{file_path_astrolink_rpj_optimalS} ,")
+        print(f"\t{file_path_astrolink_idx_optimalS} , and")
+        print(f"\t{file_path_catalogue_rpj_optimalS} .")
         print("Use overwrite=True to force recomputation.\n")
         return
     print("Comparing clustering output to the galstreams catalogue...")
@@ -3919,18 +3877,26 @@ def compare_to_galstreams(overwrite=False):
     print("... loading reduced galstreams data")
     galstreams_members_stream_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_ids_subsample.npy"))  # (N_subsample, max_appearances)
     galstreams_members_stream_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_membership_subsample.npy"))  # (N_subsample, max_appearances)
-    galstreams_stream_sizes_in_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_sizes_in_subsample"))
+    galstreams_stream_sizes_in_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_sizes_in_subsample.npy")) # (N_streams,)
+
+    # Choose comparison metric
+    comparison_metric = 1  # 0 for recovery, 1 for purity (S_C=S_A), 2 for purity (S_C=all_catalogue_stars), 3 for Jaccard index (S_C=S_A), 4 for Jaccard index (S_C=all_catalogue_stars)
     
     # Make the comparison
     compare_to_catalogue_helper(
         galstreams_members_stream_ids_subsample,
         galstreams_members_stream_membership_subsample,
         galstreams_stream_sizes_in_subsample,
-        file_path_best_match_astrolink_clusters,
-        file_path_cluster_rpj
+        comparison_metric,
+        file_path_astrolink_idx_allS,
+        file_path_catalogue_rpj_allS,
+        file_path_catalogue_idx_optimalS,
+        file_path_astrolink_rpj_optimalS,
+        file_path_astrolink_idx_optimalS,
+        file_path_catalogue_rpj_optimalS
     )
 
-def plot_galstreams_comparison_results(overwrite=False):
+def plot_galstreams_crossmatch_per_significance(overwrite=False):
     """
     Plot the results of the comparison between clustering output and the galstreams catalogue,
     showing recovery, purity, and Jaccard index under both subsample assumptions
@@ -3946,16 +3912,16 @@ def plot_galstreams_comparison_results(overwrite=False):
 
     # Load comparison results
     print("... loading comparison results")
-    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_rpj.npy"))  # (N_sigmas, N_clusters, 5)
-    galstreams_stream_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/battaglia21_cluster_coverage.npy"))
+    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_catalogue_rpj_allS.npy"))  # (N_sigmas, N_streams, 5)
+    galstreams_stream_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_coverage.npy"))
 
     # Load stream track names
     galstreams_stream_track_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_track_names.npy"))  # (N_streams,)
 
     # Extract per-assumption and per-statistic arrays
-    R  = RPJE[:, :, 0]
-    P_full,  P_union = RPJE[:, :, 1], RPJE[:, :, 2]
-    J_full,  J_union = RPJE[:, :, 3], RPJE[:, :, 4]
+    R  = RPJ[:, :, 0]
+    P_full,  P_union = RPJ[:, :, 1], RPJ[:, :, 2]
+    J_full,  J_union = RPJ[:, :, 3], RPJ[:, :, 4]
 
     # Evidence-weighted averages
     coverage_sum = np.sum(galstreams_stream_coverage)
@@ -3968,7 +3934,7 @@ def plot_galstreams_comparison_results(overwrite=False):
     print("... plotting combined statistics vs significance level")
 
     # Define streams and colors
-    best_matching_streams = np.argsort(np.max(P_union, axis=0))[::-1][:9]
+    best_matching_streams = np.argsort(np.max(P_union, axis=0))[::-1][:5]
     stream_type_colors = {
         stream_name: f"C{index}"
         for index, stream_name in enumerate(galstreams_stream_track_names[best_matching_streams])
@@ -4020,7 +3986,7 @@ def plot_galstreams_comparison_results(overwrite=False):
 
     # Dummy handles for the legend
     handles = [
-        Rectangle((0,0), 1, 1, facecolor=mcolors.to_rgba('k', alpha=0.3), edgecolor='k', linewidth=1, label='Jaccard index'),
+        Rectangle((0,0), 1, 1, facecolor=mcolors.to_rgba('k', alpha=0.3), edgecolor='k', linewidth=1, label='Purity'),
         Rectangle((0,0), 1, 1, facecolor='none', hatch='//', edgecolor='k', linewidth=1, label='Matched fraction'),
     ] + [plt.Line2D([], [], color='none', label=stream_name) for stream_name in stream_type_colors.keys()]
 
@@ -4081,29 +4047,29 @@ if __name__ == "__main__":
     # Compare to Hunt & Reffert (2024)
     prepare_Hunt2024_for_comparison()
     plot_Hunt2024_clusters_on_sky()
-    compare_to_Hunt2024()
-    plot_Hunt2024_comparison_results()
+    compare_to_Hunt2024(True)
+    plot_Hunt2024_crossmatch_per_significance(True)
 
     # Compare to Unified Cluster Catalogue
     prepare_UCC_for_comparison()
     plot_UCC_clusters_on_sky()
-    compare_to_UCC()
-    plot_UCC_comparison_results()
+    compare_to_UCC(True)
+    plot_UCC_crossmatch_per_significance(True)
 
     # Compare to Vasiliev & Baumgardt (2021)
     prepare_Vasiliev2021_for_comparison()
     plot_Vasiliev2021_clusters_on_sky()
-    compare_to_Vasiliev2021()
-    plot_Vasiliev2021_comparison_results(True)
+    compare_to_Vasiliev2021(True)
+    plot_Vasiliev2021_crossmatch_per_significance(True)
 
     # Compare to Battaglia et al. (2021)
     prepare_Battaglia2021_for_comparison()
     plot_Battaglia2021_dwarfgalaxies_on_sky()
-    compare_to_Battaglia2021()
-    plot_Battaglia2021_comparison_results()
+    compare_to_Battaglia2021(True)
+    plot_Battaglia2021_crossmatch_per_significance(True)
 
     # Compare to galstreams catalogue
     prepare_galstreams_for_comparison()
     plot_galstreams_streams_on_sky()
-    compare_to_galstreams()
-    plot_galstreams_comparison_results()
+    compare_to_galstreams(True)
+    plot_galstreams_crossmatch_per_significance(True)

@@ -1793,7 +1793,6 @@ def compare_to_catalogue_helper(
         members_cluster_membership_subsample,
         cluster_sizes_in_subsample,
         comparison_metric,
-        file_path_astrolink_idx_allS,
         file_path_catalogue_rpj_allS,
         file_path_catalogue_idx_optimalS,
         file_path_astrolink_rpj_optimalS,
@@ -1816,8 +1815,7 @@ def compare_to_catalogue_helper(
     # Use limited number of workers because this process is memory intensive
     max_workers = min(8, MAX_PARALLEL_WORKERS)
 
-    # Initialise arrays to store crossmatching statistics for AstroLink leaf clusters relative to the catalogue clusters across all significance thresholds
-    astrolink_idx_allS = -np.ones((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, cluster_sizes_in_subsample.size), dtype=np.int64)  # (N_sigmas, N_clusters,) to store best matching AstroLink cluster indices
+    # Initialise array to store crossmatching statistics for AstroLink leaf clusters relative to the catalogue clusters across all significance thresholds
     catalogue_rpj_allS = np.zeros((SIGMA_THRESHOLDS_FOR_COMPARISONS.size, cluster_sizes_in_subsample.size, 5), dtype=np.float32)  # (N_sigmas, N_clusters, 5) to store RPJ values
     
     # Loop over significance values
@@ -1883,7 +1881,6 @@ def compare_to_catalogue_helper(
                 if isLeafCluster:
                     better_matches_boolean = single_RPJ[:, comparison_metric] > catalogue_rpj_allS[k, unique_ids, comparison_metric] # Comparison under the chosen metric
                     better_matches_indices = unique_ids[better_matches_boolean]
-                    astrolink_idx_allS[k, better_matches_indices] = cluster_index
                     catalogue_rpj_allS[k, better_matches_indices] = single_RPJ[better_matches_boolean]
     
     # Clean up shared memory
@@ -1896,13 +1893,12 @@ def compare_to_catalogue_helper(
 
     # Save the results
     print("... saving comparison results.\n")
-    np.save(file_path_astrolink_idx_allS, astrolink_idx_allS)
     np.save(file_path_catalogue_rpj_allS, catalogue_rpj_allS)
     np.save(file_path_catalogue_idx_optimalS, catalogue_idx_optimalS)
     np.save(file_path_astrolink_rpj_optimalS, astrolink_rpj_optimalS)
     np.save(file_path_astrolink_idx_optimalS, astrolink_idx_optimalS)
     np.save(file_path_catalogue_rpj_optimalS, catalogue_rpj_optimalS)
-    del astrolink_idx_allS, catalogue_rpj_allS, catalogue_idx_optimalS, astrolink_rpj_optimalS, astrolink_idx_optimalS, catalogue_rpj_optimalS  # Free memory
+    del catalogue_rpj_allS, catalogue_idx_optimalS, astrolink_rpj_optimalS, astrolink_idx_optimalS, catalogue_rpj_optimalS  # Free memory
     gc.collect()  # Force garbage collection
 
 def arr_to_shared_memory(arr):
@@ -2217,7 +2213,6 @@ def compare_to_Hunt2024(overwrite=False):
     Compare the clustering output to the Hunt & Reffert (2024).
     """
     # Check if comparison results already exist
-    file_path_astrolink_idx_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_astrolink_idx_allS.npy")
     file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_catalogue_rpj_allS.npy")
     file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_catalogue_idx_optimalS.npy")
     file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_astrolink_rpj_optimalS.npy")
@@ -2226,14 +2221,12 @@ def compare_to_Hunt2024(overwrite=False):
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
-                 os.path.exists(file_path_astrolink_idx_allS) and
                  os.path.exists(file_path_catalogue_idx_optimalS) and
                  os.path.exists(file_path_astrolink_rpj_optimalS) and
                  os.path.exists(file_path_astrolink_idx_optimalS) and
                  os.path.exists(file_path_catalogue_rpj_optimalS))
     if all_exist and not overwrite:
         print("Hunt & Reffert (2024) comparison results already exist at:")
-        print(f"\t{file_path_astrolink_idx_allS} ,")
         print(f"\t{file_path_catalogue_rpj_allS} ,")
         print(f"\t{file_path_catalogue_idx_optimalS} ,")
         print(f"\t{file_path_astrolink_rpj_optimalS} ,")
@@ -2258,7 +2251,6 @@ def compare_to_Hunt2024(overwrite=False):
         H24_members_cluster_membership_subsample,
         H24_cluster_sizes_in_subsample,
         comparison_metric,
-        file_path_astrolink_idx_allS,
         file_path_catalogue_rpj_allS,
         file_path_catalogue_idx_optimalS,
         file_path_astrolink_rpj_optimalS,
@@ -2576,7 +2568,6 @@ def compare_to_UCC(overwrite=False):
     Compare the clustering output to the Unified Cluster Catalogue.
     """
     # Check if comparison results already exist
-    file_path_astrolink_idx_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_astrolink_idx_allS.npy")
     file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_catalogue_rpj_allS.npy")
     file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_catalogue_idx_optimalS.npy")
     file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_astrolink_rpj_optimalS.npy")
@@ -2585,14 +2576,12 @@ def compare_to_UCC(overwrite=False):
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
-                 os.path.exists(file_path_astrolink_idx_allS) and
                  os.path.exists(file_path_catalogue_idx_optimalS) and
                  os.path.exists(file_path_astrolink_rpj_optimalS) and
                  os.path.exists(file_path_astrolink_idx_optimalS) and
                  os.path.exists(file_path_catalogue_rpj_optimalS))
     if all_exist and not overwrite:
         print("Unified Cluster Catalogue comparison results already exist at:")
-        print(f"\t{file_path_astrolink_idx_allS} ,")
         print(f"\t{file_path_catalogue_rpj_allS} ,")
         print(f"\t{file_path_catalogue_idx_optimalS} ,")
         print(f"\t{file_path_astrolink_rpj_optimalS} ,")
@@ -2617,7 +2606,6 @@ def compare_to_UCC(overwrite=False):
         UCC_members_cluster_membership_subsample,
         UCC_cluster_sizes_in_subsample,
         comparison_metric,
-        file_path_astrolink_idx_allS,
         file_path_catalogue_rpj_allS,
         file_path_catalogue_idx_optimalS,
         file_path_astrolink_rpj_optimalS,
@@ -2965,7 +2953,6 @@ def compare_to_Vasiliev2021(overwrite=False):
     Compare the clustering output to the Vasiliev & Baumgardt (2021) catalogue.
     """
     # Check if comparison results already exist
-    file_path_astrolink_idx_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_astrolink_idx_allS.npy")
     file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_catalogue_rpj_allS.npy")
     file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_catalogue_idx_optimalS.npy")
     file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_astrolink_rpj_optimalS.npy")
@@ -2974,14 +2961,12 @@ def compare_to_Vasiliev2021(overwrite=False):
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
-                 os.path.exists(file_path_astrolink_idx_allS) and
                  os.path.exists(file_path_catalogue_idx_optimalS) and
                  os.path.exists(file_path_astrolink_rpj_optimalS) and
                  os.path.exists(file_path_astrolink_idx_optimalS) and
                  os.path.exists(file_path_catalogue_rpj_optimalS))
     if all_exist and not overwrite:
         print("Vasiliev & Baumgardt (2021) comparison results already exist at:")
-        print(f"\t{file_path_astrolink_idx_allS} ,")
         print(f"\t{file_path_catalogue_rpj_allS} ,")
         print(f"\t{file_path_catalogue_idx_optimalS} ,")
         print(f"\t{file_path_astrolink_rpj_optimalS} ,")
@@ -3006,7 +2991,6 @@ def compare_to_Vasiliev2021(overwrite=False):
         V21_members_cluster_membership_subsample,
         V21_cluster_sizes_in_subsample,
         comparison_metric,
-        file_path_astrolink_idx_allS,
         file_path_catalogue_rpj_allS,
         file_path_catalogue_idx_optimalS,
         file_path_astrolink_rpj_optimalS,
@@ -3302,7 +3286,6 @@ def compare_to_Battaglia2021(overwrite=False):
     Compare the clustering output to the Battaglia et al. (2021) catalogue.
     """
     # Check if comparison results already exist
-    file_path_astrolink_idx_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_astrolink_idx_allS.npy")
     file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_catalogue_rpj_allS.npy")
     file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_catalogue_idx_optimalS.npy")
     file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_astrolink_rpj_optimalS.npy")
@@ -3311,14 +3294,12 @@ def compare_to_Battaglia2021(overwrite=False):
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
-                 os.path.exists(file_path_astrolink_idx_allS) and
                  os.path.exists(file_path_catalogue_idx_optimalS) and
                  os.path.exists(file_path_astrolink_rpj_optimalS) and
                  os.path.exists(file_path_astrolink_idx_optimalS) and
                  os.path.exists(file_path_catalogue_rpj_optimalS))
     if all_exist and not overwrite:
         print("Battaglia et al. (2021) comparison results already exist at:")
-        print(f"\t{file_path_astrolink_idx_allS} ,")
         print(f"\t{file_path_catalogue_rpj_allS} ,")
         print(f"\t{file_path_catalogue_idx_optimalS} ,")
         print(f"\t{file_path_astrolink_rpj_optimalS} ,")
@@ -3343,7 +3324,6 @@ def compare_to_Battaglia2021(overwrite=False):
         B21_members_dwarfgalaxy_membership_subsample,
         B21_dwarfgalaxy_sizes_in_subsample,
         comparison_metric,
-        file_path_astrolink_idx_allS,
         file_path_catalogue_rpj_allS,
         file_path_catalogue_idx_optimalS,
         file_path_astrolink_rpj_optimalS,
@@ -3843,7 +3823,6 @@ def compare_to_galstreams(overwrite=False):
     Compare the clustering output to the galstreams catalogue.
     """
     # Check if comparison results already exist
-    file_path_astrolink_idx_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_astrolink_idx_allS.npy")
     file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_catalogue_rpj_allS.npy")
     file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_catalogue_idx_optimalS.npy")
     file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_astrolink_rpj_optimalS.npy")
@@ -3852,14 +3831,12 @@ def compare_to_galstreams(overwrite=False):
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
-                 os.path.exists(file_path_astrolink_idx_allS) and
                  os.path.exists(file_path_catalogue_idx_optimalS) and
                  os.path.exists(file_path_astrolink_rpj_optimalS) and
                  os.path.exists(file_path_astrolink_idx_optimalS) and
                  os.path.exists(file_path_catalogue_rpj_optimalS))
     if all_exist and not overwrite:
         print("Galstreams comparison results already exist at:")
-        print(f"\t{file_path_astrolink_idx_allS} ,")
         print(f"\t{file_path_catalogue_rpj_allS} ,")
         print(f"\t{file_path_catalogue_idx_optimalS} ,")
         print(f"\t{file_path_astrolink_rpj_optimalS} ,")
@@ -3884,7 +3861,6 @@ def compare_to_galstreams(overwrite=False):
         galstreams_members_stream_membership_subsample,
         galstreams_stream_sizes_in_subsample,
         comparison_metric,
-        file_path_astrolink_idx_allS,
         file_path_catalogue_rpj_allS,
         file_path_catalogue_idx_optimalS,
         file_path_astrolink_rpj_optimalS,
@@ -4175,6 +4151,168 @@ def construct_relationship_classifications(overwrite=False):
         np.save(file_path_combined_astrolink_rpj, combined_astrolink_rpj)
         np.save(file_path_combined_astrolink_cluster_type, combined_astrolink_cluster_type)
 
+def plot_astrolink_clusters_by_structure_type_on_sky(overwrite=False):
+    """
+    Plot the AstroLink clusters on the sky, coloured by their structure type as 
+    classified by their relationship to the comparison catalogues at the optimal 
+    significance threshold.
+    """
+    # Define dictionary to map from encoded structure type label to structure name
+    structure_type_name_map = {
+        "o": "Open cluster",
+        "m": "Moving group",
+        "g": "Globular cluster",
+        "d": "Too distant to classify",
+        "r": "Rejected",
+        "D": "Dwarf galaxy",
+        "s": "Stellar stream",
+        "U": "Unknown"
+    }
+
+    # Define dictionary to map from encoded structure type label to plotting color
+    relationship_colour_map = {
+        "True 1-1": mcolors.to_rgb('C2'),
+        "Frag 1-1": mcolors.to_rgb('C0'),
+        "Merg 1-1": mcolors.to_rgb('C9'),
+        "F & M 1-1": mcolors.to_rgb('C4'),
+        "True Frag": mcolors.to_rgb('C6'),
+        "True Merg": mcolors.to_rgb('C1'),
+        "Frag & Merg": mcolors.to_rgb('C8'),
+        "Isolated": mcolors.to_rgb('C3')
+    }
+
+    # Check if plot already exists
+    file_paths_cluster_types = [
+        os.path.join(OUTPUT_PATH, f"AstroLink_{structure_type_name_map[structure_type].replace(' ', '_').lower()}_matches_on_sky.png")
+        for structure_type in ["o", "m", "g", "d", "r", "D", "s", "U"]
+    ]
+
+    # Skip processing if all merged output files already exist
+    each_exist = (os.path.exists(file_path) for file_path in file_paths_cluster_types)
+    if all(each_exist) and not overwrite:
+        print(f"AstroLink clusters by structure type on sky plots already exist at:")
+        for i, file_path in enumerate(file_paths_cluster_types):
+            if len(file_paths_cluster_types) > 2 and i < len(file_paths_cluster_types) - 2:
+                print(f"\t{file_path} ,")
+            if len(file_paths_cluster_types) > 1 and i == len(file_paths_cluster_types) - 2:
+                print(f"\t{file_path} , and")
+            if i == len(file_paths_cluster_types) - 1:
+                print(f"\t{file_path} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting AstroLink clusters by structure type on the sky...")
+
+    # Load combined relationship classification and cluster type arrays
+    print("... loading combined relationship classification and cluster type arrays")
+    combined_astrolink_relationship_classification = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_relationship_classification.npy"))  # (N_AstroLink_clusters, N_catalogues)
+    combined_astrolink_rpj = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_rpj.npy"))  # (N_AstroLink_clusters, N_catalogues, 5)
+    combined_astrolink_cluster_type = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_cluster_type.npy"), allow_pickle=True)  # (N_AstroLink_clusters, N_catalogues)
+
+    # Reduce the combined AstroLink cluster classification arrays to the best-matching catalogue/structure for each AstroLink cluster
+    print("... reducing combined AstroLink cluster classification arrays to best-matching catalogue/structure for each AstroLink cluster")
+    best_catalogue = combined_astrolink_rpj[:, :, 3].argmax(axis=1)  # (N_AstroLink_clusters,)
+    rows = np.arange(combined_astrolink_rpj.shape[0])
+    best_astrolink_relationship_classification = combined_astrolink_relationship_classification[rows, best_catalogue] # (N_AstroLink_clusters,)
+    best_astrolink_rpj = combined_astrolink_rpj[rows, best_catalogue] # (N_AstroLink_clusters, 5)
+    best_astrolink_cluster_type = combined_astrolink_cluster_type[rows, best_catalogue] # (N_AstroLink_clusters,)
+
+    # Extract each relationship classification
+    print("... extracting relationship classifications for best-matching catalogue/structure for each AstroLink cluster")
+    R = (best_astrolink_relationship_classification & 1) != 0
+    F = (best_astrolink_relationship_classification & 2) != 0
+    M = (best_astrolink_relationship_classification & 4) != 0
+    H = (best_astrolink_relationship_classification & 8) != 0
+
+    true_reciprocal  = R & ~F & ~M
+    frag_reciprocal  = R & F & ~M
+    merg_reciprocal  = R & M & ~F
+    f_n_M_reciprocal = R & F & M
+    true_fragmented  = F & ~R & ~M
+    true_merged      = M & ~R & ~F
+    frag_and_merged  = F & M & ~R
+    isolated_match   = H & ~R & ~F & ~M
+    no_best_match    = ~H
+
+    # Define marker face colours according to the relationship classification
+    print("... defining marker colours with alpha based on J > 0.5 for best-matching catalogue/structure for each AstroLink cluster")
+    cluster_facecolours = np.ones((best_astrolink_cluster_type.shape[0], 4), dtype=np.float64)
+    cluster_facecolours[true_reciprocal, :3] = relationship_colour_map["True 1-1"]
+    cluster_facecolours[frag_reciprocal, :3] = relationship_colour_map["Frag 1-1"]
+    cluster_facecolours[merg_reciprocal, :3] = relationship_colour_map["Merg 1-1"]
+    cluster_facecolours[f_n_M_reciprocal, :3] = relationship_colour_map["F & M 1-1"]
+    cluster_facecolours[true_fragmented, :3] = relationship_colour_map["True Frag"]
+    cluster_facecolours[true_merged, :3] = relationship_colour_map["True Merg"]
+    cluster_facecolours[frag_and_merged, :3] = relationship_colour_map["Frag & Merg"]
+    cluster_facecolours[isolated_match, :3] = relationship_colour_map["Isolated"]
+
+    # Set edge colours to black for all clusters
+    cluster_edgecolours = np.full(cluster_facecolours.shape, (0, 0, 0, 1))
+
+    # Adjust face and edge based on whether the best match has J > 0.5 or not
+    potential_mismatch = best_astrolink_rpj[:, 3] < 0.5
+    cluster_facecolours[potential_mismatch, 3] = 0.3   # Adjust face alpha channel (see-through for clusters with J < 0.5)
+    cluster_edgecolours[potential_mismatch, :3] = 0.75  # Adjust edge colour channel (light grey for clusters with J < 0.5)
+
+    # Regular colour cycle for new clusters with no match to any catalogue cluster (J=0 for all catalogues)
+    no_best_match_indices = np.where(no_best_match)[0]
+    for i, idx in enumerate(no_best_match_indices):
+        cluster_facecolours[idx] = mcolors.to_rgba(f"C{i}")
+
+    # Load the AstroLink clustering output
+    print("... loading AstroLink clustering output")
+    clusterer = loadAstroLinkObject(os.path.join(OUTPUT_PATH, "astrolink_object.npz"))
+
+    # Load the required arrays
+    print("... loading required arrays for plotting")
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))  # (N,)
+    galactic_coordinates = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
+    del subsample_mask  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Convert (l, b) in degrees to radians for Mollweide projection
+    print("... converting galactic coordinates to radians for Mollweide projection")
+    galactic_coordinates = np.deg2rad(galactic_coordinates)
+
+    # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
+    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
+    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
+    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
+    del longitude_wrap_bool  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Loop over structure types and plot clusters of each type on the sky
+    for (structure_type, structure_name), file_path in zip(structure_type_name_map.items(), file_paths_cluster_types):
+        print(f"... making '{structure_name}' on-sky plot", end="\r")
+        # Mask for clusters of this structure type
+        structure_mask = best_astrolink_cluster_type == structure_type
+
+        # Create a Mollweide projection plot and plot clusters on the sky
+        fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
+
+        # Cycle through the clusters and plot them
+        for i in np.where(structure_mask)[0]:
+            if i > 0: # Skip the "cluster" containing all stars
+                clst = clusterer.clusters[i]
+                clusterMembers = clusterer.ordering[clst[0]:clst[1]]
+                ax.scatter(
+                    *galactic_coordinates[clusterMembers].T,
+                    facecolor=cluster_facecolours[i],
+                    edgecolor=cluster_edgecolours[i],
+                    s=0.75, lw=0.075
+                )  # Plot each cluster with a different colour
+
+        # Remove grid, ticks, and labels
+        ax.grid(False)
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        # Save the figure
+        plt.tight_layout()
+        plt.savefig(file_path, dpi=500)
+        plt.close()
+        gc.collect()  # Free memory
+        print(f"... saved '{structure_name}' on-sky plot to {file_path}")
+
 def print_relationship_classification_table():
     """
     Print a summary table of the relationship classifications between the 
@@ -4211,14 +4349,14 @@ def print_relationship_classification_table():
     # Loop over all catalogues
     for catalogue_name in ['Hunt2024', 'UCC', 'Vasiliev2021', 'Battaglia2021', 'galstreams']:
         # Load relationship classification and catalogue RPJ at optimal significance threshold
-        relationship_classification = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, f"{catalogue_name}/{catalogue_name}_relationship_classification.npy"))  # (N_catalogue_clusters,)
+        catalogue_relationship_classification = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, f"{catalogue_name}/{catalogue_name}_relationship_classification.npy"))  # (N_catalogue_clusters,)
         catalogue_rpj = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, f"{catalogue_name}/{catalogue_name}_catalogue_rpj_optimalS.npy"))  # (N_catalogue_clusters, 5)
 
         # Extract each relationship classification
-        R = (relationship_classification & 1) != 0
-        F = (relationship_classification & 2) != 0
-        M = (relationship_classification & 4) != 0
-        H = (relationship_classification & 8) != 0
+        R = (catalogue_relationship_classification & 1) != 0
+        F = (catalogue_relationship_classification & 2) != 0
+        M = (catalogue_relationship_classification & 4) != 0
+        H = (catalogue_relationship_classification & 8) != 0
 
         true_reciprocal  = R & ~F & ~M
         frag_reciprocal  = R & F & ~M
@@ -4254,7 +4392,7 @@ def print_relationship_classification_table():
         print(
             "    | "
             f"{catalogue_name:<13} | "
-            f"{relationship_classification.size:<11} | "
+            f"{catalogue_relationship_classification.size:<11} | "
             f"{true_reciprocal.sum():<11} | "
             f"{frag_reciprocal.sum():<11} | "
             f"{merg_reciprocal.sum():<11} | "
@@ -4284,15 +4422,14 @@ def print_relationship_classification_table():
         )
     
     # Load combined AstroLink relationship classification and combined AstroLink RPJ at optimal significance threshold
-    combined_astrolink_relationship_classification = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_relationship_classification.npy"))  # (N_astrolink_clusters,)
-    combined_astrolink_rpj = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_rpj.npy"))  # (N_astrolink_clusters, 5)
+    combined_astrolink_relationship_classification = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_relationship_classification.npy"))  # (N_astrolink_clusters, N_catalogues)
+    combined_astrolink_rpj = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_rpj.npy"))  # (N_astrolink_clusters, N_catalogues, 5)
 
     # Reduce the combined AstroLink cluster classification arrays to the best-matching catalogue/structure for each AstroLink cluster
-    best_catalogue = combined_astrolink_rpj[:, :, 4].argmax(axis=1)  # (N_AstroLink_clusters,)
+    best_catalogue = combined_astrolink_rpj[:, :, 3].argmax(axis=1)  # (N_AstroLink_clusters,)
     rows = np.arange(combined_astrolink_rpj.shape[0])
     best_astrolink_relationship_classification = combined_astrolink_relationship_classification[rows, best_catalogue] # (N_AstroLink_clusters,)
     best_astrolink_rpj = combined_astrolink_rpj[rows, best_catalogue] # (N_AstroLink_clusters, 5)
-
 
     # Extract each relationship classification
     R = (best_astrolink_relationship_classification & 1) != 0
@@ -4334,7 +4471,7 @@ def print_relationship_classification_table():
     print(
         "    | "
         f"{'This work':<13} | "
-        f"{best_astrolink_relationship_classification.size:<11} | "
+        f"{best_astrolink_relationship_classification.size - 1:<11} | "  # Subtract 1 to exclude the "cluster" containing all stars
         f"{true_reciprocal.sum():<11} | "
         f"{frag_reciprocal.sum():<11} | "
         f"{merg_reciprocal.sum():<11} | "
@@ -4343,7 +4480,7 @@ def print_relationship_classification_table():
         f"{true_merged.sum():<11} | "
         f"{frag_and_merged.sum():<11} | "
         f"{isolated_match.sum():<11} | "
-        f"{no_best_match.sum():<11} |"
+        f"{no_best_match.sum() - 1:<11} |"  # Subtract 1 to exclude the "cluster" containing all stars
     )
 
     # Print formatted lower row
@@ -4430,4 +4567,5 @@ if __name__ == "__main__":
 
     # Summarise catalogue comparisons
     construct_relationship_classifications()
+    #plot_astrolink_clusters_by_structure_type_on_sky(True)
     print_relationship_classification_table()

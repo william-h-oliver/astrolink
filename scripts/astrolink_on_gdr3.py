@@ -47,6 +47,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.patches import Rectangle, Circle
+from matplotlib.lines import Line2D
 import healpy as hp
 from healpy.newvisufunc import projview
 
@@ -4156,50 +4157,49 @@ def plot_astrolink_clusters_by_structure_type_on_sky(overwrite=False):
     Plot the AstroLink clusters on the sky, coloured by their structure type as 
     classified by their relationship to the comparison catalogues at the optimal 
     significance threshold.
+
+    All structure types except "U" (Unknown) are plotted in a single 3x2 panel
+    figure (with "d" and "r" combined). The "Unknown" class is plotted in a
+    separate figure. Each figure contains exactly one legend showing the meaning
+    of the colours in terms of the relationship classification system.
     """
     # Define dictionary to map from encoded structure type label to structure name
     structure_type_name_map = {
-        "o": "Open cluster",
-        "m": "Moving group",
-        "g": "Globular cluster",
+        "o": "Open clusters",
+        "m": "Moving groups",
+        "g": "Globular clusters",
         "d": "Too distant to classify",
         "r": "Rejected",
-        "D": "Dwarf galaxy",
-        "s": "Stellar stream",
+        "D": "Dwarf galaxies",
+        "s": "Stellar streams",
         "U": "Unknown"
     }
 
-    # Define dictionary to map from encoded structure type label to plotting color
+    # Define dictionary to map from relationship classification to plotting colour
     relationship_colour_map = {
-        "True 1-1": mcolors.to_rgb('C2'),
-        "Frag 1-1": mcolors.to_rgb('C0'),
-        "Merg 1-1": mcolors.to_rgb('C9'),
-        "F & M 1-1": mcolors.to_rgb('C4'),
-        "True Frag": mcolors.to_rgb('C6'),
-        "True Merg": mcolors.to_rgb('C1'),
+        "True 1-1":    mcolors.to_rgb('C2'),
+        "Frag 1-1":    mcolors.to_rgb('C0'),
+        "Merg 1-1":    mcolors.to_rgb('C9'),
+        "F & M 1-1":   mcolors.to_rgb('C4'),
+        "True Frag":   mcolors.to_rgb('C6'),
+        "True Merg":   mcolors.to_rgb('C1'),
         "Frag & Merg": mcolors.to_rgb('C8'),
-        "Isolated": mcolors.to_rgb('C3')
+        "Isolated":    mcolors.to_rgb('C3')
     }
 
     # Check if plot already exists
-    file_paths_cluster_types = [
-        os.path.join(OUTPUT_PATH, f"AstroLink_{structure_type_name_map[structure_type].replace(' ', '_').lower()}_matches_on_sky.png")
-        for structure_type in ["o", "m", "g", "d", "r", "D", "s", "U"]
-    ]
+    multi_panel_file_path = os.path.join(OUTPUT_PATH, "AstroLink_all_structure_types_except_unknown_matches_on_sky.png")
+    unknown_file_path = os.path.join(OUTPUT_PATH,"AstroLink_unknown_matches_on_sky.png")
 
-    # Skip processing if all merged output files already exist
-    each_exist = (os.path.exists(file_path) for file_path in file_paths_cluster_types)
-    if all(each_exist) and not overwrite:
-        print(f"AstroLink clusters by structure type on sky plots already exist at:")
-        for i, file_path in enumerate(file_paths_cluster_types):
-            if len(file_paths_cluster_types) > 2 and i < len(file_paths_cluster_types) - 2:
-                print(f"\t{file_path} ,")
-            if len(file_paths_cluster_types) > 1 and i == len(file_paths_cluster_types) - 2:
-                print(f"\t{file_path} , and")
-            if i == len(file_paths_cluster_types) - 1:
-                print(f"\t{file_path} .")
+    # Skip processing if output files already exist
+    if (os.path.exists(multi_panel_file_path) and
+        os.path.exists(unknown_file_path) and not overwrite):
+        print("AstroLink clusters by structure type on sky plots already exist at:")
+        print(f"\t{multi_panel_file_path} , and")
+        print(f"\t{unknown_file_path} .")
         print("Use overwrite=True to force replotting.\n")
         return
+
     print("Plotting AstroLink clusters by structure type on the sky...")
 
     # Load combined relationship classification and cluster type arrays
@@ -4208,16 +4208,16 @@ def plot_astrolink_clusters_by_structure_type_on_sky(overwrite=False):
     combined_astrolink_rpj = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_rpj.npy"))  # (N_AstroLink_clusters, N_catalogues, 5)
     combined_astrolink_cluster_type = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_cluster_type.npy"), allow_pickle=True)  # (N_AstroLink_clusters, N_catalogues)
 
-    # Reduce the combined AstroLink cluster classification arrays to the best-matching catalogue/structure for each AstroLink cluster
-    print("... reducing combined AstroLink cluster classification arrays to best-matching catalogue/structure for each AstroLink cluster")
-    best_catalogue = combined_astrolink_rpj[:, :, 3].argmax(axis=1)  # (N_AstroLink_clusters,)
+    # Reduce the combined AstroLink cluster classification arrays to the best-matching catalogue/structure
+    print("... reducing combined AstroLink cluster classification arrays to best-matching catalogue/structure")
+    best_catalogue = combined_astrolink_rpj[:, :, 3].argmax(axis=1)
     rows = np.arange(combined_astrolink_rpj.shape[0])
-    best_astrolink_relationship_classification = combined_astrolink_relationship_classification[rows, best_catalogue] # (N_AstroLink_clusters,)
-    best_astrolink_rpj = combined_astrolink_rpj[rows, best_catalogue] # (N_AstroLink_clusters, 5)
-    best_astrolink_cluster_type = combined_astrolink_cluster_type[rows, best_catalogue] # (N_AstroLink_clusters,)
+    best_astrolink_relationship_classification = combined_astrolink_relationship_classification[rows, best_catalogue]
+    best_astrolink_rpj = combined_astrolink_rpj[rows, best_catalogue]
+    best_astrolink_cluster_type = combined_astrolink_cluster_type[rows, best_catalogue]
 
-    # Extract each relationship classification
-    print("... extracting relationship classifications for best-matching catalogue/structure for each AstroLink cluster")
+    # Extract relationship classifications
+    print("... extracting relationship classifications for best-matching catalogue/structure")
     R = (best_astrolink_relationship_classification & 1) != 0
     F = (best_astrolink_relationship_classification & 2) != 0
     M = (best_astrolink_relationship_classification & 4) != 0
@@ -4233,85 +4233,189 @@ def plot_astrolink_clusters_by_structure_type_on_sky(overwrite=False):
     isolated_match   = H & ~R & ~F & ~M
     no_best_match    = ~H
 
-    # Define marker face colours according to the relationship classification
-    print("... defining marker colours with alpha based on J > 0.5 for best-matching catalogue/structure for each AstroLink cluster")
-    cluster_facecolours = np.ones((best_astrolink_cluster_type.shape[0], 4), dtype=np.float64)
-    cluster_facecolours[true_reciprocal, :3] = relationship_colour_map["True 1-1"]
-    cluster_facecolours[frag_reciprocal, :3] = relationship_colour_map["Frag 1-1"]
-    cluster_facecolours[merg_reciprocal, :3] = relationship_colour_map["Merg 1-1"]
-    cluster_facecolours[f_n_M_reciprocal, :3] = relationship_colour_map["F & M 1-1"]
-    cluster_facecolours[true_fragmented, :3] = relationship_colour_map["True Frag"]
-    cluster_facecolours[true_merged, :3] = relationship_colour_map["True Merg"]
-    cluster_facecolours[frag_and_merged, :3] = relationship_colour_map["Frag & Merg"]
-    cluster_facecolours[isolated_match, :3] = relationship_colour_map["Isolated"]
+    # Define marker face colours
+    print("... defining marker colours based on relationship classification")
+    cluster_facecolours = np.ones((best_astrolink_cluster_type.shape[0], 3), dtype=np.float64)
 
-    # Set edge colours to black for all clusters
-    cluster_edgecolours = np.full(cluster_facecolours.shape, (0, 0, 0, 1))
+    cluster_facecolours[true_reciprocal]  = relationship_colour_map["True 1-1"]
+    cluster_facecolours[frag_reciprocal]  = relationship_colour_map["Frag 1-1"]
+    cluster_facecolours[merg_reciprocal]  = relationship_colour_map["Merg 1-1"]
+    cluster_facecolours[f_n_M_reciprocal] = relationship_colour_map["F & M 1-1"]
+    cluster_facecolours[true_fragmented]  = relationship_colour_map["True Frag"]
+    cluster_facecolours[true_merged]      = relationship_colour_map["True Merg"]
+    cluster_facecolours[frag_and_merged]  = relationship_colour_map["Frag & Merg"]
+    cluster_facecolours[isolated_match]   = relationship_colour_map["Isolated"]
 
-    # Adjust face and edge based on whether the best match has J > 0.5 or not
+    cluster_edgecolours = np.full(cluster_facecolours.shape, (0, 0, 0))
+
+    # Whiten markers for clusters with J < 0.5
+    whiten_factor = 0.75
     potential_mismatch = best_astrolink_rpj[:, 3] < 0.5
-    cluster_facecolours[potential_mismatch, 3] = 0.3   # Adjust face alpha channel (see-through for clusters with J < 0.5)
-    cluster_edgecolours[potential_mismatch, :3] = 0.75  # Adjust edge colour channel (light grey for clusters with J < 0.5)
+    cluster_facecolours[potential_mismatch] *= 1 - whiten_factor
+    cluster_facecolours[potential_mismatch] += whiten_factor
+    cluster_edgecolours[potential_mismatch] = whiten_factor
 
-    # Regular colour cycle for new clusters with no match to any catalogue cluster (J=0 for all catalogues)
     no_best_match_indices = np.where(no_best_match)[0]
     for i, idx in enumerate(no_best_match_indices):
-        cluster_facecolours[idx] = mcolors.to_rgba(f"C{i}")
+        cluster_facecolours[idx] = mcolors.to_rgb(f"C{i}")
 
-    # Load the AstroLink clustering output
+    # Load AstroLink clustering output
     print("... loading AstroLink clustering output")
     clusterer = loadAstroLinkObject(os.path.join(OUTPUT_PATH, "astrolink_object.npz"))
 
-    # Load the required arrays
+    # Load coordinates
     print("... loading required arrays for plotting")
-    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))  # (N,)
-    galactic_coordinates = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
-    del subsample_mask  # Free memory
-    gc.collect()  # Force garbage collection
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))
+    galactic_coordinates = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]
+    del subsample_mask
+    gc.collect()
 
-    # Convert (l, b) in degrees to radians for Mollweide projection
     print("... converting galactic coordinates to radians for Mollweide projection")
     galactic_coordinates = np.deg2rad(galactic_coordinates)
-
-    # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
     longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
     galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
-    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
-    del longitude_wrap_bool  # Free memory
-    gc.collect()  # Force garbage collection
+    galactic_coordinates[:, 0] *= -1
+    del longitude_wrap_bool
+    gc.collect()
 
-    # Loop over structure types and plot clusters of each type on the sky
-    for (structure_type, structure_name), file_path in zip(structure_type_name_map.items(), file_paths_cluster_types):
-        print(f"... making '{structure_name}' on-sky plot", end="\r")
-        # Mask for clusters of this structure type
-        structure_mask = best_astrolink_cluster_type == structure_type
+    # ================================
+    # Create 3x2 multi-panel figure
+    # ================================
+    print("... creating 3x2 multi-panel figure for all structure types except 'Unknown'")
 
-        # Create a Mollweide projection plot and plot clusters on the sky
-        fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
+    multi_panel_structure_groups = [
+        ("o",),
+        ("g",),
+        ("m",),
+        ("D",),
+        ("d", "r"),
+        ("s",)
+    ]
 
-        # Cycle through the clusters and plot them
+    fig, axes = plt.subplots(
+        3, 2,
+        figsize=(12, 10),
+        subplot_kw={'projection': 'mollweide'}
+    )
+
+    axes = axes.flatten()
+
+    for ax, structure_group in zip(axes, multi_panel_structure_groups):
+
+        structure_mask = np.isin(best_astrolink_cluster_type, structure_group)
+
         for i in np.where(structure_mask)[0]:
-            if i > 0: # Skip the "cluster" containing all stars
+            if i > 0:
                 clst = clusterer.clusters[i]
                 clusterMembers = clusterer.ordering[clst[0]:clst[1]]
+
                 ax.scatter(
                     *galactic_coordinates[clusterMembers].T,
                     facecolor=cluster_facecolours[i],
                     edgecolor=cluster_edgecolours[i],
                     s=0.75, lw=0.075
-                )  # Plot each cluster with a different colour
+                )
 
-        # Remove grid, ticks, and labels
         ax.grid(False)
         ax.set_xticks([])
         ax.set_yticks([])
 
-        # Save the figure
-        plt.tight_layout()
-        plt.savefig(file_path, dpi=500)
-        plt.close()
-        gc.collect()  # Free memory
-        print(f"... saved '{structure_name}' on-sky plot to {file_path}")
+        if len(structure_group) == 1:
+            ax.set_title(structure_type_name_map[structure_group[0]])
+        else:
+            ax.set_title("Too distant / Rejected")
+
+    # Create scatter-style legend handles (matching plotted markers)
+    upper_legend_handles = [
+        Line2D(
+            [0], [0],
+            marker='o',
+            linestyle='None',
+            markerfacecolor=colour,
+            markeredgecolor='black',
+            markersize=8,
+            label=label
+        )
+        for label, colour in list(relationship_colour_map.items())[:4]
+    ]
+
+    lower_legend_handles = [
+        Line2D(
+            [0], [0],
+            marker='o',
+            linestyle='None',
+            markerfacecolor=colour,
+            markeredgecolor='black',
+            markersize=8,
+            label=label
+        )
+        for label, colour in list(relationship_colour_map.items())[4:]
+    ]
+
+    # First legend (top four panels intersection)
+    legend1 = fig.legend(
+        handles=upper_legend_handles,
+        loc='center',
+        bbox_to_anchor=(0.5, 0.65675),   # adjust slightly if needed
+        ncol=2,
+        frameon=False
+    )
+
+    # Second legend (lower four panels intersection)
+    legend2 = fig.legend(
+        handles=lower_legend_handles,
+        loc='center',
+        bbox_to_anchor=(0.5, 0.33),   # adjust slightly if needed
+        ncol=2,
+        frameon=False
+    )
+
+    # Ensure both legends are kept
+    fig.add_artist(legend1)
+    fig.add_artist(legend2)
+
+    plt.tight_layout()
+    plt.savefig(multi_panel_file_path, dpi=500)
+    plt.close()
+    gc.collect()
+
+    print(f"... saved multi-panel plot to {multi_panel_file_path}")
+
+    # ================================
+    # Create separate Unknown figure
+    # ================================
+    print("... creating separate 'Unknown' structure type figure")
+
+    fig, ax = plt.subplots(
+        figsize=(12, 6),
+        subplot_kw={'projection': 'mollweide'}
+    )
+
+    structure_mask = best_astrolink_cluster_type == "U"
+
+    for i in np.where(structure_mask)[0]:
+        if i > 0:
+            clst = clusterer.clusters[i]
+            clusterMembers = clusterer.ordering[clst[0]:clst[1]]
+
+            ax.scatter(
+                *galactic_coordinates[clusterMembers].T,
+                facecolor=cluster_facecolours[i],
+                edgecolor=cluster_edgecolours[i],
+                s=0.75, lw=0.075
+            )
+
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title("Unknown")
+
+    plt.tight_layout()
+    plt.savefig(unknown_file_path, dpi=500)
+    plt.close()
+    gc.collect()
+
+    print(f"... saved 'Unknown' plot to {unknown_file_path}.\n")
 
 def print_relationship_classification_table():
     """
@@ -4333,18 +4437,21 @@ def print_relationship_classification_table():
     # Print formatted column headings
     print(
         "    | "
-        f"{'Catalogue':<13} | "
-        f"{'All':<11} | "
-        f"{'True 1-1':<11} | "
-        f"{'Frag 1-1':<11} | "
-        f"{'Merg 1-1':<11} | "
-        f"{'F & M 1-1':<11} | "
-        f"{'True Frag':<11} | "
-        f"{'True Merg':<11} | "
-        f"{'Frag & Merg':<11} | "
-        f"{'Isolated':<11} | "
-        f"{'No match':<11} |"
+        f"{'Map direction':<13} | "
+        f"{'All':>11} | "
+        f"{'True 1-1':>11} | "
+        f"{'Frag 1-1':>11} | "
+        f"{'Merg 1-1':>11} | "
+        f"{'F & M 1-1':>11} | "
+        f"{'True Frag':>11} | "
+        f"{'True Merg':>11} | "
+        f"{'Frag & Merg':>11} | "
+        f"{'Isolated':>11} | "
+        f"{'No match':>11} |"
     )
+
+    # Print divider
+    print("    " + "-" * 157)
 
     # Loop over all catalogues
     for catalogue_name in ['Hunt2024', 'UCC', 'Vasiliev2021', 'Battaglia2021', 'galstreams']:
@@ -4368,14 +4475,27 @@ def print_relationship_classification_table():
         isolated_match   = H & ~R & ~F & ~M
         no_best_match    = ~H
 
-        # Print divider
-        print("    |" + "-" * 155 + "|")
+        # Print formatted top row
+        print(
+            "    | "
+            f"{catalogue_name:<13} | "
+            f"{catalogue_relationship_classification.size:>11} | "
+            f"{true_reciprocal.sum():>11} | "
+            f"{frag_reciprocal.sum():>11} | "
+            f"{merg_reciprocal.sum():>11} | "
+            f"{f_n_M_reciprocal.sum():>11} | "
+            f"{true_fragmented.sum():>11} | "
+            f"{true_merged.sum():>11} | "
+            f"{frag_and_merged.sum():>11} | "
+            f"{isolated_match.sum():>11} | "
+            f"{no_best_match.sum():>11} |"
+        )
 
-        # Print formatted upper row
+        # Print formatted middle row
         good_match_upper = catalogue_rpj[:, 4] > 0.5
         print(
             "    | "
-            f"{'':<13} | "
+            f"{'->':<13} | "
             f"{good_match_upper.sum():>11} | "
             f"{good_match_upper[true_reciprocal].sum():>11} | "
             f"{good_match_upper[frag_reciprocal].sum():>11} | "
@@ -4388,27 +4508,11 @@ def print_relationship_classification_table():
             f"{good_match_upper[no_best_match].sum():>11} |"
         )
 
-        # Print formatted middle row
-        print(
-            "    | "
-            f"{catalogue_name:<13} | "
-            f"{catalogue_relationship_classification.size:<11} | "
-            f"{true_reciprocal.sum():<11} | "
-            f"{frag_reciprocal.sum():<11} | "
-            f"{merg_reciprocal.sum():<11} | "
-            f"{f_n_M_reciprocal.sum():<11} | "
-            f"{true_fragmented.sum():<11} | "
-            f"{true_merged.sum():<11} | "
-            f"{frag_and_merged.sum():<11} | "
-            f"{isolated_match.sum():<11} | "
-            f"{no_best_match.sum():<11} |"
-        )
-
         # Print formatted lower row
         good_match_lower = catalogue_rpj[:, 3] > 0.5
         print(
             "    | "
-            f"{'':<13} | "
+            f"{'Ours':<13} | "
             f"{good_match_lower.sum():>11} | "
             f"{good_match_lower[true_reciprocal].sum():>11} | "
             f"{good_match_lower[frag_reciprocal].sum():>11} | "
@@ -4420,6 +4524,9 @@ def print_relationship_classification_table():
             f"{good_match_lower[isolated_match].sum():>11} | "
             f"{good_match_lower[no_best_match].sum():>11} |"
         )
+
+        # Print divider
+        print("    |" + "-" * 155 + "|")
     
     # Load combined AstroLink relationship classification and combined AstroLink RPJ at optimal significance threshold
     combined_astrolink_relationship_classification = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_relationship_classification.npy"))  # (N_astrolink_clusters, N_catalogues)
@@ -4447,14 +4554,27 @@ def print_relationship_classification_table():
     isolated_match   = H & ~R & ~F & ~M
     no_best_match    = ~H
 
-    # Print divider
-    print("    |" + "-" * 155 + "|")
+    # Print formatted top row
+    print(
+        "    | "
+        f"{'Ours':<13} | "
+        f"{best_astrolink_relationship_classification.size - 1:>11} | "  # Subtract 1 to exclude the "cluster" containing all stars
+        f"{true_reciprocal.sum():>11} | "
+        f"{frag_reciprocal.sum():>11} | "
+        f"{merg_reciprocal.sum():>11} | "
+        f"{f_n_M_reciprocal.sum():>11} | "
+        f"{true_fragmented.sum():>11} | "
+        f"{true_merged.sum():>11} | "
+        f"{frag_and_merged.sum():>11} | "
+        f"{isolated_match.sum():>11} | "
+        f"{no_best_match.sum() - 1:>11} |"  # Subtract 1 to exclude the "cluster" containing all stars
+    )
 
-    # Print formatted upper row
+    # Print formatted middle row
     good_match_upper = best_astrolink_rpj[:, 4] > 0.5
     print(
         "    | "
-        f"{'':<13} | "
+        f"{'->':<13} | "
         f"{good_match_upper.sum():>11} | "
         f"{good_match_upper[true_reciprocal].sum():>11} | "
         f"{good_match_upper[frag_reciprocal].sum():>11} | "
@@ -4467,27 +4587,11 @@ def print_relationship_classification_table():
         f"{good_match_upper[no_best_match].sum():>11} |"
     )
 
-    # Print formatted middle row
-    print(
-        "    | "
-        f"{'This work':<13} | "
-        f"{best_astrolink_relationship_classification.size - 1:<11} | "  # Subtract 1 to exclude the "cluster" containing all stars
-        f"{true_reciprocal.sum():<11} | "
-        f"{frag_reciprocal.sum():<11} | "
-        f"{merg_reciprocal.sum():<11} | "
-        f"{f_n_M_reciprocal.sum():<11} | "
-        f"{true_fragmented.sum():<11} | "
-        f"{true_merged.sum():<11} | "
-        f"{frag_and_merged.sum():<11} | "
-        f"{isolated_match.sum():<11} | "
-        f"{no_best_match.sum() - 1:<11} |"  # Subtract 1 to exclude the "cluster" containing all stars
-    )
-
     # Print formatted lower row
     good_match_lower = best_astrolink_rpj[:, 3] > 0.5
     print(
         "    | "
-        f"{'':<13} | "
+        f"{'All others':<13} | "
         f"{good_match_lower.sum():>11} | "
         f"{good_match_lower[true_reciprocal].sum():>11} | "
         f"{good_match_lower[frag_reciprocal].sum():>11} | "
@@ -4502,6 +4606,7 @@ def print_relationship_classification_table():
     
     # Print divider
     print("    " + "-" * 157)
+
 
 # === Run script ===
 if __name__ == "__main__":
@@ -4567,5 +4672,5 @@ if __name__ == "__main__":
 
     # Summarise catalogue comparisons
     construct_relationship_classifications()
-    #plot_astrolink_clusters_by_structure_type_on_sky(True)
+    plot_astrolink_clusters_by_structure_type_on_sky()
     print_relationship_classification_table()

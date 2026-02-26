@@ -3987,9 +3987,8 @@ def plot_galstreams_crossmatch_per_significance(overwrite=False):
 # === Summarise catalogue comparisons ===
 def retrieve_relationship_classification(catalogue_idx, astrolink_idx):
     """
-    Retrieve the crossmatch results between the AstroLink clustering output and 
-    each of the comparison catalogues at the optimal significance threshold, and 
-    store them in global variables for use in the relationship classification.
+    Retrieve the relationship classification crossmatch results between one 
+    catalogue and another.
     """
     # Best match mask
     has_match_mask = astrolink_idx != -1

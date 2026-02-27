@@ -1230,7 +1230,7 @@ def plot_astrolink_prominence_model_fit(overwrite=False):
     clusterer = loadAstroLinkObject(os.path.join(OUTPUT_PATH, "astrolink_object.npz"))
     
     # Plot the prominence model fit
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(6, 5))
 
     # Plot prominences histogram
     subgroup_proms = clusterer.prominences[:, 1]
@@ -2167,7 +2167,7 @@ def prepare_Hunt2024_for_comparison(overwrite=False):
     )[:max_H24_cluster_ID + 1]  # (N_clusters,)
 
     # Calculate the coverage of each Hunt+2024 cluster by the subsample of this work
-    H24_cluster_coverage = np.full_like(H24_cluster_sizes_full, np.nan, dtype=np.float64)
+    H24_cluster_coverage = np.full_like(H24_cluster_sizes_full, 0.0, dtype=np.float64)
     valid = H24_cluster_sizes_full > 0
     H24_cluster_coverage[valid] = (
         H24_cluster_sizes_in_subsample[valid] /
@@ -2277,12 +2277,15 @@ def plot_Hunt2024_crossmatch_per_significance(overwrite=False):
     RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_catalogue_rpj_allS.npy"))  # (N_sigmas, N_clusters, 5)
     H24_cluster_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_cluster_coverage.npy"))
 
+    # Set non-finite values to zero for plotting purposes
+    H24_cluster_coverage[~np.isfinite(H24_cluster_coverage)] = 0.0
+
     # Load Hunt & Reffert (2024) cluster types
     print("... loading Hunt & Reffert (2024) cluster types")
     H24_cluster_types = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_clusters_types.npy"), allow_pickle=True)  # (N_clusters,)
 
     # Make figure
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(6, 5))
 
     # ========== INDIVIDUAL CLUSTER TYPES ==========
     print("... plotting per-cluster-type statistics")
@@ -2522,7 +2525,7 @@ def prepare_UCC_for_comparison(overwrite=False):
     )[:max_UCC_cluster_ID + 1]  # (N_clusters,)
 
     # Calculate the coverage of each UCC cluster by the subsample of this work
-    UCC_cluster_coverage = np.full_like(UCC_cluster_sizes_full, np.nan, dtype=np.float64)
+    UCC_cluster_coverage = np.full_like(UCC_cluster_sizes_full, 0.0, dtype=np.float64)
     valid = UCC_cluster_sizes_full > 0
     UCC_cluster_coverage[valid] = (
         UCC_cluster_sizes_in_subsample[valid] /
@@ -2632,6 +2635,10 @@ def plot_UCC_crossmatch_per_significance(overwrite=False):
     RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_catalogue_rpj_allS.npy"))  # (N_sigmas, N_clusters, 5)
     UCC_cluster_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_cluster_coverage.npy"))
 
+    # Set non-finite values to zero for plotting purposes
+    RPJ[~np.isfinite(RPJ)] = 0.0
+    UCC_cluster_coverage[~np.isfinite(UCC_cluster_coverage)] = 0.0
+
     # Load UCC cluster metadata
     print("... loading Unified Cluster Catalogue cluster names and quality classes")
     UCC_clusters_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_clusters_names.npy"))
@@ -2643,7 +2650,7 @@ def plot_UCC_crossmatch_per_significance(overwrite=False):
     UCC_clusters_quality_class = UCC_clusters_quality_class[reorder]
 
     # Make figure
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(6, 5))
 
     # ========== QUALITY CLASS GROUPS ==========
     print("... plotting statistics vs significance level for UCC quality ranges")
@@ -2907,7 +2914,7 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
     )[:max_V21_cluster_ID + 1]  # (N_clusters,)
 
     # Calculate the coverage of each globular cluster by the subsample of this work
-    V21_cluster_coverage = np.full_like(V21_cluster_sizes_full, np.nan, dtype=np.float64)
+    V21_cluster_coverage = np.full_like(V21_cluster_sizes_full, 0.0, dtype=np.float64)
     valid = V21_cluster_sizes_full > 0
     V21_cluster_coverage[valid] = (
         V21_cluster_sizes_in_subsample[valid] /
@@ -3038,7 +3045,7 @@ def plot_Vasiliev2021_crossmatch_per_significance(overwrite=False):
     }
 
     # Make figure
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(6, 5))
 
     # Jaccard
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
@@ -3088,7 +3095,12 @@ def plot_Vasiliev2021_crossmatch_per_significance(overwrite=False):
     ] + [plt.Line2D([], [], color='none', label=cluster_name) for cluster_name in cluster_type_colors.keys()]
 
     # Create the legend
-    leg = ax.legend(handles=handles, loc='upper right', frameon=False)
+    leg = ax.legend(
+        handles=handles,
+        loc='lower left',
+        bbox_to_anchor=(0.375, 0),
+        frameon=False
+    )
 
     # Recolor legend text entries for cluster types
     for text in leg.get_texts():
@@ -3240,7 +3252,7 @@ def prepare_Battaglia2021_for_comparison(overwrite=False):
     )[:max_B21_dwarfgalaxy_ID + 1]  # (N_dwarfgalaxies,)
 
     # Calculate the coverage of each Battaglia+2021 dwarf galaxy by the subsample of this work
-    B21_dwarfgalaxy_coverage = np.full_like(B21_dwarfgalaxy_sizes_full, np.nan, dtype=np.float64)
+    B21_dwarfgalaxy_coverage = np.full_like(B21_dwarfgalaxy_sizes_full, 0.0, dtype=np.float64)
     valid = B21_dwarfgalaxy_sizes_full > 0
     B21_dwarfgalaxy_coverage[valid] = (
         B21_dwarfgalaxy_sizes_in_subsample[valid] /
@@ -3371,7 +3383,7 @@ def plot_Battaglia2021_crossmatch_per_significance(overwrite=False):
     }
 
     # Make figure
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(6, 5))
 
     # Jaccard
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Jbar_union,
@@ -3421,7 +3433,12 @@ def plot_Battaglia2021_crossmatch_per_significance(overwrite=False):
     ] + [plt.Line2D([], [], color='none', label=dwarf_galaxy_name) for dwarf_galaxy_name in dwarf_galaxy_colors.keys()]
 
     # Create the legend
-    leg = ax.legend(handles=handles, loc='upper right', frameon=False)
+    leg = ax.legend(
+        handles=handles,
+        loc='center',
+        bbox_to_anchor=(0.625, 0.4),
+        frameon=False
+    )
 
     # Recolor legend text entries for cluster types
     for text in leg.get_texts():
@@ -3777,7 +3794,7 @@ def prepare_galstreams_for_comparison(overwrite=False):
     )[:max_galstream_stream_ID + 1]  # (N_streams,)
 
     # Calculate the coverage of each galstreams stream by the subsample of this work
-    galstreams_stream_coverage = np.full_like(galstreams_stream_sizes_full, np.nan, dtype=np.float64)
+    galstreams_stream_coverage = np.full_like(galstreams_stream_sizes_full, 0.0, dtype=np.float64)
     valid = galstreams_stream_sizes_full > 0
     galstreams_stream_coverage[valid] = (
         galstreams_stream_sizes_in_subsample[valid] /
@@ -3906,14 +3923,14 @@ def plot_galstreams_crossmatch_per_significance(overwrite=False):
     print("... plotting combined statistics vs significance level")
 
     # Define streams and colors
-    best_matching_streams = np.argsort(np.max(P_union, axis=0))[::-1][:5]
+    best_matching_streams = np.argsort(np.max(P_union, axis=0))[::-1][:4]
     stream_type_colors = {
         stream_name: f"C{index}"
         for index, stream_name in enumerate(galstreams_stream_track_names[best_matching_streams])
     }
 
     # Make figure
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(6, 5))
 
     # Jaccard
     ax.plot(SIGMA_THRESHOLDS_FOR_COMPARISONS, Pbar_union,
@@ -4655,7 +4672,7 @@ if __name__ == "__main__":
     prepare_Vasiliev2021_for_comparison()
     plot_Vasiliev2021_clusters_on_sky()
     compare_to_Vasiliev2021()
-    plot_Vasiliev2021_crossmatch_per_significance()
+    plot_Vasiliev2021_crossmatch_per_significance(True)
 
     # Compare to Battaglia et al. (2021)
     prepare_Battaglia2021_for_comparison()

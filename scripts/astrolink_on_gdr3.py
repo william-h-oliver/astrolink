@@ -2277,9 +2277,6 @@ def plot_Hunt2024_crossmatch_per_significance(overwrite=False):
     RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_catalogue_rpj_allS.npy"))  # (N_sigmas, N_clusters, 5)
     H24_cluster_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_cluster_coverage.npy"))
 
-    # Set non-finite values to zero for plotting purposes
-    H24_cluster_coverage[~np.isfinite(H24_cluster_coverage)] = 0.0
-
     # Load Hunt & Reffert (2024) cluster types
     print("... loading Hunt & Reffert (2024) cluster types")
     H24_cluster_types = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_clusters_types.npy"), allow_pickle=True)  # (N_clusters,)
@@ -2634,10 +2631,6 @@ def plot_UCC_crossmatch_per_significance(overwrite=False):
     print("... loading comparison results")
     RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_catalogue_rpj_allS.npy"))  # (N_sigmas, N_clusters, 5)
     UCC_cluster_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_cluster_coverage.npy"))
-
-    # Set non-finite values to zero for plotting purposes
-    RPJ[~np.isfinite(RPJ)] = 0.0
-    UCC_cluster_coverage[~np.isfinite(UCC_cluster_coverage)] = 0.0
 
     # Load UCC cluster metadata
     print("... loading Unified Cluster Catalogue cluster names and quality classes")

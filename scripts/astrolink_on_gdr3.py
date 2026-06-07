@@ -63,8 +63,8 @@ AUXILLARY_CATALOGUES_PATH = "/home/williamoliver_data/gaia_clustering/auxillary_
 WORKING_DIRECTORY = "/home/williamoliver_data/gaia_clustering/"  # Path to output files
 
 # Auto-defined paths
-INTERMEDIATE_FILES_PATH = os.path.join(WORKING_DIRECTORY, "intermediate_files/")  # Path to intermediary numpy files
-OUTPUT_PATH = os.path.join(WORKING_DIRECTORY, "results_rhalf_50_velmetric1/")  # Path to AstroLink results
+INTERMEDIATE_FILES_PATH = os.path.join(WORKING_DIRECTORY, "intermediate_files_5D/")  # Path to intermediary numpy files
+OUTPUT_PATH = os.path.join(WORKING_DIRECTORY, "results_5D_rhalf_50_velmetric1/")  # Path to AstroLink results
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
@@ -103,7 +103,9 @@ def prepare_gdr3_catalogue(overwrite=False):
         'galactic_coordinates': ['l', 'b'],
         'equatorial_coordinates': ['ra', 'dec'],
         'proper_motions': ['pmra', 'pmdec'],
+        'radial_velocities': ['radial_velocity'],
         'astrometric_errors': ['ra_error', 'dec_error', 'pmra_error', 'pmdec_error'],
+        'radial_velocity_errors': ['radial_velocity_error'],
         'astrometric_matched_transits': ['astrometric_matched_transits'],
         'photometry': ['phot_g_mean_mag', 'phot_bp_mean_mag', 'phot_rp_mean_mag'],
         'photometric_snr': ['phot_g_mean_flux_over_error', 'phot_bp_mean_flux_over_error', 'phot_rp_mean_flux_over_error'],
@@ -559,6 +561,8 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     proper_motions = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_proper_motions.npy"))  # (n, 2) in mas/yr
     ruwe = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_ruwe.npy"))  # (n,)
     g_mag = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_photometry.npy"))[:, 0]  # (n,)
+    if WITH_RADIAL_VELOCITIES:
+        radial_velocities = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_radial_velocities.npy"))  # (n,) in km/s
 
     # Create boolean mask for S_Gaia > threshold, ruwe < threshold, and valid astrometric data
     print("... creating subsample mask with selection function and data quality cuts")
@@ -567,6 +571,8 @@ def construct_subsample_from_full_catalogue(overwrite=False):
     subsample_mask &= np.isfinite(r_med_photogeo)
     subsample_mask &= np.isfinite(proper_motions).all(axis=1)
     subsample_mask &= np.isfinite(g_mag)  # Valid G-band magnitude
+    if WITH_RADIAL_VELOCITIES:
+        subsample_mask &= np.isfinite(radial_velocities)  # Valid radial velocity
 
     # Save mask
     np.save(mask_path, subsample_mask)
@@ -992,7 +998,7 @@ def calculate_contracted_subspaces_and_errors(overwrite=False):
     mu_ra, mu_dec = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_proper_motions.npy"))[subsample_mask].T  # shape (N, 2) in mas/yr
     del ra, dec  # Free memory
     gc.collect()  # Force garbage collection
-    
+
     print('... loading astrometric solution uncertainties for subsample')
     lo, high = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "bailerjones_r_lo_high_photogeo.npy"))[subsample_mask].T  # shape (N, 2) in pc
     delta_r = (high - lo) / 2  # Symmetrize the distance uncertainty for first-order propagation
@@ -1000,6 +1006,11 @@ def calculate_contracted_subspaces_and_errors(overwrite=False):
     delta_ra, delta_dec = delta_ra * (np.pi / 180 / 3600000), delta_dec * (np.pi / 180 / 3600000)  # Convert angular errors from mas to radians
     del subsample_mask, lo, high  # Free memory
     gc.collect()  # Force garbage collection
+
+    if WITH_RADIAL_VELOCITIES:
+        print('... loading radial velocities and uncertainties for subsample')
+        vr = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_radial_velocities.npy"))[subsample_mask]  # shape (N,) in km/s
+        delta_vr = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_radial_velocity_errors.npy"))[subsample_mask]  # shape (N,) in km/s
 
     # Calculate r_half
     r_half = np.percentile(r / np.sqrt(delta_r + 1e-6), R_HALF_PERCENTILE)  # Use quantiles as a more robust estimator
@@ -1031,14 +1042,21 @@ def calculate_contracted_subspaces_and_errors(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Save the contracted velocities
-    conversion_factor = 149597870.7 / (1000 * 365.25 * 24 * 3600)  # Conversion factor from (pc * mas/yr) to km/s
     mu_ra_cos_dec = cos_dec * mu_ra  # shape (N,) in mas/yr
     e_ra = np.column_stack([-sin_ra, cos_ra, np.zeros_like(cos_ra)])  # Tangential basis vector in RA direction
     e_dec = np.column_stack([-cos_ra * sin_dec, -sin_ra * sin_dec, cos_dec])  # Tangential basis vector in Dec direction
+    if WITH_RADIAL_VELOCITIES:
+        e_r = np.column_stack([
+            cos_dec * cos_ra,
+            cos_dec * sin_ra,
+            sin_dec
+        ])  # Basis vector in radial direction ## UP TO HERE
+
+    conversion_factor = 149597870.7 / (1000 * 365.25 * 24 * 3600)  # Conversion factor from (pc * mas/yr) to km/s
     velocities = conversion_factor * fr[:, None] * (mu_ra_cos_dec[:, None] * e_ra + mu_dec[:, None] * e_dec)  # shape (N, 3)
     np.save(file_path_contracted_velocities, velocities)
     print(f"... saved contracted velocities to {file_path_contracted_velocities} (shape: {velocities.shape})")
-    del cos_ra, sin_ra, fr, velocities #TEMP: e_ra, e_dec, velocities  # Free memory
+    del cos_ra, sin_ra, fr, velocities, e_ra, e_dec, velocities  # Free memory
     gc.collect()  # Force garbage collection
 
     # Save the contracted velocity uncertainties
@@ -4665,7 +4683,7 @@ if __name__ == "__main__":
     prepare_Vasiliev2021_for_comparison()
     plot_Vasiliev2021_clusters_on_sky()
     compare_to_Vasiliev2021()
-    plot_Vasiliev2021_crossmatch_per_significance(True)
+    plot_Vasiliev2021_crossmatch_per_significance()
 
     # Compare to Battaglia et al. (2021)
     prepare_Battaglia2021_for_comparison()

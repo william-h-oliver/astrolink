@@ -62,15 +62,15 @@ GDR3_CATALOGUE_PATH = "/home/_data/Gaia/cdn.gea.esac.esa.int/Gaia/gdr3/gaia_sour
 AUXILLARY_CATALOGUES_PATH = "/home/williamoliver_data/gaia_clustering/auxillary_catalogues/"  # Path to auxillary catalogues (e.g. Bailer-Jones GEDR3 distances, Hunt+2024 open clusters)
 WORKING_DIRECTORY = "/home/williamoliver_data/gaia_clustering/"  # Path to output files
 
-# Auto-defined paths
-INTERMEDIATE_FILES_PATH = os.path.join(WORKING_DIRECTORY, "intermediate_files_5D/")  # Path to intermediary numpy files
-OUTPUT_PATH = os.path.join(WORKING_DIRECTORY, "results_5D_rhalf_50_velmetric1/")  # Path to AstroLink results
+# Relative paths
+INTERMEDIATE_FILES_PATH = os.path.join(WORKING_DIRECTORY, "intermediate_files_6D/")  # Path to intermediary numpy files
+OUTPUT_PATH = os.path.join(WORKING_DIRECTORY, "results_6D_rhalf_50_PMmetric0_VRmetric0/")  # Path to AstroLink results
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
 
 # Pipeline setup
-WITH_RADIAL_VELOCITIES = False  # Whether to use radial velocities in the input data space for AstroLink clustering
+WITH_RADIAL_VELOCITIES = True  # Whether to use radial velocities in the input data space for AstroLink clustering
 STOCHASTIC_RUN = False  # Whether to sample stochastic values from their distributions
 
 # Subsample construction parameters
@@ -80,11 +80,12 @@ RUWE_UPPER_LIMIT = 1.2  # RUWE threshold for subsample stars
 
 # Data space construction parameters
 R_HALF_PERCENTILE = 50.0 + STOCHASTIC_RUN * np.random.uniform(-25, 25, 1)[0]  # Distances are contracted according to R_HALF * np.arctan(distance / R_HALF), R_HALF (in pc) marks the half-way point between full and zero Cartesian influence of the distance estimate on the clustering output
-RELATIVE_VELOCITY_RESCALE_FACTOR = 2.0**(1 + STOCHASTIC_RUN * np.random.normal(-0.5, 0.5, 1)[0])  # An additional rescale factor for the influence of velocities relative to positions in the data space metric
+RELATIVE_PROPER_MOTION_RESCALE_FACTOR = 2.0**(0 + STOCHASTIC_RUN * np.random.normal(0.0, 0.5, 1)[0])  # An additional rescale factor for the influence of velocities relative to positions in the data space metric
+RELATIVE_RADIAL_VELOCITY_RESCALE_FACTOR = 2.0**(0 + STOCHASTIC_RUN * np.random.normal(0.0, 0.5, 1)[0])  # An additional rescale factor for the influence of radial velocities relative to positions in the data space metric (only relevant if WITH_RADIAL_VELOCITIES=True)
 
 # AstroLink parameters
 KNN_FOR_ASTROLINK = 16  # Number of nearest neighbors that AstroLink uses to calculate local densities
-OPTIMAL_SIGMA_THRESHOLD = 3.8 + STOCHASTIC_RUN * np.random.normal(0, 0.1, 1)[0]  # Optimal significance threshold determined from prominence model fitting
+OPTIMAL_SIGMA_THRESHOLD = 3.5 + STOCHASTIC_RUN * np.random.normal(0, 0.1, 1)[0]  # Optimal significance threshold determined from prominence model fitting
 
 # Comparison parameters
 SIGMA_THRESHOLDS_FOR_COMPARISONS = np.linspace(2, 10, 81)  # Significance levels from 2 to 10 to be used when comparing to existing cluster catalogues
@@ -780,7 +781,7 @@ def calculate_total_selection_function(overwrite=False):
     # Save total selection function arrays for stars
     print(f"... saving total selection function arrays for stars to:")
     print(f"\t{file_nsub} and")
-    print(f"\t{file_nmw} .")
+    print(f"\t{file_nmw} .\n")
     np.save(file_nsub, nsub)
     np.save(file_nmw, nmw)
 
@@ -845,7 +846,7 @@ def calculate_total_selection_function(overwrite=False):
     # Save total selection function arrays for healpix pixels
     print(f"... saving total selection function arrays for HEALPix pixels to:                ")
     print(f"\t{file_nsub_healpix} and")
-    print(f"\t{file_nmw_healpix} .")
+    print(f"\t{file_nmw_healpix} .\n")
     np.save(file_nsub_healpix, nsub_healpix)
     np.save(file_nmw_healpix, nmw_healpix)
     del nsub_healpix, nmw_healpix  # Free memory
@@ -969,22 +970,45 @@ def calculate_contracted_subspaces_and_errors(overwrite=False):
     file_path_contracted_position_uncertainties = os.path.join(INTERMEDIATE_FILES_PATH, "contracted_position_uncertainties.npy")
     file_path_contracted_velocities = os.path.join(INTERMEDIATE_FILES_PATH, "contracted_velocities.npy")
     file_path_contracted_velocity_uncertainties = os.path.join(INTERMEDIATE_FILES_PATH, "contracted_velocity_uncertainties.npy")
+    file_path_radial_velocities_3D = os.path.join(INTERMEDIATE_FILES_PATH, "radial_velocities_3D.npy")
+    file_path_radial_velocity_uncertainties_3D = os.path.join(INTERMEDIATE_FILES_PATH, "radial_velocity_uncertainties_3D.npy")
     
-    # Skip processing if all output files already exist
-    all_exist = (
-        os.path.exists(file_path_contracted_positions) and
-        os.path.exists(file_path_contracted_position_uncertainties) and
-        os.path.exists(file_path_contracted_velocities) and
-        os.path.exists(file_path_contracted_velocity_uncertainties)
-    )
-    if all_exist and not overwrite:
-        print(f"Subspace contraction arrays already exist at:")
-        print(f"\t{file_path_contracted_positions} ,")
-        print(f"\t{file_path_contracted_position_uncertainties} ,")
-        print(f"\t{file_path_contracted_velocities} , and")
-        print(f"\t{file_path_contracted_velocity_uncertainties} .")
-        print("Use overwrite=True to force recomputation.\n")
-        return
+    if WITH_RADIAL_VELOCITIES:
+        # Skip processing if all output files already exist
+        all_exist = (
+            os.path.exists(file_path_contracted_positions) and
+            os.path.exists(file_path_contracted_position_uncertainties) and
+            os.path.exists(file_path_contracted_velocities) and
+            os.path.exists(file_path_contracted_velocity_uncertainties) and
+            os.path.exists(file_path_radial_velocities_3D) and
+            os.path.exists(file_path_radial_velocity_uncertainties_3D)
+        )
+        if all_exist and not overwrite:
+            print(f"Subspace contraction arrays already exist at:")
+            print(f"\t{file_path_contracted_positions} ,")
+            print(f"\t{file_path_contracted_position_uncertainties} ,")
+            print(f"\t{file_path_contracted_velocities} ,")
+            print(f"\t{file_path_contracted_velocity_uncertainties} ,")
+            print(f"\t{file_path_radial_velocities_3D} , and")
+            print(f"\t{file_path_radial_velocity_uncertainties_3D} .")
+            print("Use overwrite=True to force recomputation.\n")
+            return
+    else:
+        # Skip processing if all output files already exist
+        all_exist = (
+            os.path.exists(file_path_contracted_positions) and
+            os.path.exists(file_path_contracted_position_uncertainties) and
+            os.path.exists(file_path_contracted_velocities) and
+            os.path.exists(file_path_contracted_velocity_uncertainties)
+        )
+        if all_exist and not overwrite:
+            print(f"Subspace contraction arrays already exist at:")
+            print(f"\t{file_path_contracted_positions} ,")
+            print(f"\t{file_path_contracted_position_uncertainties} ,")
+            print(f"\t{file_path_contracted_velocities} , and")
+            print(f"\t{file_path_contracted_velocity_uncertainties} .")
+            print("Use overwrite=True to force recomputation.\n")
+            return
     print("Calculating subspace contractions for subsample...")
 
     # Load required arrays
@@ -1004,13 +1028,15 @@ def calculate_contracted_subspaces_and_errors(overwrite=False):
     delta_r = (high - lo) / 2  # Symmetrize the distance uncertainty for first-order propagation
     delta_ra, delta_dec, delta_mu_ra, delta_mu_dec = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_astrometric_errors.npy"))[subsample_mask].T  # shape (N, 4) in [mas, mas, mas/yr, mas/yr]
     delta_ra, delta_dec = delta_ra * (np.pi / 180 / 3600000), delta_dec * (np.pi / 180 / 3600000)  # Convert angular errors from mas to radians
-    del subsample_mask, lo, high  # Free memory
+    del lo, high  # Free memory
     gc.collect()  # Force garbage collection
 
     if WITH_RADIAL_VELOCITIES:
         print('... loading radial velocities and uncertainties for subsample')
         vr = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_radial_velocities.npy"))[subsample_mask]  # shape (N,) in km/s
         delta_vr = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_radial_velocity_errors.npy"))[subsample_mask]  # shape (N,) in km/s
+    del subsample_mask  # Free memory
+    gc.collect()  # Force garbage collection
 
     # Calculate r_half
     r_half = np.percentile(r / np.sqrt(delta_r + 1e-6), R_HALF_PERCENTILE)  # Use quantiles as a more robust estimator
@@ -1045,20 +1071,26 @@ def calculate_contracted_subspaces_and_errors(overwrite=False):
     mu_ra_cos_dec = cos_dec * mu_ra  # shape (N,) in mas/yr
     e_ra = np.column_stack([-sin_ra, cos_ra, np.zeros_like(cos_ra)])  # Tangential basis vector in RA direction
     e_dec = np.column_stack([-cos_ra * sin_dec, -sin_ra * sin_dec, cos_dec])  # Tangential basis vector in Dec direction
+    conversion_factor = 149597870.7 / (1000 * 365.25 * 24 * 3600)  # Conversion factor from (pc * mas/yr) to km/s
+    velocities = conversion_factor * fr[:, None] * (mu_ra_cos_dec[:, None] * e_ra + mu_dec[:, None] * e_dec)  # shape (N, 3)
+    np.save(file_path_contracted_velocities, velocities)
+    print(f"... saved contracted velocities to {file_path_contracted_velocities} (shape: {velocities.shape})")
+
     if WITH_RADIAL_VELOCITIES:
         e_r = np.column_stack([
             cos_dec * cos_ra,
             cos_dec * sin_ra,
             sin_dec
-        ])  # Basis vector in radial direction ## UP TO HERE
-
-    conversion_factor = 149597870.7 / (1000 * 365.25 * 24 * 3600)  # Conversion factor from (pc * mas/yr) to km/s
-    velocities = conversion_factor * fr[:, None] * (mu_ra_cos_dec[:, None] * e_ra + mu_dec[:, None] * e_dec)  # shape (N, 3)
-    np.save(file_path_contracted_velocities, velocities)
-    print(f"... saved contracted velocities to {file_path_contracted_velocities} (shape: {velocities.shape})")
-    del cos_ra, sin_ra, fr, velocities, e_ra, e_dec, velocities  # Free memory
-    gc.collect()  # Force garbage collection
-
+        ])  # Basis vector in radial direction
+        radial_velocities = vr[:, None] * e_r
+        np.save(file_path_radial_velocities_3D, radial_velocities)
+        print(f"... saved radial velocities as 3D vectors to {file_path_radial_velocities_3D} (shape: {radial_velocities.shape})")
+        
+        np.save(file_path_radial_velocity_uncertainties_3D, delta_vr)  # Save radial velocity uncertainties for later use in data space construction
+        print(f"... saved radial velocity uncertainties to {file_path_radial_velocity_uncertainties_3D} (shape: {delta_vr.shape})")
+        del e_r, radial_velocities, delta_vr  # Free memory
+        gc.collect()  # Force garbage collection
+    
     # Save the contracted velocity uncertainties
     mu_magnitude_sq = mu_ra_cos_dec**2 + mu_dec**2  # shape (N,) in (mas/yr)^2
     delta_pm_sq = (
@@ -1072,7 +1104,7 @@ def calculate_contracted_subspaces_and_errors(overwrite=False):
     delta_velocities = conversion_factor * np.sqrt(delta_fr_sq * mu_magnitude_sq + fr_sq * delta_pm_sq) # shape (N,)
     np.save(file_path_contracted_velocity_uncertainties, delta_velocities)
     print(f"... saved velocity uncertainties to {file_path_contracted_velocity_uncertainties} (shape: {delta_velocities.shape}).\n")
-    del cos_dec, sin_dec, mu_ra, mu_dec, delta_ra, delta_dec, delta_mu_ra, delta_mu_dec, delta_fr_sq, fr_sq, mu_ra_cos_dec, mu_magnitude_sq, delta_pm_sq, delta_velocities  # Free memory
+    del cos_ra, cos_dec, sin_ra, sin_dec, mu_ra, mu_dec, delta_ra, delta_dec, delta_mu_ra, delta_mu_dec, fr, delta_fr_sq, fr_sq, mu_ra_cos_dec, mu_magnitude_sq, delta_pm_sq, velocities, delta_velocities, e_ra, e_dec  # Free memory
     gc.collect()  # Force garbage collection
 
 def construct_data_space(overwrite=False):
@@ -1093,6 +1125,10 @@ def construct_data_space(overwrite=False):
     velocities = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "contracted_velocities.npy"))  # (N, 3)
     delta_positions = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "contracted_position_uncertainties.npy"))  # (N,)
     delta_velocities = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "contracted_velocity_uncertainties.npy"))  # (N,)
+    if WITH_RADIAL_VELOCITIES:
+        print('... loading radial velocities and uncertainties for subsample')
+        vr = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "radial_velocities_3D.npy"))  # shape (N,) in km/s
+        delta_vr = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "radial_velocity_uncertainties_3D.npy"))  # shape (N,) in km/s
 
     # Calculate scaling factor for positions
     norm_pos = np.median(delta_positions)  # Calculate scaling factor
@@ -1102,11 +1138,20 @@ def construct_data_space(overwrite=False):
     gc.collect()  # Force garbage collection
 
     # Calculate scaling factor for velocities
-    norm_vel = np.median(delta_velocities) / RELATIVE_VELOCITY_RESCALE_FACTOR  # Calculate scaling factor
+    norm_vel = np.median(delta_velocities) / RELATIVE_PROPER_MOTION_RESCALE_FACTOR  # Calculate scaling factor
     print(f"... scaling factor for velocities: {norm_vel:.8f}")
     velocities /= norm_vel  # Scale velocities
     del delta_velocities  # Free memory
     gc.collect()  # Force garbage collection
+
+    if WITH_RADIAL_VELOCITIES:
+        # Calculate scaling factor for radial velocities
+        norm_vr = np.median(delta_vr) / RELATIVE_RADIAL_VELOCITY_RESCALE_FACTOR  # Calculate scaling factor
+        print(f"... scaling factor for radial velocities: {norm_vr:.8f}")
+        vr /= norm_vr  # Scale radial velocities
+        velocities += vr  # Add radial velocity component to the velocity data space
+        del vr, delta_vr  # Free memory
+        gc.collect()  # Force garbage collection
 
     # Construct data space for clustering
     print("... constructing data space")
@@ -1680,6 +1725,79 @@ def plot_astrolink_cluster_proper_motions_on_sky(overwrite=False):
     gc.collect()  # Free memory
     print(f"... saved proper motions on sky plot to {file_proper_motions_on_sky_path}.\n")
 
+def plot_astrolink_cluster_radial_velocities_on_sky(overwrite=False):
+    """
+    Plot the clustering output from AstroLink.
+    """
+    if not WITH_RADIAL_VELOCITIES: return
+    # Check if plots already exist
+    file_radial_velocities_on_sky_path = os.path.join(OUTPUT_PATH, "AstroLink_cluster_radial_velocities_on_sky.png")
+    if os.path.exists(file_radial_velocities_on_sky_path) and not overwrite:
+        print(f"Radial velocities on sky plot already exists at:\n\t{file_radial_velocities_on_sky_path} .")
+        print("Use overwrite=True to force replotting.\n")
+        return
+    print("Plotting AstroLink clusters' radial velocities on the sky...")
+
+    # Load the AstroLink clustering output
+    print("... loading AstroLink clustering output")
+    clusterer = loadAstroLinkObject(os.path.join(OUTPUT_PATH, "astrolink_object.npz"))
+
+    # Load the required arrays
+    print("... loading required arrays for plotting")
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))  # (n,)
+    galactic_coordinates = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_galactic_coordinates.npy"))[subsample_mask]  # (N, 2) in degrees
+    radial_velocities = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_radial_velocities.npy"))[subsample_mask]  # (N,) in km/s
+    del subsample_mask  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Convert (l, b) in degrees to radians for Mollweide projection
+    print("... converting galactic coordinates to radians for Mollweide projection")
+    galactic_coordinates = np.deg2rad(galactic_coordinates)
+
+    # Mollweide expects longitudes in the range [-pi, pi] and latitudes in the range [-pi/2, pi/2]
+    longitude_wrap_bool = galactic_coordinates[:, 0] > np.pi
+    galactic_coordinates[longitude_wrap_bool, 0] -= 2*np.pi
+    galactic_coordinates[:, 0] *= -1 # Invert x-axis for on-sky astro plot
+    del longitude_wrap_bool  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Calculate radial velocity colours for plotting
+    print("... calculating radial velocity for plotting")
+    vr_clipped = np.clip(radial_velocities, -50, 50) / 50  # Clip to avoid extreme values
+    vr_clipped = np.clip((np.ceil(8 * vr_clipped) - 0.5) / 8, -1, 1)  # Bin into 16 discrete magnitudes for better colour contrast
+    vr_clipped += 1
+    vr_clipped /= 2  # in [0, 1]
+    cmap = plt.colormaps["coolwarm"]
+    colours = cmap(vr_clipped)
+    del radial_velocities, vr_clipped  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Create a Mollweide projection plot and plot clusters on the sky
+    print("... creating Mollweide projection plot for clusters' radial velocities on the sky")
+    fig, ax = plt.subplots(figsize=(12, 6), subplot_kw={'projection': 'mollweide'})
+
+    # Cycle through the clusters and plot them
+    for i, clst in enumerate(clusterer.clusters[1:]):
+        clusterMembers = clusterer.ordering[clst[0]:clst[1]]
+        ax.scatter(
+            *galactic_coordinates[clusterMembers].T,
+            facecolor=colours[clusterMembers], edgecolor='k',
+            s=0.75, lw=0.075
+        )  # Plot each cluster with colours according to their proper motions
+    del clusterer, galactic_coordinates, colours  # Free memory
+    gc.collect()  # Force garbage collection
+
+    # Remove grid, ticks, and labels
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(file_radial_velocities_on_sky_path, dpi=500)
+    plt.close()
+    gc.collect()  # Free memory
+    print(f"... saved clusters' radial velocities on sky plot to {file_radial_velocities_on_sky_path}.\n")
 
 # === Define reusable methods for comparing to and plotting existing catalogues ===
 def load_cds_table(readme_path, data_path):
@@ -2047,14 +2165,18 @@ def prepare_Hunt2024_for_comparison(overwrite=False):
     """
     Prepare the data for comparison with Hunt & Reffert (2024).
     """
+    # Check if Hunt2024 folder exists in INTERMEDIATE_FILES_PATH
+    hunt2024_path = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024")
+    os.makedirs(hunt2024_path, exist_ok=True)
+
     # Check if files already exist
-    file_path_clusters_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_clusters_names.npy")
-    file_path_clusters_types = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_clusters_types.npy")
-    file_path_clusters_snr = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_clusters_snr.npy")
-    file_path_H24_members_cluster_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_members_cluster_ids_subsample.npy")
-    file_path_H24_members_cluster_membership_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_members_cluster_membership_subsample.npy")
-    file_path_H24_cluster_sizes_in_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_cluster_sizes_in_subsample.npy")
-    file_path_H24_cluster_coverage = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_cluster_coverage.npy")
+    file_path_clusters_names = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_clusters_names.npy")
+    file_path_clusters_types = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_clusters_types.npy")
+    file_path_clusters_snr = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_clusters_snr.npy")
+    file_path_H24_members_cluster_ids_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_members_cluster_ids_subsample.npy")
+    file_path_H24_members_cluster_membership_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_members_cluster_membership_subsample.npy")
+    file_path_H24_cluster_sizes_in_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_cluster_sizes_in_subsample.npy")
+    file_path_H24_cluster_coverage = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_cluster_coverage.npy")
 
     # Skip if all files exist and overwrite is False
     all_exist = (os.path.exists(file_path_clusters_names) and
@@ -2217,8 +2339,8 @@ def plot_Hunt2024_clusters_on_sky(overwrite=False):
 
     # Load the Hunt & Reffert (2024) clustering output
     print("... loading Hunt & Reffert (2024) catalogue")
-    H24_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_members_cluster_ids_subsample.npy"))  # (N_subsample, max_appearances)
-    H24_members_cluster_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
+    H24_members_cluster_ids_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_members_cluster_ids_subsample.npy"))  # (N_subsample, max_appearances)
+    H24_members_cluster_membership_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
 
     # Plot the structure on the sky
     plot_catalogue_structure_on_sky(
@@ -2232,11 +2354,11 @@ def compare_to_Hunt2024(overwrite=False):
     Compare the clustering output to the Hunt & Reffert (2024).
     """
     # Check if comparison results already exist
-    file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_catalogue_rpj_allS.npy")
-    file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_catalogue_idx_optimalS.npy")
-    file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_astrolink_rpj_optimalS.npy")
-    file_path_astrolink_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_astrolink_idx_optimalS.npy")
-    file_path_catalogue_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_catalogue_rpj_optimalS.npy")
+    file_path_catalogue_rpj_allS = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_catalogue_rpj_allS.npy")
+    file_path_catalogue_idx_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_catalogue_idx_optimalS.npy")
+    file_path_astrolink_rpj_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_astrolink_rpj_optimalS.npy")
+    file_path_astrolink_idx_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_astrolink_idx_optimalS.npy")
+    file_path_catalogue_rpj_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_catalogue_rpj_optimalS.npy")
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
@@ -2257,9 +2379,9 @@ def compare_to_Hunt2024(overwrite=False):
 
     # Load required arrays
     print("... loading required arrays for comparison")
-    H24_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_members_cluster_ids_subsample.npy"))  # (N_subsample, max_appearances)
-    H24_members_cluster_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
-    H24_cluster_sizes_in_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_cluster_sizes_in_subsample.npy"))  # (N_clusters,)
+    H24_members_cluster_ids_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_members_cluster_ids_subsample.npy"))  # (N_subsample, max_appearances)
+    H24_members_cluster_membership_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
+    H24_cluster_sizes_in_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_cluster_sizes_in_subsample.npy"))  # (N_clusters,)
 
     # Choose comparison metric
     comparison_metric = 3  # 0 for recovery, 1 for purity (S_C=S_A), 2 for purity (S_C=all_catalogue_stars), 3 for Jaccard index (S_C=S_A), 4 for Jaccard index (S_C=all_catalogue_stars)
@@ -2292,12 +2414,12 @@ def plot_Hunt2024_crossmatch_per_significance(overwrite=False):
 
     # Load comparison results
     print("... loading comparison results")
-    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_catalogue_rpj_allS.npy"))  # (N_sigmas, N_clusters, 5)
-    H24_cluster_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_cluster_coverage.npy"))
+    RPJ = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_catalogue_rpj_allS.npy"))  # (N_sigmas, N_clusters, 5)
+    H24_cluster_coverage = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_cluster_coverage.npy"))
 
     # Load Hunt & Reffert (2024) cluster types
     print("... loading Hunt & Reffert (2024) cluster types")
-    H24_cluster_types = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_clusters_types.npy"), allow_pickle=True)  # (N_clusters,)
+    H24_cluster_types = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_clusters_types.npy"), allow_pickle=True)  # (N_clusters,)
 
     # Make figure
     fig, ax = plt.subplots(figsize=(6, 5))
@@ -2401,13 +2523,17 @@ def prepare_UCC_for_comparison(overwrite=False):
     """
     Prepare the data for comparison with the Unified Cluster Catalogue.
     """
+    # Check if UCC folder exists in INTERMEDIATE_FILES_PATH
+    ucc_path = os.path.join(INTERMEDIATE_FILES_PATH, "UCC")
+    os.makedirs(ucc_path, exist_ok=True)
+
     # Check if files already exist
-    file_path_clusters_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_clusters_names.npy")
-    file_path_clusters_quality_class = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_clusters_quality_class.npy")
-    file_path_UCC_members_cluster_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_members_cluster_ids_subsample.npy")
-    file_path_UCC_members_cluster_membership_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_members_cluster_membership_subsample.npy")
-    file_path_UCC_cluster_sizes_in_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_cluster_sizes_in_subsample.npy")
-    file_path_UCC_cluster_coverage = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_cluster_coverage.npy")
+    file_path_clusters_names = os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_clusters_names.npy")
+    file_path_clusters_quality_class = os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_clusters_quality_class.npy")
+    file_path_UCC_members_cluster_ids_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_members_cluster_ids_subsample.npy")
+    file_path_UCC_members_cluster_membership_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_members_cluster_membership_subsample.npy")
+    file_path_UCC_cluster_sizes_in_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_cluster_sizes_in_subsample.npy")
+    file_path_UCC_cluster_coverage = os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_cluster_coverage.npy")
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_clusters_names) and
@@ -2572,8 +2698,8 @@ def plot_UCC_clusters_on_sky(overwrite=False):
 
     # Load the UCC clustering output
     print("... loading Unified Cluster Catalogue catalogue")
-    UCC_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_members_cluster_ids_subsample.npy"))  # (N_subsample, max_appearances)
-    UCC_members_cluster_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
+    UCC_members_cluster_ids_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_members_cluster_ids_subsample.npy"))  # (N_subsample, max_appearances)
+    UCC_members_cluster_membership_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
 
     # Plot the open clusters on the sky
     plot_catalogue_structure_on_sky(
@@ -2587,11 +2713,11 @@ def compare_to_UCC(overwrite=False):
     Compare the clustering output to the Unified Cluster Catalogue.
     """
     # Check if comparison results already exist
-    file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_catalogue_rpj_allS.npy")
-    file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_catalogue_idx_optimalS.npy")
-    file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_astrolink_rpj_optimalS.npy")
-    file_path_astrolink_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_astrolink_idx_optimalS.npy")
-    file_path_catalogue_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_catalogue_rpj_optimalS.npy")
+    file_path_catalogue_rpj_allS = os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_catalogue_rpj_allS.npy")
+    file_path_catalogue_idx_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_catalogue_idx_optimalS.npy")
+    file_path_astrolink_rpj_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_astrolink_rpj_optimalS.npy")
+    file_path_astrolink_idx_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_astrolink_idx_optimalS.npy")
+    file_path_catalogue_rpj_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_catalogue_rpj_optimalS.npy")
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
@@ -2612,9 +2738,9 @@ def compare_to_UCC(overwrite=False):
 
     # Load the reduced UCC data
     print("... loading reduced UCC data")
-    UCC_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_members_cluster_ids_subsample.npy"))  # (N_subsample, max_appearances)
-    UCC_members_cluster_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
-    UCC_cluster_sizes_in_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_cluster_sizes_in_subsample.npy"))  # (N_clusters,)
+    UCC_members_cluster_ids_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_members_cluster_ids_subsample.npy"))  # (N_subsample, max_appearances)
+    UCC_members_cluster_membership_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
+    UCC_cluster_sizes_in_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_cluster_sizes_in_subsample.npy"))  # (N_clusters,)
 
     # Choose comparison metric
     comparison_metric = 3  # 0 for recovery, 1 for purity (S_C=S_A), 2 for purity (S_C=all_catalogue_stars), 3 for Jaccard index (S_C=S_A), 4 for Jaccard index (S_C=all_catalogue_stars)
@@ -2647,13 +2773,13 @@ def plot_UCC_crossmatch_per_significance(overwrite=False):
 
     # Load comparison results
     print("... loading comparison results")
-    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_catalogue_rpj_allS.npy"))  # (N_sigmas, N_clusters, 5)
-    UCC_cluster_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_cluster_coverage.npy"))
+    RPJ = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_catalogue_rpj_allS.npy"))  # (N_sigmas, N_clusters, 5)
+    UCC_cluster_coverage = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_cluster_coverage.npy"))
 
     # Load UCC cluster metadata
     print("... loading Unified Cluster Catalogue cluster names and quality classes")
-    UCC_clusters_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_clusters_names.npy"))
-    UCC_clusters_quality_class = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_clusters_quality_class.npy"))
+    UCC_clusters_names = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_clusters_names.npy"))
+    UCC_clusters_quality_class = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_clusters_quality_class.npy"))
 
     # Reorder the quality classes by the sorted names to match RPJ
     reorder = np.argsort(UCC_clusters_names)
@@ -2775,12 +2901,16 @@ def prepare_Vasiliev2021_for_comparison(overwrite=False):
     """
     Prepare the Vasiliev & Baumgardt (2021) catalogue for comparison to the clustering output.
     """
+    # Check if Vasiliev2021 folder exists in INTERMEDIATE_FILES_PATH
+    vasiliev2021_path = os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021")
+    os.makedirs(vasiliev2021_path, exist_ok=True)
+
     # Check if files already exist
-    file_path_V21_clusters_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_clusters_names.npy")
-    file_path_V21_members_cluster_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_members_cluster_ids_subsample.npy")
-    file_path_V21_members_cluster_membership_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_members_cluster_membership_subsample.npy")
-    file_path_V21_cluster_sizes_in_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_cluster_sizes_in_subsample.npy")
-    file_path_V21_cluster_coverage = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_cluster_coverage.npy")
+    file_path_V21_clusters_names = os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_clusters_names.npy")
+    file_path_V21_members_cluster_ids_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_members_cluster_ids_subsample.npy")
+    file_path_V21_members_cluster_membership_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_members_cluster_membership_subsample.npy")
+    file_path_V21_cluster_sizes_in_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_cluster_sizes_in_subsample.npy")
+    file_path_V21_cluster_coverage = os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_cluster_coverage.npy")
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_V21_clusters_names) and
@@ -2957,8 +3087,8 @@ def plot_Vasiliev2021_clusters_on_sky(overwrite=False):
 
     # Load the Vasiliev & Baumgardt (2021) clustering output
     print("... loading Vasiliev & Baumgardt (2021) clustering output for plotting")
-    V21_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_members_cluster_ids_subsample.npy"))  # (N_subsample, max_appearances)
-    V21_members_cluster_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
+    V21_members_cluster_ids_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_members_cluster_ids_subsample.npy"))  # (N_subsample, max_appearances)
+    V21_members_cluster_membership_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
     
     # Plot the globular clusters on the sky
     plot_catalogue_structure_on_sky(
@@ -2972,11 +3102,11 @@ def compare_to_Vasiliev2021(overwrite=False):
     Compare the clustering output to the Vasiliev & Baumgardt (2021) catalogue.
     """
     # Check if comparison results already exist
-    file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_catalogue_rpj_allS.npy")
-    file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_catalogue_idx_optimalS.npy")
-    file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_astrolink_rpj_optimalS.npy")
-    file_path_astrolink_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_astrolink_idx_optimalS.npy")
-    file_path_catalogue_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_catalogue_rpj_optimalS.npy")
+    file_path_catalogue_rpj_allS = os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_catalogue_rpj_allS.npy")
+    file_path_catalogue_idx_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_catalogue_idx_optimalS.npy")
+    file_path_astrolink_rpj_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_astrolink_rpj_optimalS.npy")
+    file_path_astrolink_idx_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_astrolink_idx_optimalS.npy")
+    file_path_catalogue_rpj_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_catalogue_rpj_optimalS.npy")
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
@@ -2997,9 +3127,9 @@ def compare_to_Vasiliev2021(overwrite=False):
 
     # Load the reduced Vasiliev & Baumgardt (2021) data
     print("... loading reduced Vasiliev & Baumgardt (2021) data")
-    V21_members_cluster_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_members_cluster_ids_subsample.npy"))  # (N_subsample, max_appearances)
-    V21_members_cluster_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
-    V21_cluster_sizes_in_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_cluster_sizes_in_subsample.npy"))  # (N_clusters,)
+    V21_members_cluster_ids_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_members_cluster_ids_subsample.npy"))  # (N_subsample, max_appearances)
+    V21_members_cluster_membership_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_members_cluster_membership_subsample.npy"))  # (N_subsample, max_appearances)
+    V21_cluster_sizes_in_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_cluster_sizes_in_subsample.npy"))  # (N_clusters,)
 
     # Choose comparison metric
     comparison_metric = 4  # 0 for recovery, 1 for purity (S_C=S_A), 2 for purity (S_C=all_catalogue_stars), 3 for Jaccard index (S_C=S_A), 4 for Jaccard index (S_C=all_catalogue_stars)
@@ -3032,11 +3162,11 @@ def plot_Vasiliev2021_crossmatch_per_significance(overwrite=False):
 
     # Load comparison results
     print("... loading comparison results")
-    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_catalogue_rpj_allS.npy"))  # (N_sigmas, N_clusters, 5)
-    V21_cluster_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_cluster_coverage.npy"))
+    RPJ = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_catalogue_rpj_allS.npy"))  # (N_sigmas, N_clusters, 5)
+    V21_cluster_coverage = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_cluster_coverage.npy"))
 
     # Load cluster names
-    V21_clusters_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_clusters_names.npy"))  # (N_clusters,)
+    V21_clusters_names = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_clusters_names.npy"))  # (N_clusters,)
 
     # Extract per-assumption and per-statistic arrays
     J_full,  J_union  = RPJ[:, :, 3], RPJ[:, :, 4]
@@ -3137,12 +3267,16 @@ def prepare_Battaglia2021_for_comparison(overwrite=False):
     """
     Prepare the Battaglia et al. (2021) catalogue for comparison to the clustering output.
     """
+    # Check if Battaglia2021 folder exists in INTERMEDIATE_FILES_PATH
+    battaglia2021_path = os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021")
+    os.makedirs(battaglia2021_path, exist_ok=True)
+
     # Check if files already exist
-    file_path_dwarfgalaxies_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxies_names.npy")
-    file_path_B21_members_dwarfgalaxy_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_members_dwarfgalaxy_ids_subsample.npy")
-    file_path_B21_members_dwarfgalaxy_membership_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_members_dwarfgalaxy_membership_subsample.npy")
-    file_path_B21_dwarfgalaxy_sizes_in_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxy_sizes_in_subsample.npy")
-    file_path_B21_dwarfgalaxy_coverage = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxy_coverage.npy")
+    file_path_dwarfgalaxies_names = os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxies_names.npy")
+    file_path_B21_members_dwarfgalaxy_ids_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_members_dwarfgalaxy_ids_subsample.npy")
+    file_path_B21_members_dwarfgalaxy_membership_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_members_dwarfgalaxy_membership_subsample.npy")
+    file_path_B21_dwarfgalaxy_sizes_in_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxy_sizes_in_subsample.npy")
+    file_path_B21_dwarfgalaxy_coverage = os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxy_coverage.npy")
     
     # Skip if all files exist and overwrite is False
     all_exist = (os.path.exists(file_path_dwarfgalaxies_names) and
@@ -3295,8 +3429,8 @@ def plot_Battaglia2021_dwarfgalaxies_on_sky(overwrite=False):
 
     # Load the Battaglia et al. (2021) clustering output
     print("... loading Battaglia et al. (2021) clustering output for plotting")
-    B21_members_dwarfgalaxy_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_members_dwarfgalaxy_ids_subsample.npy"))  # (N_subsample, max_appearances)
-    B21_members_dwarfgalaxy_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_members_dwarfgalaxy_membership_subsample.npy"))  # (N_subsample, max_appearances)
+    B21_members_dwarfgalaxy_ids_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_members_dwarfgalaxy_ids_subsample.npy"))  # (N_subsample, max_appearances)
+    B21_members_dwarfgalaxy_membership_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_members_dwarfgalaxy_membership_subsample.npy"))  # (N_subsample, max_appearances)
     
     # Plot the dwarf galaxies on the sky
     plot_catalogue_structure_on_sky(
@@ -3310,11 +3444,11 @@ def compare_to_Battaglia2021(overwrite=False):
     Compare the clustering output to the Battaglia et al. (2021) catalogue.
     """
     # Check if comparison results already exist
-    file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_catalogue_rpj_allS.npy")
-    file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_catalogue_idx_optimalS.npy")
-    file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_astrolink_rpj_optimalS.npy")
-    file_path_astrolink_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_astrolink_idx_optimalS.npy")
-    file_path_catalogue_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_catalogue_rpj_optimalS.npy")
+    file_path_catalogue_rpj_allS = os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_catalogue_rpj_allS.npy")
+    file_path_catalogue_idx_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_catalogue_idx_optimalS.npy")
+    file_path_astrolink_rpj_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_astrolink_rpj_optimalS.npy")
+    file_path_astrolink_idx_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_astrolink_idx_optimalS.npy")
+    file_path_catalogue_rpj_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_catalogue_rpj_optimalS.npy")
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
@@ -3335,9 +3469,9 @@ def compare_to_Battaglia2021(overwrite=False):
 
     # Load required arrays
     print("... loading required arrays for comparison")
-    B21_members_dwarfgalaxy_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_members_dwarfgalaxy_ids_subsample.npy"))  # (N_subsample, max_appearances)
-    B21_members_dwarfgalaxy_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_members_dwarfgalaxy_membership_subsample.npy"))  # (N_subsample, max_appearances)
-    B21_dwarfgalaxy_sizes_in_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxy_sizes_in_subsample.npy")) # (N_dwarfgalaxies,)
+    B21_members_dwarfgalaxy_ids_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_members_dwarfgalaxy_ids_subsample.npy"))  # (N_subsample, max_appearances)
+    B21_members_dwarfgalaxy_membership_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_members_dwarfgalaxy_membership_subsample.npy"))  # (N_subsample, max_appearances)
+    B21_dwarfgalaxy_sizes_in_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxy_sizes_in_subsample.npy")) # (N_dwarfgalaxies,)
 
     # Choose comparison metric
     comparison_metric = 4  # 0 for recovery, 1 for purity (S_C=S_A), 2 for purity (S_C=all_catalogue_stars), 3 for Jaccard index (S_C=S_A), 4 for Jaccard index (S_C=all_catalogue_stars)
@@ -3370,11 +3504,11 @@ def plot_Battaglia2021_crossmatch_per_significance(overwrite=False):
 
     # Load comparison results
     print("... loading comparison results")
-    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_catalogue_rpj_allS.npy"))  # (N_sigmas, N_dwarfgalaxies, 5)
-    B21_cluster_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxy_coverage.npy"))
+    RPJ = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_catalogue_rpj_allS.npy"))  # (N_sigmas, N_dwarfgalaxies, 5)
+    B21_cluster_coverage = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxy_coverage.npy"))
 
     # Load dwarf galaxy names
-    dwarf_galaxy_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxies_names.npy"), allow_pickle=True)
+    dwarf_galaxy_names = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxies_names.npy"), allow_pickle=True)
 
     # Extract per-assumption and per-statistic arrays
     J_full,  J_union  = RPJ[:, :, 3], RPJ[:, :, 4]
@@ -3475,16 +3609,16 @@ def prepare_galstreams_for_comparison(overwrite=False):
     """
     Prepare the data for comparison with the galstreams catalogue.
     """
-    # Check if galstreams folder exists in AUXILLARY_CATALOGUES_PATH
-    galstreams_path = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams")
+    # Check if galstreams folder exists in INTERMEDIATE_FILES_PATH
+    galstreams_path = os.path.join(INTERMEDIATE_FILES_PATH, "galstreams")
     os.makedirs(galstreams_path, exist_ok=True)
     
     # Check if files already exist
-    file_path_galstreams_stream_track_names = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_track_names.npy")
-    file_path_galstreams_members_stream_ids_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_ids_subsample.npy")
-    file_path_galstreams_members_stream_membership_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_membership_subsample.npy")
-    file_path_galstreams_stream_sizes_in_subsample = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_sizes_in_subsample.npy")
-    file_path_galstreams_stream_coverage = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_coverage.npy")
+    file_path_galstreams_stream_track_names = os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_stream_track_names.npy")
+    file_path_galstreams_members_stream_ids_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_members_stream_ids_subsample.npy")
+    file_path_galstreams_members_stream_membership_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_members_stream_membership_subsample.npy")
+    file_path_galstreams_stream_sizes_in_subsample = os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_stream_sizes_in_subsample.npy")
+    file_path_galstreams_stream_coverage = os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_stream_coverage.npy")
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_galstreams_stream_track_names) and
@@ -3837,8 +3971,8 @@ def plot_galstreams_streams_on_sky(overwrite=False):
 
     # Load the galstreams clustering output
     print("... loading galstreams clustering output for plotting")
-    galstreams_members_stream_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_ids_subsample.npy"))  # (N_subsample, max_appearances)
-    galstreams_members_stream_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_membership_subsample.npy"))  # (N_subsample, max_appearances)
+    galstreams_members_stream_ids_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_members_stream_ids_subsample.npy"))  # (N_subsample, max_appearances)
+    galstreams_members_stream_membership_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_members_stream_membership_subsample.npy"))  # (N_subsample, max_appearances)
     
     # Plot the streams on the sky
     plot_catalogue_structure_on_sky(
@@ -3852,11 +3986,11 @@ def compare_to_galstreams(overwrite=False):
     Compare the clustering output to the galstreams catalogue.
     """
     # Check if comparison results already exist
-    file_path_catalogue_rpj_allS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_catalogue_rpj_allS.npy")
-    file_path_catalogue_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_catalogue_idx_optimalS.npy")
-    file_path_astrolink_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_astrolink_rpj_optimalS.npy")
-    file_path_astrolink_idx_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_astrolink_idx_optimalS.npy")
-    file_path_catalogue_rpj_optimalS = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_catalogue_rpj_optimalS.npy")
+    file_path_catalogue_rpj_allS = os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_catalogue_rpj_allS.npy")
+    file_path_catalogue_idx_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_catalogue_idx_optimalS.npy")
+    file_path_astrolink_rpj_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_astrolink_rpj_optimalS.npy")
+    file_path_astrolink_idx_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_astrolink_idx_optimalS.npy")
+    file_path_catalogue_rpj_optimalS = os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_catalogue_rpj_optimalS.npy")
 
     # Skip processing if all merged output files already exist
     all_exist = (os.path.exists(file_path_catalogue_rpj_allS) and
@@ -3877,9 +4011,9 @@ def compare_to_galstreams(overwrite=False):
 
     # Load the reduced galstreams data
     print("... loading reduced galstreams data")
-    galstreams_members_stream_ids_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_ids_subsample.npy"))  # (N_subsample, max_appearances)
-    galstreams_members_stream_membership_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_members_stream_membership_subsample.npy"))  # (N_subsample, max_appearances)
-    galstreams_stream_sizes_in_subsample = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_sizes_in_subsample.npy")) # (N_streams,)
+    galstreams_members_stream_ids_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_members_stream_ids_subsample.npy"))  # (N_subsample, max_appearances)
+    galstreams_members_stream_membership_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_members_stream_membership_subsample.npy"))  # (N_subsample, max_appearances)
+    galstreams_stream_sizes_in_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_stream_sizes_in_subsample.npy")) # (N_streams,)
 
     # Choose comparison metric
     comparison_metric = 1  # 0 for recovery, 1 for purity (S_C=S_A), 2 for purity (S_C=all_catalogue_stars), 3 for Jaccard index (S_C=S_A), 4 for Jaccard index (S_C=all_catalogue_stars)
@@ -3912,11 +4046,11 @@ def plot_galstreams_crossmatch_per_significance(overwrite=False):
 
     # Load comparison results
     print("... loading comparison results")
-    RPJ = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_catalogue_rpj_allS.npy"))  # (N_sigmas, N_streams, 5)
-    galstreams_stream_coverage = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_coverage.npy"))
+    RPJ = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_catalogue_rpj_allS.npy"))  # (N_sigmas, N_streams, 5)
+    galstreams_stream_coverage = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_stream_coverage.npy"))
 
     # Load stream track names
-    galstreams_stream_track_names = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_track_names.npy"))  # (N_streams,)
+    galstreams_stream_track_names = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_stream_track_names.npy"))  # (N_streams,)
 
     # Extract per-assumption and per-statistic arrays
     R  = RPJ[:, :, 0]
@@ -4060,11 +4194,11 @@ def construct_relationship_classifications(overwrite=False):
     Placeholder
     """
     # Check if plot already exists
-    file_path_Hunt2024_relationship_classification = os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_relationship_classification.npy")
-    file_path_UCC_relationship_classification = os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_relationship_classification.npy")
-    file_path_Vasiliev2021_relationship_classification = os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_relationship_classification.npy")
-    file_path_Battaglia2021_relationship_classification = os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_relationship_classification.npy")
-    file_path_galstreams_relationship_classification = os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_relationship_classification.npy")
+    file_path_Hunt2024_relationship_classification = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_relationship_classification.npy")
+    file_path_UCC_relationship_classification = os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_relationship_classification.npy")
+    file_path_Vasiliev2021_relationship_classification = os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_relationship_classification.npy")
+    file_path_Battaglia2021_relationship_classification = os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_relationship_classification.npy")
+    file_path_galstreams_relationship_classification = os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_relationship_classification.npy")
     file_path_combined_astrolink_relationship_classification = os.path.join(OUTPUT_PATH, "combined_astrolink_relationship_classification.npy")
     file_path_combined_astrolink_rpj = os.path.join(OUTPUT_PATH, "combined_astrolink_rpj.npy")
     file_path_combined_astrolink_cluster_type = os.path.join(OUTPUT_PATH, "combined_astrolink_cluster_type.npy")
@@ -4103,15 +4237,15 @@ def construct_relationship_classifications(overwrite=False):
 
     # Dictionary of file paths for the structure name arrays
     structure_name_files = {
-        "Hunt2024": os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_clusters_names.npy"),
-        "UCC": os.path.join(AUXILLARY_CATALOGUES_PATH, "UCC/UCC_clusters_names.npy"),
-        "Vasiliev2021": os.path.join(AUXILLARY_CATALOGUES_PATH, "Vasiliev2021/Vasiliev2021_clusters_names.npy"),
-        "Battaglia2021": os.path.join(AUXILLARY_CATALOGUES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxies_names.npy"),
-        "galstreams": os.path.join(AUXILLARY_CATALOGUES_PATH, "galstreams/galstreams_stream_track_names.npy"),
+        "Hunt2024": os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_clusters_names.npy"),
+        "UCC": os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_clusters_names.npy"),
+        "Vasiliev2021": os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_clusters_names.npy"),
+        "Battaglia2021": os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxies_names.npy"),
+        "galstreams": os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_stream_track_names.npy"),
     }
 
     # Translate structure type labels for Hunt2024 clusters from single-letter codes to descriptive labels
-    Hunt2024_clusters_types = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, "Hunt2024/Hunt2024_clusters_types.npy"), allow_pickle=True)  # (N_Hunt2024_clusters,)
+    Hunt2024_clusters_types = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_clusters_types.npy"), allow_pickle=True)  # (N_Hunt2024_clusters,)
 
     # Dictionary of structure type labels for each catalogue
     structure_type_labels = {
@@ -4128,8 +4262,8 @@ def construct_relationship_classifications(overwrite=False):
     for i, catalogue_name in enumerate(['Hunt2024', 'UCC', 'Vasiliev2021', 'Battaglia2021', 'galstreams']):
         # Load comparison arrays at optimal significance threshold
         print(f"... loading arrays for catalogue: {catalogue_name}")
-        catalogue_idx = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, f"{catalogue_name}/{catalogue_name}_catalogue_idx_optimalS.npy"))  # (N_AstroLink_clusters,)
-        astrolink_idx = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, f"{catalogue_name}/{catalogue_name}_astrolink_idx_optimalS.npy"))  # (N_catalogue_clusters,)
+        catalogue_idx = np.load(os.path.join(INTERMEDIATE_FILES_PATH, f"{catalogue_name}/{catalogue_name}_catalogue_idx_optimalS.npy"))  # (N_AstroLink_clusters,)
+        astrolink_idx = np.load(os.path.join(INTERMEDIATE_FILES_PATH, f"{catalogue_name}/{catalogue_name}_astrolink_idx_optimalS.npy"))  # (N_catalogue_clusters,)
 
         # Retrieve the relationship classification for this catalogue
         print(f"... retrieving relationship classification for catalogue: {catalogue_name}")
@@ -4142,7 +4276,7 @@ def construct_relationship_classifications(overwrite=False):
         # Update the combined astrolink cluster classification arrays
         print(f"... updating combined AstroLink cluster classification arrays with catalogue: {catalogue_name}")
         astrolink_relationship_classification = retrieve_relationship_classification(astrolink_idx, catalogue_idx) # (N_astrolink_clusters,)
-        astrolink_rpj = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, f"{catalogue_name}/{catalogue_name}_astrolink_rpj_optimalS.npy")) # (N_astrolink_clusters, 5)
+        astrolink_rpj = np.load(os.path.join(INTERMEDIATE_FILES_PATH, f"{catalogue_name}/{catalogue_name}_astrolink_rpj_optimalS.npy")) # (N_astrolink_clusters, 5)
         astrolink_cluster_type = np.full(catalogue_idx.shape[0], "U", dtype=object)  # Default to "U' for "Unknown" for clusters not matched to any catalogue cluster
         matched = catalogue_idx != -1
         if i == 0:
@@ -4483,8 +4617,8 @@ def print_relationship_classification_table():
     # Loop over all catalogues
     for catalogue_name in ['Hunt2024', 'UCC', 'Vasiliev2021', 'Battaglia2021', 'galstreams']:
         # Load relationship classification and catalogue RPJ at optimal significance threshold
-        catalogue_relationship_classification = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, f"{catalogue_name}/{catalogue_name}_relationship_classification.npy"))  # (N_catalogue_clusters,)
-        catalogue_rpj = np.load(os.path.join(AUXILLARY_CATALOGUES_PATH, f"{catalogue_name}/{catalogue_name}_catalogue_rpj_optimalS.npy"))  # (N_catalogue_clusters, 5)
+        catalogue_relationship_classification = np.load(os.path.join(INTERMEDIATE_FILES_PATH, f"{catalogue_name}/{catalogue_name}_relationship_classification.npy"))  # (N_catalogue_clusters,)
+        catalogue_rpj = np.load(os.path.join(INTERMEDIATE_FILES_PATH, f"{catalogue_name}/{catalogue_name}_catalogue_rpj_optimalS.npy"))  # (N_catalogue_clusters, 5)
 
         # Extract each relationship classification
         R = (catalogue_relationship_classification & 1) != 0
@@ -4658,46 +4792,47 @@ if __name__ == "__main__":
     plot_total_selection_function()
 
     # Construct input data to be passed to AstroLink
-    calculate_contracted_subspaces_and_errors()
-    construct_data_space()
+    calculate_contracted_subspaces_and_errors(True)
+    construct_data_space(True)
 
     # Apply AstroLink to subsample and plot of cluster properties
-    apply_astrolink_to_data()
-    plot_astrolink_prominence_model_fit()
-    plot_astrolink_cluster_labels_on_sky()
-    plot_astrolink_cluster_proper_motions_on_sky()
+    apply_astrolink_to_data(True)
+    plot_astrolink_prominence_model_fit(True)
+    plot_astrolink_cluster_labels_on_sky(True)
+    plot_astrolink_cluster_proper_motions_on_sky(True)
+    plot_astrolink_cluster_radial_velocities_on_sky(True)
 
     # Compare to Hunt & Reffert (2024)
     prepare_Hunt2024_for_comparison()
     plot_Hunt2024_clusters_on_sky()
-    compare_to_Hunt2024()
-    plot_Hunt2024_crossmatch_per_significance()
+    compare_to_Hunt2024(True)
+    plot_Hunt2024_crossmatch_per_significance(True)
 
     # Compare to Unified Cluster Catalogue
     prepare_UCC_for_comparison()
     plot_UCC_clusters_on_sky()
-    compare_to_UCC()
-    plot_UCC_crossmatch_per_significance()
+    compare_to_UCC(True)
+    plot_UCC_crossmatch_per_significance(True)
 
     # Compare to Vasiliev & Baumgardt (2021)
     prepare_Vasiliev2021_for_comparison()
     plot_Vasiliev2021_clusters_on_sky()
-    compare_to_Vasiliev2021()
-    plot_Vasiliev2021_crossmatch_per_significance()
+    compare_to_Vasiliev2021(True)
+    plot_Vasiliev2021_crossmatch_per_significance(True)
 
     # Compare to Battaglia et al. (2021)
     prepare_Battaglia2021_for_comparison()
     plot_Battaglia2021_dwarfgalaxies_on_sky()
-    compare_to_Battaglia2021()
-    plot_Battaglia2021_crossmatch_per_significance()
+    compare_to_Battaglia2021(True)
+    plot_Battaglia2021_crossmatch_per_significance(True)
 
     # Compare to galstreams catalogue
     prepare_galstreams_for_comparison()
     plot_galstreams_streams_on_sky()
-    compare_to_galstreams()
-    plot_galstreams_crossmatch_per_significance()
+    compare_to_galstreams(True)
+    plot_galstreams_crossmatch_per_significance(True)
 
     # Summarise catalogue comparisons
-    construct_relationship_classifications()
-    plot_astrolink_clusters_by_structure_type_on_sky()
+    construct_relationship_classifications(True)
+    plot_astrolink_clusters_by_structure_type_on_sky(True)
     print_relationship_classification_table()

@@ -64,13 +64,13 @@ WORKING_DIRECTORY = "/home/williamoliver_data/gaia_clustering/"  # Path to outpu
 
 # Relative paths
 INTERMEDIATE_FILES_PATH = os.path.join(WORKING_DIRECTORY, "intermediate_files_6D/")  # Path to intermediary numpy files
-OUTPUT_PATH = os.path.join(WORKING_DIRECTORY, "results_6D_rhalf_50_PMmetric0_VRmetric0/")  # Path to AstroLink results
+OUTPUT_PATH = os.path.join(WORKING_DIRECTORY, "results_6D_rhalf_50_PMmetric-4_VRmetric-4/")  # Path to AstroLink results
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
 
 # Pipeline setup
-WITH_RADIAL_VELOCITIES = True  # Whether to use radial velocities in the input data space for AstroLink clustering
+WITH_RADIAL_VELOCITIES = False  # Whether to use radial velocities in the input data space for AstroLink clustering
 STOCHASTIC_RUN = False  # Whether to sample stochastic values from their distributions
 
 # Subsample construction parameters
@@ -80,8 +80,8 @@ RUWE_UPPER_LIMIT = 1.2  # RUWE threshold for subsample stars
 
 # Data space construction parameters
 R_HALF_PERCENTILE = 50.0 + STOCHASTIC_RUN * np.random.uniform(-25, 25, 1)[0]  # Distances are contracted according to R_HALF * np.arctan(distance / R_HALF), R_HALF (in pc) marks the half-way point between full and zero Cartesian influence of the distance estimate on the clustering output
-RELATIVE_PROPER_MOTION_RESCALE_FACTOR = 2.0**(0 + STOCHASTIC_RUN * np.random.normal(0.0, 0.5, 1)[0])  # An additional rescale factor for the influence of velocities relative to positions in the data space metric
-RELATIVE_RADIAL_VELOCITY_RESCALE_FACTOR = 2.0**(0 + STOCHASTIC_RUN * np.random.normal(0.0, 0.5, 1)[0])  # An additional rescale factor for the influence of radial velocities relative to positions in the data space metric (only relevant if WITH_RADIAL_VELOCITIES=True)
+RELATIVE_PROPER_MOTION_RESCALE_FACTOR = 2.0**(1 + STOCHASTIC_RUN * np.random.normal(0.0, 0.5, 1)[0])  # An additional rescale factor for the influence of velocities relative to positions in the data space metric
+RELATIVE_RADIAL_VELOCITY_RESCALE_FACTOR = 2.0**(-4 + STOCHASTIC_RUN * np.random.normal(0.0, 0.5, 1)[0])  # An additional rescale factor for the influence of radial velocities relative to positions in the data space metric (only relevant if WITH_RADIAL_VELOCITIES=True)
 
 # AstroLink parameters
 KNN_FOR_ASTROLINK = 16  # Number of nearest neighbors that AstroLink uses to calculate local densities

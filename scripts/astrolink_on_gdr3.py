@@ -63,8 +63,8 @@ AUXILLARY_CATALOGUES_PATH = "/home/williamoliver_data/gaia_clustering/auxillary_
 WORKING_DIRECTORY = "/home/williamoliver_data/gaia_clustering/"  # Path to output files
 
 # Relative paths
-INTERMEDIATE_FILES_PATH = os.path.join(WORKING_DIRECTORY, "intermediate_files_6D/")  # Path to intermediary numpy files
-OUTPUT_PATH = os.path.join(WORKING_DIRECTORY, "results_6D_rhalf_50_PMmetric-4_VRmetric-4/")  # Path to AstroLink results
+INTERMEDIATE_FILES_PATH = os.path.join(WORKING_DIRECTORY, "intermediate_files_5D/")  # Path to intermediary numpy files
+OUTPUT_PATH = os.path.join(WORKING_DIRECTORY, "results_5D_rhalf_50_PMmetric1/")  # Path to AstroLink results
 
 # Working memory for k-nearest-neighbour retrieval
 WORKING_MEMORY = 200 * (2**30)  # 200 GB (in bytes) for max memory usage by kNN queries
@@ -104,14 +104,18 @@ def prepare_gdr3_catalogue(overwrite=False):
         'galactic_coordinates': ['l', 'b'],
         'equatorial_coordinates': ['ra', 'dec'],
         'proper_motions': ['pmra', 'pmdec'],
-        'radial_velocities': ['radial_velocity'],
         'astrometric_errors': ['ra_error', 'dec_error', 'pmra_error', 'pmdec_error'],
-        'radial_velocity_errors': ['radial_velocity_error'],
         'astrometric_matched_transits': ['astrometric_matched_transits'],
         'photometry': ['phot_g_mean_mag', 'phot_bp_mean_mag', 'phot_rp_mean_mag'],
         'photometric_snr': ['phot_g_mean_flux_over_error', 'phot_bp_mean_flux_over_error', 'phot_rp_mean_flux_over_error'],
         'ruwe': ['ruwe']
     }
+
+    if WITH_RADIAL_VELOCITIES:
+        column_groups.update({
+            'radial_velocities': ['radial_velocity'],
+            'radial_velocity_errors': ['radial_velocity_error']
+        })
 
     file_paths = [
         os.path.join(INTERMEDIATE_FILES_PATH, f'gdr3_{group_name}.npy')
@@ -4191,7 +4195,9 @@ def retrieve_relationship_classification(catalogue_idx, astrolink_idx):
 
 def construct_relationship_classifications(overwrite=False):
     """
-    Placeholder
+    Calculates the structural relationship classifications between the AstroLink 
+    clustering output and the catalogues of Hunt2024, UCC, Vasiliev2021, 
+    Battaglia2021, and galstreams.
     """
     # Check if plot already exists
     file_path_Hunt2024_relationship_classification = os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_relationship_classification.npy")
@@ -4768,6 +4774,239 @@ def print_relationship_classification_table():
     # Print divider
     print("    " + "-" * 157)
 
+def construct_final_astrolink_catalogues(overwrite=False):
+    """
+    Constructs final AstroLink catalogues containing:
+
+    1. Star-level AstroLink cluster membership:
+       - Gaia DR3 source_id
+       - AstroLink cluster_id
+
+    2. Cluster-level AstroLink properties and comparison results:
+       - AstroLink cluster_id
+       - AstroLink significance value
+       - Recovery, Purity, Jaccard index, relationship classification, and
+         cluster type for each comparison catalogue.
+
+    The background/noise cluster with ID "1" is excluded from both catalogues.
+    """
+
+    # Define output file paths
+    file_path_star_catalogue = os.path.join(OUTPUT_PATH, "astrolink_star_catalogue.fits")
+    file_path_cluster_catalogue = os.path.join(OUTPUT_PATH, "astrolink_cluster_catalogue.fits")
+
+    # Skip processing if output files already exist
+    all_exist = (
+        os.path.exists(file_path_star_catalogue) and
+        os.path.exists(file_path_cluster_catalogue)
+    )
+    if all_exist and not overwrite:
+        print("AstroLink catalogues already exist at:")
+        print(f"\t{file_path_star_catalogue}")
+        print(f"\t{file_path_cluster_catalogue}")
+        print("Use overwrite=True to force reconstruction.\n")
+        return
+
+    print("Constructing final AstroLink catalogues...")
+
+    # -------------------------------------------------------------------------
+    # Load AstroLink results
+    # -------------------------------------------------------------------------
+    print("... loading GDR3 source IDs")
+    gdr3_source_ids = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_source_ids.npy"))
+
+    print("... loading AstroLink subsample mask")
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))
+
+    print("... loading AstroLink object")
+    clusterer = loadAstroLinkObject(os.path.join(OUTPUT_PATH, "astrolink_object.npz"))
+
+    print("... loading comparison results")
+    combined_astrolink_relationship_classification = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_relationship_classification.npy"))
+    combined_astrolink_rpj = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_rpj.npy"))
+    combined_astrolink_cluster_type = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_cluster_type.npy"), allow_pickle=True)
+
+    # Comparison catalogues are stored in this order in the combined arrays
+    catalogue_names = [
+        "Hunt2024",
+        "UCC",
+        "Vasiliev2021",
+        "Battaglia2021",
+        "galstreams",
+    ]
+
+    # -------------------------------------------------------------------------
+    # Construct deepest cluster assignment for every AstroLink input star
+    # -------------------------------------------------------------------------
+    print("... determining deepest AstroLink cluster for each star")
+    deepest_cluster_id = np.ones(
+        clusterer.ordering.shape,
+        dtype=clusterer.ids.dtype,
+    )
+
+    for clst, clst_id in zip(clusterer.clusters[1:], clusterer.ids[1:]):
+        cluster_members = clusterer.ordering[clst[0]:clst[1]]
+        deepest_cluster_id[cluster_members] = clst_id
+
+    # Source IDs are ordered in the same way as deepest_cluster_id
+    source_ids = gdr3_source_ids[subsample_mask][clusterer.ordering]
+
+    # Remove the background/noise cluster
+    clustered_mask = deepest_cluster_id != "1"
+
+    source_ids = source_ids[clustered_mask]
+    cluster_ids = deepest_cluster_id[clustered_mask]
+
+    # -------------------------------------------------------------------------
+    # Construct star-level catalogue
+    # -------------------------------------------------------------------------
+    print("... constructing star-level catalogue")
+
+    star_table = Table(
+        {
+            "source_id": source_ids,
+            "cluster_id": cluster_ids,
+        }
+    )
+
+    # Add descriptions for the catalogue columns
+    star_table["source_id"].description = "Gaia DR3 source identifier"
+    star_table["cluster_id"].description = (
+        "Deepest AstroLink cluster in the hierarchy to which the star is assigned"
+    )
+
+    print(f"... saving star-level catalogue: {file_path_star_catalogue}")
+    star_table.write(
+        file_path_star_catalogue,
+        format="fits",
+        overwrite=True,
+    )
+
+    # -------------------------------------------------------------------------
+    # Construct cluster-level catalogue
+    # -------------------------------------------------------------------------
+    print("... constructing cluster-level catalogue")
+
+    # The combined comparison arrays contain only non-background AstroLink
+    # clusters and are aligned with clusterer.ids[1:].
+    astrolink_cluster_ids = clusterer.ids[1:]
+
+    # Retrieve the significance values for the non-background clusters.
+    astrolink_significance_values = clusterer.significances[1:]
+
+    # -------------------------------------------------------------------------
+    # Convert relationship classification bitmasks to strings
+    # -------------------------------------------------------------------------
+    print("... converting relationship classifications to descriptive labels")
+
+    relationship_classification = (
+        combined_astrolink_relationship_classification
+    )
+
+    # Extract each relationship classification bit
+    R = (relationship_classification & 1) != 0
+    F = (relationship_classification & 2) != 0
+    M = (relationship_classification & 4) != 0
+    H = (relationship_classification & 8) != 0
+
+    # Construct mutually exclusive masks for each classification
+    true_reciprocal = R & ~F & ~M
+    frag_reciprocal = R & F & ~M
+    merg_reciprocal = R & M & ~F
+    f_n_M_reciprocal = R & F & M
+    true_fragmented = F & ~R & ~M
+    true_merged = M & ~R & ~F
+    frag_and_merged = F & M & ~R
+    isolated_match = H & ~R & ~F & ~M
+    no_best_match = ~H
+
+    # Assign a descriptive string to every classification
+    relationship_strings = np.full(
+        relationship_classification.shape,
+        "",
+        dtype="<U20",
+    )
+
+    relationship_strings[true_reciprocal] = "true_reciprocal"
+    relationship_strings[frag_reciprocal] = "frag_reciprocal"
+    relationship_strings[merg_reciprocal] = "merg_reciprocal"
+    relationship_strings[f_n_M_reciprocal] = "f_n_M_reciprocal"
+    relationship_strings[true_fragmented] = "true_fragmented"
+    relationship_strings[true_merged] = "true_merged"
+    relationship_strings[frag_and_merged] = "frag_and_merged"
+    relationship_strings[isolated_match] = "isolated_match"
+    relationship_strings[no_best_match] = "no_best_match"
+
+    # Check that every relationship classification received a label
+    if np.any(relationship_strings == ""):
+        raise ValueError(
+            "One or more AstroLink relationship classifications could not "
+            "be converted to a descriptive label."
+        )
+
+    # -------------------------------------------------------------------------
+    # Construct table columns
+    # -------------------------------------------------------------------------
+    cluster_columns = {
+        "cluster_id": astrolink_cluster_ids,
+        "significance_value": astrolink_significance_values,
+    }
+
+    # Add comparison-catalogue results
+    for i, catalogue_name in enumerate(catalogue_names):
+        print(
+            f"... adding comparison results for catalogue: "
+            f"{catalogue_name}"
+        )
+
+        cluster_columns[f"{catalogue_name}_recovery"] = combined_astrolink_rpj[:, i, 0]
+        cluster_columns[f"{catalogue_name}_purity_s_c_eq_s_a"] = combined_astrolink_rpj[:, i, 1]
+        cluster_columns[f"{catalogue_name}_purity_union"] = combined_astrolink_rpj[:, i, 2]
+        cluster_columns[f"{catalogue_name}_jaccard_s_c_eq_s_a"] = combined_astrolink_rpj[:, i, 3]
+        cluster_columns[f"{catalogue_name}_jaccard_union"] = combined_astrolink_rpj[:, i, 4]
+        cluster_columns[f"{catalogue_name}_relationship_classification"] = relationship_strings[:, i]
+        cluster_columns[f"{catalogue_name}_cluster_type"] = combined_astrolink_cluster_type[:, i]
+
+    # Construct Astropy table
+    cluster_table = Table(cluster_columns)
+
+    # Add column descriptions
+    cluster_table["cluster_id"].description = "AstroLink cluster identifier"
+    cluster_table["significance_value"].description = "AstroLink cluster significance value"
+
+    for catalogue_name in catalogue_names:
+        cluster_table[f"{catalogue_name}_recovery"].description = (
+            f"Recovery of the best-match {catalogue_name} cluster"
+        )
+        cluster_table[f"{catalogue_name}_purity_s_c_eq_s_a"].description = (
+            f"Purity of the best-match {catalogue_name} cluster using S_C = S_A"
+        )
+        cluster_table[f"{catalogue_name}_purity_union"].description = (
+            f"Purity of the best-match {catalogue_name} cluster using S_C = union of clusters"
+        )
+        cluster_table[f"{catalogue_name}_jaccard_s_c_eq_s_a"].description = (
+            f"Jaccard index of the best-match {catalogue_name} cluster using S_C = S_A"
+        )
+        cluster_table[f"{catalogue_name}_jaccard_union"].description = (
+            f"Jaccard index of the best-match {catalogue_name} cluster using S_C = union of clusters"
+        )
+        cluster_table[f"{catalogue_name}_relationship_classification"].description = (
+            f"Structural relationship classification of the best-match {catalogue_name} cluster"
+        )
+        cluster_table[f"{catalogue_name}_cluster_type"].description = (
+            f"Cluster type of the best-match {catalogue_name} cluster"
+        )
+
+    # -------------------------------------------------------------------------
+    # Save cluster-level catalogue
+    # -------------------------------------------------------------------------
+    print(f"... saving cluster-level catalogue: {file_path_cluster_catalogue}")
+    cluster_table.write(
+        file_path_cluster_catalogue,
+        format="fits",
+        overwrite=True,
+    )
+
 
 # === Run script ===
 if __name__ == "__main__":
@@ -4792,47 +5031,50 @@ if __name__ == "__main__":
     plot_total_selection_function()
 
     # Construct input data to be passed to AstroLink
-    calculate_contracted_subspaces_and_errors(True)
-    construct_data_space(True)
+    calculate_contracted_subspaces_and_errors()
+    construct_data_space()
 
     # Apply AstroLink to subsample and plot of cluster properties
-    apply_astrolink_to_data(True)
-    plot_astrolink_prominence_model_fit(True)
-    plot_astrolink_cluster_labels_on_sky(True)
-    plot_astrolink_cluster_proper_motions_on_sky(True)
-    plot_astrolink_cluster_radial_velocities_on_sky(True)
+    apply_astrolink_to_data()
+    plot_astrolink_prominence_model_fit()
+    plot_astrolink_cluster_labels_on_sky()
+    plot_astrolink_cluster_proper_motions_on_sky()
+    plot_astrolink_cluster_radial_velocities_on_sky()
 
     # Compare to Hunt & Reffert (2024)
     prepare_Hunt2024_for_comparison()
     plot_Hunt2024_clusters_on_sky()
-    compare_to_Hunt2024(True)
-    plot_Hunt2024_crossmatch_per_significance(True)
+    compare_to_Hunt2024()
+    plot_Hunt2024_crossmatch_per_significance()
 
     # Compare to Unified Cluster Catalogue
     prepare_UCC_for_comparison()
     plot_UCC_clusters_on_sky()
-    compare_to_UCC(True)
-    plot_UCC_crossmatch_per_significance(True)
+    compare_to_UCC()
+    plot_UCC_crossmatch_per_significance()
 
     # Compare to Vasiliev & Baumgardt (2021)
     prepare_Vasiliev2021_for_comparison()
     plot_Vasiliev2021_clusters_on_sky()
-    compare_to_Vasiliev2021(True)
-    plot_Vasiliev2021_crossmatch_per_significance(True)
+    compare_to_Vasiliev2021()
+    plot_Vasiliev2021_crossmatch_per_significance()
 
     # Compare to Battaglia et al. (2021)
     prepare_Battaglia2021_for_comparison()
     plot_Battaglia2021_dwarfgalaxies_on_sky()
-    compare_to_Battaglia2021(True)
-    plot_Battaglia2021_crossmatch_per_significance(True)
+    compare_to_Battaglia2021()
+    plot_Battaglia2021_crossmatch_per_significance()
 
     # Compare to galstreams catalogue
     prepare_galstreams_for_comparison()
     plot_galstreams_streams_on_sky()
-    compare_to_galstreams(True)
-    plot_galstreams_crossmatch_per_significance(True)
+    compare_to_galstreams()
+    plot_galstreams_crossmatch_per_significance()
 
     # Summarise catalogue comparisons
-    construct_relationship_classifications(True)
-    plot_astrolink_clusters_by_structure_type_on_sky(True)
+    construct_relationship_classifications()
+    plot_astrolink_clusters_by_structure_type_on_sky()
     print_relationship_classification_table()
+
+    # Construct final AstroLink catalogues
+    construct_final_astrolink_catalogues()

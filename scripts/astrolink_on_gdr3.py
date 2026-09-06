@@ -4205,6 +4205,7 @@ def construct_relationship_classifications(overwrite=False):
     file_path_Vasiliev2021_relationship_classification = os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_relationship_classification.npy")
     file_path_Battaglia2021_relationship_classification = os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_relationship_classification.npy")
     file_path_galstreams_relationship_classification = os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_relationship_classification.npy")
+    file_path_combined_astrolink_cluster_names = os.path.join(OUTPUT_PATH, "combined_astrolink_cluster_names.npy")
     file_path_combined_astrolink_relationship_classification = os.path.join(OUTPUT_PATH, "combined_astrolink_relationship_classification.npy")
     file_path_combined_astrolink_rpj = os.path.join(OUTPUT_PATH, "combined_astrolink_rpj.npy")
     file_path_combined_astrolink_cluster_type = os.path.join(OUTPUT_PATH, "combined_astrolink_cluster_type.npy")
@@ -4215,6 +4216,7 @@ def construct_relationship_classifications(overwrite=False):
                  os.path.exists(file_path_Vasiliev2021_relationship_classification) and
                  os.path.exists(file_path_Battaglia2021_relationship_classification) and
                  os.path.exists(file_path_galstreams_relationship_classification) and
+                 os.path.exists(file_path_combined_astrolink_cluster_names) and
                  os.path.exists(file_path_combined_astrolink_relationship_classification) and
                  os.path.exists(file_path_combined_astrolink_rpj) and
                  os.path.exists(file_path_combined_astrolink_cluster_type))
@@ -4225,12 +4227,22 @@ def construct_relationship_classifications(overwrite=False):
         print(f"\t{file_path_Vasiliev2021_relationship_classification} ,")
         print(f"\t{file_path_Battaglia2021_relationship_classification} ,")
         print(f"\t{file_path_galstreams_relationship_classification} ,")
+        print(f"\t{file_path_combined_astrolink_cluster_names} ,")
         print(f"\t{file_path_combined_astrolink_relationship_classification} ,")
         print(f"\t{file_path_combined_astrolink_rpj} , and")
         print(f"\t{file_path_combined_astrolink_cluster_type} .")
         print("Use overwrite=True to force recomputation.\n")
         return
     print("Reducing catalogue comparison results to structural relationship classifications...")
+
+    # Dictionary of the structure name arrays
+    structure_names = {
+        "Hunt2024": np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_clusters_names.npy"), allow_pickle=True),
+        "UCC": np.load(os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_clusters_names.npy"), allow_pickle=True),
+        "Vasiliev2021": np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_clusters_names.npy"), allow_pickle=True),
+        "Battaglia2021": np.load(os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxies_names.npy"), allow_pickle=True),
+        "galstreams": np.load(os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_stream_track_names.npy"), allow_pickle=True),
+    }
 
     # Dictionary of file paths for the relationship classification arrays
     file_paths_relationship_classification = {
@@ -4239,15 +4251,6 @@ def construct_relationship_classifications(overwrite=False):
         "Vasiliev2021": file_path_Vasiliev2021_relationship_classification,
         "Battaglia2021": file_path_Battaglia2021_relationship_classification,
         "galstreams": file_path_galstreams_relationship_classification,
-    }
-
-    # Dictionary of file paths for the structure name arrays
-    structure_name_files = {
-        "Hunt2024": os.path.join(INTERMEDIATE_FILES_PATH, "Hunt2024/Hunt2024_clusters_names.npy"),
-        "UCC": os.path.join(INTERMEDIATE_FILES_PATH, "UCC/UCC_clusters_names.npy"),
-        "Vasiliev2021": os.path.join(INTERMEDIATE_FILES_PATH, "Vasiliev2021/Vasiliev2021_clusters_names.npy"),
-        "Battaglia2021": os.path.join(INTERMEDIATE_FILES_PATH, "Battaglia2021/Battaglia2021_dwarfgalaxies_names.npy"),
-        "galstreams": os.path.join(INTERMEDIATE_FILES_PATH, "galstreams/galstreams_stream_track_names.npy"),
     }
 
     # Translate structure type labels for Hunt2024 clusters from single-letter codes to descriptive labels
@@ -4261,8 +4264,6 @@ def construct_relationship_classifications(overwrite=False):
         "Battaglia2021": 'D',
         "galstreams": 's',
     }
-
-    combined_astrolink_relationship_classification = np.zeros(0, dtype=np.uint8)  # Placeholder for combined relationship classification array for all catalogues (N_AstroLink_clusters,)
 
     # Loop over all catalogues
     for i, catalogue_name in enumerate(['Hunt2024', 'UCC', 'Vasiliev2021', 'Battaglia2021', 'galstreams']):
@@ -4283,9 +4284,14 @@ def construct_relationship_classifications(overwrite=False):
         print(f"... updating combined AstroLink cluster classification arrays with catalogue: {catalogue_name}")
         astrolink_relationship_classification = retrieve_relationship_classification(astrolink_idx, catalogue_idx) # (N_astrolink_clusters,)
         astrolink_rpj = np.load(os.path.join(INTERMEDIATE_FILES_PATH, f"{catalogue_name}/{catalogue_name}_astrolink_rpj_optimalS.npy")) # (N_astrolink_clusters, 5)
+        astrolink_cluster_name = np.full(catalogue_idx.shape[0], "Unknown", dtype=object)  # Default to "Unknown" for clusters not matched to any catalogue cluster
         astrolink_cluster_type = np.full(catalogue_idx.shape[0], "U", dtype=object)  # Default to "U' for "Unknown" for clusters not matched to any catalogue cluster
         matched = catalogue_idx != -1
         if i == 0:
+            # Structure name
+            astrolink_cluster_name[matched] = structure_names[catalogue_name][catalogue_idx[matched]]
+            combined_astrolink_cluster_names = astrolink_cluster_name
+
             # Relationship classification
             combined_astrolink_relationship_classification = astrolink_relationship_classification
 
@@ -4296,6 +4302,12 @@ def construct_relationship_classifications(overwrite=False):
             astrolink_cluster_type[matched] = structure_type_labels[catalogue_name][catalogue_idx[matched]]
             combined_astrolink_cluster_type = astrolink_cluster_type
         else:
+            # Structure name
+            astrolink_cluster_name[matched] = structure_names[catalogue_name][catalogue_idx[matched]]
+            combined_astrolink_cluster_names = np.column_stack(
+                (combined_astrolink_cluster_names, astrolink_cluster_name)
+            )
+
             # Relationship classification
             combined_astrolink_relationship_classification = np.column_stack(
                 (combined_astrolink_relationship_classification, astrolink_relationship_classification)
@@ -4315,6 +4327,7 @@ def construct_relationship_classifications(overwrite=False):
         
         # Save combined AstroLink cluster classification arrays after each catalogue is added
         print(f"... saving combined AstroLink cluster classification arrays.\n")
+        np.save(file_path_combined_astrolink_cluster_names, combined_astrolink_cluster_names)
         np.save(file_path_combined_astrolink_relationship_classification, combined_astrolink_relationship_classification)
         np.save(file_path_combined_astrolink_rpj, combined_astrolink_rpj)
         np.save(file_path_combined_astrolink_cluster_type, combined_astrolink_cluster_type)
@@ -4822,6 +4835,7 @@ def construct_final_astrolink_catalogues(overwrite=False):
     clusterer = loadAstroLinkObject(os.path.join(OUTPUT_PATH, "astrolink_object.npz"))
 
     print("... loading comparison results")
+    combined_astrolink_cluster_names = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_cluster_names.npy"), allow_pickle=True)
     combined_astrolink_relationship_classification = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_relationship_classification.npy"))
     combined_astrolink_rpj = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_rpj.npy"))
     combined_astrolink_cluster_type = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_cluster_type.npy"), allow_pickle=True)
@@ -4959,6 +4973,7 @@ def construct_final_astrolink_catalogues(overwrite=False):
             f"{catalogue_name}"
         )
 
+        cluster_columns[f"{catalogue_name}_cluster_name"] = combined_astrolink_cluster_names[:, i]
         cluster_columns[f"{catalogue_name}_recovery"] = combined_astrolink_rpj[:, i, 0]
         cluster_columns[f"{catalogue_name}_purity_s_c_eq_s_a"] = combined_astrolink_rpj[:, i, 1]
         cluster_columns[f"{catalogue_name}_purity_union"] = combined_astrolink_rpj[:, i, 2]
@@ -4975,6 +4990,9 @@ def construct_final_astrolink_catalogues(overwrite=False):
     cluster_table["significance_value"].description = "AstroLink cluster significance value"
 
     for catalogue_name in catalogue_names:
+        cluster_table[f"{catalogue_name}_cluster_name"].description = (
+            f"Name of the best-match {catalogue_name} cluster"
+        )
         cluster_table[f"{catalogue_name}_recovery"].description = (
             f"Recovery of the best-match {catalogue_name} cluster"
         )
@@ -5075,6 +5093,4 @@ if __name__ == "__main__":
     construct_relationship_classifications()
     plot_astrolink_clusters_by_structure_type_on_sky()
     print_relationship_classification_table()
-
-    # Construct final AstroLink catalogues
     construct_final_astrolink_catalogues()

@@ -4597,6 +4597,263 @@ def plot_astrolink_clusters_by_structure_type_on_sky(overwrite=False):
 
     print(f"... saved 'Unknown' plot to {unknown_file_path}.\n")
 
+def construct_final_astrolink_catalogues(overwrite=False):
+    """
+    Constructs final AstroLink catalogues containing:
+
+    1. Star-level AstroLink cluster membership:
+       - Gaia DR3 source_id
+       - AstroLink cluster_id
+
+    2. Cluster-level AstroLink properties and comparison results:
+       - AstroLink cluster_id
+       - AstroLink significance value
+       - Recovery, Purity, Jaccard index, relationship classification, and
+         cluster type for each comparison catalogue.
+
+    The background/noise cluster with ID "1" is excluded from both catalogues.
+    """
+
+    # Define output file paths
+    file_path_star_catalogue = os.path.join(OUTPUT_PATH, "astrolink_star_catalogue.fits")
+    file_path_cluster_catalogue = os.path.join(OUTPUT_PATH, "astrolink_cluster_catalogue.fits")
+
+    # Skip processing if output files already exist
+    all_exist = (
+        os.path.exists(file_path_star_catalogue) and
+        os.path.exists(file_path_cluster_catalogue)
+    )
+    if all_exist and not overwrite:
+        print("AstroLink catalogues already exist at:")
+        print(f"\t{file_path_star_catalogue}")
+        print(f"\t{file_path_cluster_catalogue}")
+        print("Use overwrite=True to force reconstruction.\n")
+        return
+
+    print("Constructing final AstroLink catalogues...")
+
+    # -------------------------------------------------------------------------
+    # Load AstroLink results
+    # -------------------------------------------------------------------------
+    print("... loading AstroLink subsample mask and GDR3 source IDs")
+    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))
+    gdr3_source_ids_subsample = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_source_ids.npy"))[subsample_mask]
+    del subsample_mask
+    gc.collect()
+
+    print("... loading AstroLink object")
+    clusterer = loadAstroLinkObject(os.path.join(OUTPUT_PATH, "astrolink_object.npz"))
+    ordering = clusterer.ordering
+    astrolink_clusters = clusterer.clusters[1:]  # Exclude the background/noise cluster with ID "1"
+    astrolink_cluster_ids = clusterer.ids[1:]
+    astrolink_cluster_significances = clusterer.significances[1:]
+    del clusterer
+    gc.collect()
+
+    # Reorder source IDs in the same way as AstroLink results
+    source_ids = gdr3_source_ids_subsample[ordering]
+    del gdr3_source_ids_subsample
+    gc.collect()
+
+    # Comparison catalogues are stored in this order in the combined arrays
+    catalogue_names = [
+        "Hunt & Reffert 2024",
+        "UCC",
+        "Vasiliev & Baumgardt 2021",
+        "Battaglia et al. 2021",
+        "galstreams",
+    ]
+
+    # -------------------------------------------------------------------------
+    # Construct deepest cluster assignment for every AstroLink input star
+    # -------------------------------------------------------------------------
+    print("... determining deepest AstroLink cluster for each star")
+    deepest_cluster_id = np.ones(
+        ordering.shape,
+        dtype=astrolink_cluster_ids.dtype,
+    )
+
+    for clst, clst_id in zip(astrolink_clusters, astrolink_cluster_ids):
+        cluster_members = ordering[clst[0]:clst[1]]
+        deepest_cluster_id[cluster_members] = clst_id
+    del ordering, astrolink_clusters
+    gc.collect()
+
+    # Remove the background/noise cluster
+    clustered_mask = deepest_cluster_id != "1"
+
+    source_ids = source_ids[clustered_mask]
+    cluster_ids = deepest_cluster_id[clustered_mask]
+    del deepest_cluster_id, clustered_mask
+    gc.collect()
+
+    # -------------------------------------------------------------------------
+    # Construct star-level catalogue
+    # -------------------------------------------------------------------------
+    print("... constructing star-level catalogue")
+    star_table = Table(
+        {
+            "source_id": source_ids,
+            "cluster_id": cluster_ids,
+        }
+    )
+    del source_ids, cluster_ids
+    gc.collect()
+
+    # Add descriptions for the catalogue columns
+    star_table["source_id"].description = "Gaia DR3 source identifier"
+    star_table["cluster_id"].description = (
+        "Deepest AstroLink cluster in the hierarchy to which the star is assigned"
+    )
+
+    print(f"... saving star-level catalogue: {file_path_star_catalogue}")
+    star_table.write(
+        file_path_star_catalogue,
+        format="fits",
+        overwrite=True,
+    )
+    del star_table
+    gc.collect()
+
+    # -------------------------------------------------------------------------
+    # Construct cluster-level catalogue
+    # -------------------------------------------------------------------------
+    print("... loading comparison results")
+    combined_astrolink_cluster_names = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_cluster_names.npy"), allow_pickle=True).astype(str)
+    combined_astrolink_relationship_classification = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_relationship_classification.npy"))
+    combined_astrolink_rpj = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_rpj.npy"))
+    combined_astrolink_cluster_type = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_cluster_type.npy"), allow_pickle=True).astype(str)
+
+    # -------------------------------------------------------------------------
+    # Convert relationship classification bitmasks to strings
+    # -------------------------------------------------------------------------
+    print("... converting relationship classifications to integers")
+
+    # Extract each relationship classification bit
+    R = (combined_astrolink_relationship_classification & 1) != 0
+    F = (combined_astrolink_relationship_classification & 2) != 0
+    M = (combined_astrolink_relationship_classification & 4) != 0
+    H = (combined_astrolink_relationship_classification & 8) != 0
+
+    # Construct mutually exclusive masks for each classification
+    true_reciprocal = R & ~F & ~M
+    frag_reciprocal = R & F & ~M
+    merg_reciprocal = R & M & ~F
+    f_n_M_reciprocal = R & F & M
+    true_fragmented = F & ~R & ~M
+    true_merged = M & ~R & ~F
+    frag_and_merged = F & M & ~R
+    isolated_match = H & ~R & ~F & ~M
+    no_best_match = ~H
+
+    # Assign a descriptive int to every classification
+    relationship_ints = np.full(
+        combined_astrolink_relationship_classification.shape,
+        fill_value=255,
+        dtype=np.uint8,
+    )
+
+    relationship_ints[true_reciprocal]  = 0
+    relationship_ints[frag_reciprocal]  = 1
+    relationship_ints[merg_reciprocal]  = 2
+    relationship_ints[f_n_M_reciprocal] = 3
+    relationship_ints[true_fragmented]  = 4
+    relationship_ints[true_merged]      = 5
+    relationship_ints[frag_and_merged]  = 6
+    relationship_ints[isolated_match]   = 7
+    relationship_ints[no_best_match]    = 8
+
+    # Check that every relationship classification received a label
+    if np.any(relationship_ints == 255):
+        raise ValueError(
+            "One or more AstroLink relationship classifications could not "
+            "be converted to a descriptive label."
+        )
+
+    # -------------------------------------------------------------------------
+    # Construct table columns
+    # -------------------------------------------------------------------------
+    cluster_columns = {
+        "cluster_id": astrolink_cluster_ids,
+        "significance_value": astrolink_cluster_significances,
+    }
+
+    # Add comparison-catalogue results
+    for i, catalogue_name in enumerate(catalogue_names):
+        print(
+            f"... adding comparison results for catalogue: "
+            f"{catalogue_name}"
+        )
+
+        cluster_columns[f"{catalogue_name} : cluster_name"] = combined_astrolink_cluster_names[1:, i]
+        cluster_columns[f"{catalogue_name} : recovery"] = combined_astrolink_rpj[1:, i, 0]
+        cluster_columns[f"{catalogue_name} : purity_s_c_eq_s_a"] = combined_astrolink_rpj[1:, i, 1]
+        cluster_columns[f"{catalogue_name} : purity_union"] = combined_astrolink_rpj[1:, i, 2]
+        cluster_columns[f"{catalogue_name} : jaccard_s_c_eq_s_a"] = combined_astrolink_rpj[1:, i, 3]
+        cluster_columns[f"{catalogue_name} : jaccard_union"] = combined_astrolink_rpj[1:, i, 4]
+        cluster_columns[f"{catalogue_name} : relationship_classification"] = relationship_ints[1:, i]
+        cluster_columns[f"{catalogue_name} : cluster_type"] = combined_astrolink_cluster_type[1:, i]
+
+    # Construct Astropy table
+    cluster_table = Table(cluster_columns)
+
+    # Add column descriptions
+    cluster_table["cluster_id"].description = "AstroLink cluster identifier"
+    cluster_table["significance_value"].description = "AstroLink cluster significance value"
+
+    for catalogue_name in catalogue_names:
+        cluster_table[f"{catalogue_name} : cluster_name"].description = (
+            f"Name of the best-match {catalogue_name} cluster"
+        )
+        cluster_table[f"{catalogue_name} : recovery"].description = (
+            f"Recovery of the best-match {catalogue_name} cluster (independent of S_C)"
+        )
+        cluster_table[f"{catalogue_name} : purity_s_c_eq_s_a"].description = (
+            f"Purity of the best-match {catalogue_name} cluster using S_C = S_A"
+        )
+        cluster_table[f"{catalogue_name} : purity_union"].description = (
+            f"Purity of the best-match {catalogue_name} cluster using S_C = union of clusters"
+        )
+        cluster_table[f"{catalogue_name} : jaccard_s_c_eq_s_a"].description = (
+            f"Jaccard index of the best-match {catalogue_name} cluster using S_C = S_A"
+        )
+        cluster_table[f"{catalogue_name} : jaccard_union"].description = (
+            f"Jaccard index of the best-match {catalogue_name} cluster using S_C = union of clusters"
+        )
+        cluster_table[f"{catalogue_name} : relationship_classification"].description = (
+            f"Structural relationship classification of the best-match {catalogue_name} cluster:"
+            "\n\t0 = True 1-1 match"
+            "\n\t1 = Fragmented 1-1 match"
+            "\n\t2 = Merged 1-1 match"
+            "\n\t3 = Fragmented & Merged 1-1 match"
+            "\n\t4 = True Fragmented match"
+            "\n\t5 = True Merged match"
+            "\n\t6 = Fragmented & Merged match"
+            "\n\t7 = Isolated match"
+            "\n\t8 = No best-match found"
+        )
+        cluster_table[f"{catalogue_name} : cluster_type"].description = (
+            f"Cluster type of the best-match {catalogue_name} cluster:"
+            "\n\t'o' = Open cluster"
+            "\n\t'm' = Moving group"
+            "\n\t'g' = Globular cluster"
+            "\n\t'd' = Too distant to classify"
+            "\n\t'r' = Rejected cluster"
+            "\n\t'D' = Dwarf galaxy"
+            "\n\t's' = Stellar stream"
+            "\n\t'U' = Unknown structure type"
+        )
+
+    # -------------------------------------------------------------------------
+    # Save cluster-level catalogue
+    # -------------------------------------------------------------------------
+    print(f"... saving cluster-level catalogue: {file_path_cluster_catalogue}")
+    cluster_table.write(
+        file_path_cluster_catalogue,
+        format="fits",
+        overwrite=True,
+    )
+
 def print_relationship_classification_table():
     """
     Print a summary table of the relationship classifications between the 
@@ -4785,245 +5042,9 @@ def print_relationship_classification_table():
     )
     
     # Print divider
-    print("    " + "-" * 157)
+    print("    " + "-" * 157 + "\n")
 
-def construct_final_astrolink_catalogues(overwrite=False):
-    """
-    Constructs final AstroLink catalogues containing:
 
-    1. Star-level AstroLink cluster membership:
-       - Gaia DR3 source_id
-       - AstroLink cluster_id
-
-    2. Cluster-level AstroLink properties and comparison results:
-       - AstroLink cluster_id
-       - AstroLink significance value
-       - Recovery, Purity, Jaccard index, relationship classification, and
-         cluster type for each comparison catalogue.
-
-    The background/noise cluster with ID "1" is excluded from both catalogues.
-    """
-
-    # Define output file paths
-    file_path_star_catalogue = os.path.join(OUTPUT_PATH, "astrolink_star_catalogue.fits")
-    file_path_cluster_catalogue = os.path.join(OUTPUT_PATH, "astrolink_cluster_catalogue.fits")
-
-    # Skip processing if output files already exist
-    all_exist = (
-        os.path.exists(file_path_star_catalogue) and
-        os.path.exists(file_path_cluster_catalogue)
-    )
-    if all_exist and not overwrite:
-        print("AstroLink catalogues already exist at:")
-        print(f"\t{file_path_star_catalogue}")
-        print(f"\t{file_path_cluster_catalogue}")
-        print("Use overwrite=True to force reconstruction.\n")
-        return
-
-    print("Constructing final AstroLink catalogues...")
-
-    # -------------------------------------------------------------------------
-    # Load AstroLink results
-    # -------------------------------------------------------------------------
-    print("... loading GDR3 source IDs")
-    gdr3_source_ids = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "gdr3_source_ids.npy"))
-
-    print("... loading AstroLink subsample mask")
-    subsample_mask = np.load(os.path.join(INTERMEDIATE_FILES_PATH, "subsample_mask.npy"))
-
-    print("... loading AstroLink object")
-    clusterer = loadAstroLinkObject(os.path.join(OUTPUT_PATH, "astrolink_object.npz"))
-
-    print("... loading comparison results")
-    combined_astrolink_cluster_names = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_cluster_names.npy"), allow_pickle=True)
-    combined_astrolink_relationship_classification = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_relationship_classification.npy"))
-    combined_astrolink_rpj = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_rpj.npy"))
-    combined_astrolink_cluster_type = np.load(os.path.join(OUTPUT_PATH, "combined_astrolink_cluster_type.npy"), allow_pickle=True)
-
-    # Comparison catalogues are stored in this order in the combined arrays
-    catalogue_names = [
-        "Hunt2024",
-        "UCC",
-        "Vasiliev2021",
-        "Battaglia2021",
-        "galstreams",
-    ]
-
-    # -------------------------------------------------------------------------
-    # Construct deepest cluster assignment for every AstroLink input star
-    # -------------------------------------------------------------------------
-    print("... determining deepest AstroLink cluster for each star")
-    deepest_cluster_id = np.ones(
-        clusterer.ordering.shape,
-        dtype=clusterer.ids.dtype,
-    )
-
-    for clst, clst_id in zip(clusterer.clusters[1:], clusterer.ids[1:]):
-        cluster_members = clusterer.ordering[clst[0]:clst[1]]
-        deepest_cluster_id[cluster_members] = clst_id
-
-    # Source IDs are ordered in the same way as deepest_cluster_id
-    source_ids = gdr3_source_ids[subsample_mask][clusterer.ordering]
-
-    # Remove the background/noise cluster
-    clustered_mask = deepest_cluster_id != "1"
-
-    source_ids = source_ids[clustered_mask]
-    cluster_ids = deepest_cluster_id[clustered_mask]
-
-    # -------------------------------------------------------------------------
-    # Construct star-level catalogue
-    # -------------------------------------------------------------------------
-    print("... constructing star-level catalogue")
-
-    star_table = Table(
-        {
-            "source_id": source_ids,
-            "cluster_id": cluster_ids,
-        }
-    )
-
-    # Add descriptions for the catalogue columns
-    star_table["source_id"].description = "Gaia DR3 source identifier"
-    star_table["cluster_id"].description = (
-        "Deepest AstroLink cluster in the hierarchy to which the star is assigned"
-    )
-
-    print(f"... saving star-level catalogue: {file_path_star_catalogue}")
-    star_table.write(
-        file_path_star_catalogue,
-        format="fits",
-        overwrite=True,
-    )
-
-    # -------------------------------------------------------------------------
-    # Construct cluster-level catalogue
-    # -------------------------------------------------------------------------
-    print("... constructing cluster-level catalogue")
-
-    # The combined comparison arrays contain only non-background AstroLink
-    # clusters and are aligned with clusterer.ids[1:].
-    astrolink_cluster_ids = clusterer.ids[1:]
-
-    # Retrieve the significance values for the non-background clusters.
-    astrolink_significance_values = clusterer.significances[1:]
-
-    # -------------------------------------------------------------------------
-    # Convert relationship classification bitmasks to strings
-    # -------------------------------------------------------------------------
-    print("... converting relationship classifications to descriptive labels")
-
-    relationship_classification = (
-        combined_astrolink_relationship_classification
-    )
-
-    # Extract each relationship classification bit
-    R = (relationship_classification & 1) != 0
-    F = (relationship_classification & 2) != 0
-    M = (relationship_classification & 4) != 0
-    H = (relationship_classification & 8) != 0
-
-    # Construct mutually exclusive masks for each classification
-    true_reciprocal = R & ~F & ~M
-    frag_reciprocal = R & F & ~M
-    merg_reciprocal = R & M & ~F
-    f_n_M_reciprocal = R & F & M
-    true_fragmented = F & ~R & ~M
-    true_merged = M & ~R & ~F
-    frag_and_merged = F & M & ~R
-    isolated_match = H & ~R & ~F & ~M
-    no_best_match = ~H
-
-    # Assign a descriptive string to every classification
-    relationship_strings = np.full(
-        relationship_classification.shape,
-        "",
-        dtype="<U20",
-    )
-
-    relationship_strings[true_reciprocal] = "true_reciprocal"
-    relationship_strings[frag_reciprocal] = "frag_reciprocal"
-    relationship_strings[merg_reciprocal] = "merg_reciprocal"
-    relationship_strings[f_n_M_reciprocal] = "f_n_M_reciprocal"
-    relationship_strings[true_fragmented] = "true_fragmented"
-    relationship_strings[true_merged] = "true_merged"
-    relationship_strings[frag_and_merged] = "frag_and_merged"
-    relationship_strings[isolated_match] = "isolated_match"
-    relationship_strings[no_best_match] = "no_best_match"
-
-    # Check that every relationship classification received a label
-    if np.any(relationship_strings == ""):
-        raise ValueError(
-            "One or more AstroLink relationship classifications could not "
-            "be converted to a descriptive label."
-        )
-
-    # -------------------------------------------------------------------------
-    # Construct table columns
-    # -------------------------------------------------------------------------
-    cluster_columns = {
-        "cluster_id": astrolink_cluster_ids,
-        "significance_value": astrolink_significance_values,
-    }
-
-    # Add comparison-catalogue results
-    for i, catalogue_name in enumerate(catalogue_names):
-        print(
-            f"... adding comparison results for catalogue: "
-            f"{catalogue_name}"
-        )
-
-        cluster_columns[f"{catalogue_name}_cluster_name"] = combined_astrolink_cluster_names[:, i]
-        cluster_columns[f"{catalogue_name}_recovery"] = combined_astrolink_rpj[:, i, 0]
-        cluster_columns[f"{catalogue_name}_purity_s_c_eq_s_a"] = combined_astrolink_rpj[:, i, 1]
-        cluster_columns[f"{catalogue_name}_purity_union"] = combined_astrolink_rpj[:, i, 2]
-        cluster_columns[f"{catalogue_name}_jaccard_s_c_eq_s_a"] = combined_astrolink_rpj[:, i, 3]
-        cluster_columns[f"{catalogue_name}_jaccard_union"] = combined_astrolink_rpj[:, i, 4]
-        cluster_columns[f"{catalogue_name}_relationship_classification"] = relationship_strings[:, i]
-        cluster_columns[f"{catalogue_name}_cluster_type"] = combined_astrolink_cluster_type[:, i]
-
-    # Construct Astropy table
-    cluster_table = Table(cluster_columns)
-
-    # Add column descriptions
-    cluster_table["cluster_id"].description = "AstroLink cluster identifier"
-    cluster_table["significance_value"].description = "AstroLink cluster significance value"
-
-    for catalogue_name in catalogue_names:
-        cluster_table[f"{catalogue_name}_cluster_name"].description = (
-            f"Name of the best-match {catalogue_name} cluster"
-        )
-        cluster_table[f"{catalogue_name}_recovery"].description = (
-            f"Recovery of the best-match {catalogue_name} cluster"
-        )
-        cluster_table[f"{catalogue_name}_purity_s_c_eq_s_a"].description = (
-            f"Purity of the best-match {catalogue_name} cluster using S_C = S_A"
-        )
-        cluster_table[f"{catalogue_name}_purity_union"].description = (
-            f"Purity of the best-match {catalogue_name} cluster using S_C = union of clusters"
-        )
-        cluster_table[f"{catalogue_name}_jaccard_s_c_eq_s_a"].description = (
-            f"Jaccard index of the best-match {catalogue_name} cluster using S_C = S_A"
-        )
-        cluster_table[f"{catalogue_name}_jaccard_union"].description = (
-            f"Jaccard index of the best-match {catalogue_name} cluster using S_C = union of clusters"
-        )
-        cluster_table[f"{catalogue_name}_relationship_classification"].description = (
-            f"Structural relationship classification of the best-match {catalogue_name} cluster"
-        )
-        cluster_table[f"{catalogue_name}_cluster_type"].description = (
-            f"Cluster type of the best-match {catalogue_name} cluster"
-        )
-
-    # -------------------------------------------------------------------------
-    # Save cluster-level catalogue
-    # -------------------------------------------------------------------------
-    print(f"... saving cluster-level catalogue: {file_path_cluster_catalogue}")
-    cluster_table.write(
-        file_path_cluster_catalogue,
-        format="fits",
-        overwrite=True,
-    )
 
 
 # === Run script ===
@@ -5092,5 +5113,5 @@ if __name__ == "__main__":
     # Summarise catalogue comparisons
     construct_relationship_classifications()
     plot_astrolink_clusters_by_structure_type_on_sky()
-    print_relationship_classification_table()
     construct_final_astrolink_catalogues()
+    print_relationship_classification_table()
